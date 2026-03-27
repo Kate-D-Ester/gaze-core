@@ -7,6 +7,7 @@ import { normalizeEyeCorners, normalizeRoi } from "./roi"
 import { usbConstraints, waitForVideo } from "./source"
 import type {
   Config,
+  Ellipse,
   GazeListener,
   GazePupilDetectionReturn,
   GazeSession,
@@ -29,6 +30,7 @@ export class Runtime<T> implements GazeSession<T> {
   private raf = 0
   private lastFrame = 0
   private smoothed: Vector3 = [0, 0, 1]
+  private readonly recentPupilFits: Array<{ key: string; ellipse: Ellipse; center: Point; score: number }> = []
 
   private readonly video: HTMLVideoElement
   private ownVideo = false
@@ -82,6 +84,7 @@ export class Runtime<T> implements GazeSession<T> {
     }
     if (this.ownVideo && this.video.parentElement) this.video.parentElement.removeChild(this.video)
     this.smoothed = [0, 0, 1]
+    this.recentPupilFits.length = 0
   }
 
   update(next: GazeTrackingUpdate): void {
@@ -179,6 +182,11 @@ export class Runtime<T> implements GazeSession<T> {
       this.config.pupilBlur,
       this.config.threshold,
     )
+    const stabilized = this.stabilizePupilFit(
+      detection.pupilEllipse,
+      detection.pupilCenter,
+      detection.score >= 0 ? detection.score : 0,
+    )
 
     const glint = detectGlint(
       gray,
@@ -188,22 +196,24 @@ export class Runtime<T> implements GazeSession<T> {
       this.config.glintThreshold,
     )
 
-    const dynamicCenter = driftCenter(eyeCenter, detection.pupilCenter, 0.18)
+    const pupilCenterLocal = stabilized.center
+    const pupilEllipseLocal = stabilized.ellipse
+    const dynamicCenter = driftCenter(eyeCenter, pupilCenterLocal, 0.18)
     let screenPosition: Point | null = null
-    if (detection.pupilCenter) {
-      const fresh = gazeVector3D(detection.pupilCenter, eyeCenter, radius)
+    if (pupilCenterLocal) {
+      const fresh = gazeVector3D(pupilCenterLocal, eyeCenter, radius)
       this.smoothed = smooth(this.smoothed, fresh, this.config.smoothingFactor)
-      screenPosition = [detection.pupilCenter[0] + roi.x, detection.pupilCenter[1] + roi.y]
+      screenPosition = [pupilCenterLocal[0] + roi.x, pupilCenterLocal[1] + roi.y]
     }
 
-    const pupilCenterGlobal = detection.pupilCenter
-      ? ([detection.pupilCenter[0] + roi.x, detection.pupilCenter[1] + roi.y] as Point)
+    const pupilCenterGlobal = pupilCenterLocal
+      ? ([pupilCenterLocal[0] + roi.x, pupilCenterLocal[1] + roi.y] as Point)
       : null
-    const pupilEllipse: PupilEllipse | null = detection.pupilEllipse
+    const pupilEllipse: PupilEllipse | null = pupilEllipseLocal
       ? {
-          center: [detection.pupilEllipse.center[0] + roi.x, detection.pupilEllipse.center[1] + roi.y],
-          axes: detection.pupilEllipse.axes,
-          angle: detection.pupilEllipse.angle,
+          center: [pupilEllipseLocal.center[0] + roi.x, pupilEllipseLocal.center[1] + roi.y],
+          axes: pupilEllipseLocal.axes,
+          angle: pupilEllipseLocal.angle,
           score: detection.score >= 0 ? detection.score : 0,
         }
       : null
@@ -219,7 +229,7 @@ export class Runtime<T> implements GazeSession<T> {
       : null
 
     const iPupilDetectionReturn: IPupilDetectionReturn = {
-      pupilCenter: detection.pupilCenter,
+      pupilCenter: pupilCenterLocal,
       pupilCenterGlobal,
       pupilEllipse,
       pupilMask: { width: roi.width, height: roi.height, data: detection.pupilMask.slice() },
@@ -262,5 +272,73 @@ export class Runtime<T> implements GazeSession<T> {
       roi,
     }
     this.emit(output as T)
+  }
+
+  private stabilizePupilFit(
+    ellipse: Ellipse | null,
+    center: Point | null,
+    score: number,
+  ): { ellipse: Ellipse | null; center: Point | null } {
+    if (ellipse && center) {
+      const radius = (ellipse.axes[0] + ellipse.axes[1]) * 0.5
+      const key = [
+        Math.round(center[0] / 2),
+        Math.round(center[1] / 2),
+        Math.round(radius / 2),
+      ].join(",")
+      this.recentPupilFits.push({
+        key,
+        ellipse,
+        center,
+        score,
+      })
+      if (this.recentPupilFits.length > 5) this.recentPupilFits.shift()
+    }
+
+    if (this.recentPupilFits.length === 0) {
+      return { ellipse, center }
+    }
+
+    const buckets = new Map<string, { count: number; best: { ellipse: Ellipse; center: Point; score: number } }>()
+    for (const sample of this.recentPupilFits) {
+      const existing = buckets.get(sample.key)
+      if (existing) {
+        existing.count += 1
+        if (sample.score >= existing.best.score) {
+          existing.best = {
+            ellipse: sample.ellipse,
+            center: sample.center,
+            score: sample.score,
+          }
+        }
+      } else {
+        buckets.set(sample.key, {
+          count: 1,
+          best: {
+            ellipse: sample.ellipse,
+            center: sample.center,
+            score: sample.score,
+          },
+        })
+      }
+    }
+
+    let bestBucket: { count: number; best: { ellipse: Ellipse; center: Point; score: number } } | null = null
+    for (const bucket of buckets.values()) {
+      if (
+        !bestBucket
+        || bucket.count > bestBucket.count
+        || (bucket.count === bestBucket.count && bucket.best.score >= bestBucket.best.score)
+      ) {
+        bestBucket = bucket
+      }
+    }
+
+    return bestBucket
+      ? {
+          ellipse: bestBucket.best.ellipse,
+          center: bestBucket.best.center,
+        }
+      : { ellipse, center }
   }
 }

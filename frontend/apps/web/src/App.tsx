@@ -5,6 +5,7 @@ import { useAuthActions } from "@/hooks/use-auth-actions"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { AuthPage } from "@/pages/auth-page"
 import { DashboardPage } from "@/pages/dashboard-page"
+import { TestPage } from "@/pages/test-page"
 import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
@@ -17,7 +18,9 @@ export function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const isPublicPath = location.pathname === "/auth" || location.pathname === "/verify-email"
+  const isPublicPath =
+    location.pathname === "/auth"
+    || location.pathname === "/verify-email"
 
   const authActions = useAuthActions({
     setBusy,
@@ -107,6 +110,7 @@ export function App() {
         }
       />
       <Route path="/verify-email" element={<VerifyEmailPage onVerified={() => void loadSession()} />} />
+      <Route path="/test" element={<TestPage />} />
       <Route
         path="/dashboard"
         element={

@@ -38,8 +38,11 @@
   },
   "exports": {
     "./globals.css": "./src/styles/globals.css",
+    "./lib/gaze-core": "./src/lib/gaze-core/index.ts",
     "./lib/*": "./src/lib/*.ts",
+    "./components/gaze-core-widget": "./src/components/gaze-core-widget/index.ts",
     "./components/*": "./src/components/*.tsx",
+    "./hooks/use-gaze-core-setup": "./src/hooks/use-gaze-core-setup/index.ts",
     "./hooks/*": "./src/hooks/*.ts"
   }
 }

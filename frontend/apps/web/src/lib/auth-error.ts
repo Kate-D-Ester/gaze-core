@@ -53,5 +53,5 @@ export function parseAuthError(input: unknown): ParsedAuthError {
 }
 
 export function getBackendAuthMessage(parsed: ParsedAuthError): string {
-  return parsed.message.trim()
+  return parsed.message.trim() || "Request failed. Please try again."
 }
