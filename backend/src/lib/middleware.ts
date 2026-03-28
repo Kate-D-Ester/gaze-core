@@ -6,15 +6,10 @@ import { AUTH_MESSAGES } from "./auth-messages";
 import { validateEmailDomain } from "./email-validator";
 import { db } from "@/db";
 import { user } from "@/db/schema";
-
-type MiddlewareErrorResponse = {
-  error: {
-    message: string
-  }
-}
+import type { EmailRequestBody, MiddlewareErrorResponse, UserIdLookupResult } from "@/types/middleware";
 
 async function getNormalizedEmailFromRequest(request: Request): Promise<string | null> {
-  const body = (await request.clone().json()) as { email?: string }
+  const body = (await request.clone().json()) as EmailRequestBody
   if (!body.email) {
     return null
   }
@@ -22,7 +17,7 @@ async function getNormalizedEmailFromRequest(request: Request): Promise<string |
   return body.email.trim().toLowerCase()
 }
 
-async function findUserByEmail(email: string): Promise<{ id: string } | null> {
+async function findUserByEmail(email: string): Promise<UserIdLookupResult | null> {
   const existingUsers = await db
     .select({ id: user.id })
     .from(user)

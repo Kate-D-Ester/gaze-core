@@ -5,22 +5,7 @@ import type {
   GyroReading,
   SolvedGazePoint,
 } from "./gaze-types"
-
-type IssuedTokenState = {
-  claims: GazeAccessTokenClaims
-  gyroZeroSnapshot: GyroReading | null
-}
-
-type LivePreviewSessionState = {
-  socketId: string
-  uuid: string
-  tokenId: string
-  calibration: CalibrationPayload | null
-  gyroZeroSnapshot: GyroReading | null
-  latestGaze: GazeVectorPayload | null
-  lastPoint: SolvedGazePoint | null
-  releaseGyroSubscription: (() => void) | null
-}
+import type { IssuedTokenState, LivePreviewSessionState } from "../types/gaze-session-store"
 
 class GazeSessionStore {
   private readonly issuedTokens = new Map<string, IssuedTokenState>()

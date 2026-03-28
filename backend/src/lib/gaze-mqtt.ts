@@ -2,19 +2,7 @@ import { randomUUID } from "node:crypto"
 import mqtt, { type MqttClient } from "mqtt"
 import { buildGyroTopic, gazeConfig } from "./gaze-config"
 import type { GyroReading } from "./gaze-types"
-
-type GyroWaiter = {
-  minTimestamp: number
-  resolve: (reading: GyroReading) => void
-  reject: (error: Error) => void
-  timeout: ReturnType<typeof setTimeout>
-}
-
-type TopicSubscription = {
-  uuid: string
-  topic: string
-  refCount: number
-}
+import type { GyroPayloadRecord, GyroWaiter, TopicSubscription } from "../types/gaze-mqtt"
 
 function parseGyroPayload(payload: string): Pick<GyroReading, "x" | "y" | "z" | "yaw" | "pitch" | "roll"> | null {
   const raw = payload.trim()
@@ -29,7 +17,7 @@ function parseGyroPayload(payload: string): Pick<GyroReading, "x" | "y" | "z" | 
   }
 
   try {
-    const decoded = JSON.parse(raw) as Record<string, unknown>
+    const decoded = JSON.parse(raw) as GyroPayloadRecord
     const x = Number(decoded.x ?? decoded.yaw)
     const y = Number(decoded.y ?? decoded.pitch)
     const z = Number(decoded.z ?? decoded.roll)

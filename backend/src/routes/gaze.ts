@@ -6,6 +6,7 @@ import { gazeMqttBridge } from "../lib/gaze-mqtt"
 import { gazeSessionStore } from "../lib/gaze-session-store"
 import { extractBearerToken, GazeTokenError, issueGazeAccessToken, verifyGazeAccessToken } from "../lib/gaze-token"
 import type { CalibrationPayload, GazeVectorPayload, GyroReading, SessionInitPayload } from "../lib/gaze-types"
+import type { JsonRecord, SocketDataCarrier, SocketJsonSender, SocketTokenQueryData } from "../types/gaze"
 
 const tokenBodySchema = t.Object({
   apiKey: t.String({ minLength: 1 }),
@@ -28,16 +29,16 @@ function parseJsonMessage(rawMessage: unknown) {
     throw new Error("WebSocket payload must be a JSON object.")
   }
 
-  return parsed as Record<string, unknown>
+  return parsed as JsonRecord
 }
 
 function isCalibrationPayload(value: unknown): value is CalibrationPayload {
   if (!value || typeof value !== "object") return false
 
-  const record = value as Record<string, unknown>
+  const record = value as JsonRecord
   if (!record.screen || !record.points) return false
 
-  const screen = record.screen as Record<string, unknown>
+  const screen = record.screen as JsonRecord
   return typeof record.version === "number"
     && typeof record.createdAt === "number"
     && typeof screen.width === "number"
@@ -48,13 +49,13 @@ function isCalibrationPayload(value: unknown): value is CalibrationPayload {
 function isGyroReading(value: unknown): value is GyroReading {
   if (!value || typeof value !== "object") return false
 
-  const record = value as Record<string, unknown>
+  const record = value as JsonRecord
   return typeof record.yaw === "number"
     && typeof record.pitch === "number"
     && typeof record.roll === "number"
 }
 
-function parseSessionInitMessage(payload: Record<string, unknown>): SessionInitPayload | null {
+function parseSessionInitMessage(payload: JsonRecord): SessionInitPayload | null {
   const type = typeof payload.type === "string" ? payload.type.trim().toLowerCase() : ""
   if (type !== "session.init" && type !== "live_preview_init") return null
 
@@ -79,7 +80,7 @@ function isVector3(value: unknown): value is [number, number, number] {
     && value.every((entry) => typeof entry === "number" && Number.isFinite(entry))
 }
 
-function parseGazeVectorMessage(payload: Record<string, unknown>): GazeVectorPayload | null {
+function parseGazeVectorMessage(payload: JsonRecord): GazeVectorPayload | null {
   const type = typeof payload.type === "string" ? payload.type.trim().toLowerCase() : ""
   if (type !== "gaze_vector") return null
 
@@ -96,8 +97,8 @@ function parseGazeVectorMessage(payload: Record<string, unknown>): GazeVectorPay
   }
 }
 
-function parseSocketToken(ws: { data: unknown }) {
-  const data = ws.data as { query?: { token?: string } }
+function parseSocketToken(ws: SocketDataCarrier) {
+  const data = ws.data as SocketTokenQueryData
   const token = data.query?.token?.trim()
   if (!token) {
     throw new GazeTokenError("Missing websocket token.", 401, "MISSING_TOKEN")
@@ -106,7 +107,7 @@ function parseSocketToken(ws: { data: unknown }) {
   return token
 }
 
-function sendSocketJson(ws: { send: (payload: string) => void }, payload: Record<string, unknown>) {
+function sendSocketJson(ws: SocketJsonSender, payload: JsonRecord) {
   ws.send(JSON.stringify(payload))
 }
 
@@ -182,7 +183,7 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
       },
     },
   )
-  .ws("/ws", {
+  .ws("/screen/ws", {
     async open(ws) {
       try {
         const token = parseSocketToken(ws)

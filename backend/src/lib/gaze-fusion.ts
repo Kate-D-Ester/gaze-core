@@ -1,16 +1,6 @@
 import { gazeConfig } from "./gaze-config"
 import type { CalibrationPayload, GyroReading, SolvedGazePoint, Vector3 } from "./gaze-types"
-
-type Point2D = {
-  x: number
-  y: number
-}
-
-type GyroScale = {
-  pixelsPerYawDegree: number
-  pixelsPerPitchDegree: number
-  pixelsPerRollDegree: number
-}
+import type { GyroScale, Point2D, SolveGazePointInput } from "../types/gaze-fusion"
 
 function clamp(value: number, minValue: number, maxValue: number) {
   return Math.max(minValue, Math.min(maxValue, value))
@@ -184,13 +174,7 @@ function smoothPoint(
   }
 }
 
-export function solveGazePoint(input: {
-  calibration: CalibrationPayload
-  gazeVector: Vector3
-  zeroSnapshot: GyroReading
-  currentGyro: GyroReading
-  previousPoint?: Point2D | null
-}): SolvedGazePoint | null {
+export function solveGazePoint(input: SolveGazePointInput): SolvedGazePoint | null {
   const base = solveBasePoint(input.calibration, input.gazeVector)
   if (!base) return null
 

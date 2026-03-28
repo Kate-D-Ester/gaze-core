@@ -5,6 +5,7 @@ import { openAPI } from "better-auth/plugins";
 import { Resend } from "resend";
 import { user, session, verification, account, apikey } from "../db/schema";
 import { db } from "@/db";
+import type { VerificationEmailPayload } from "@/types/auth";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -33,7 +34,7 @@ export const auth = betterAuth({
     requireEmailVerification: true, // ← Require email verification before sign-in
   },
   emailVerification: {
-    sendVerificationEmail: async ({ user: verificationUser, url }) => {
+    sendVerificationEmail: async ({ user: verificationUser, url }: VerificationEmailPayload) => {
       try {
         console.log(`📧 Sending verification email to: ${verificationUser.email}`)
         

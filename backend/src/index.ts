@@ -34,6 +34,22 @@ function normalizeAuthOpenApiSchema(schema: Awaited<ReturnType<typeof auth.api.g
   }
 }
 
+const gazeWebSocketDocs = {
+  "/api/gaze/screen/ws": {
+    get: {
+      tags: ["Gaze"],
+      summary: "Open the live gaze WebSocket",
+      description:
+        "WebSocket upgrade endpoint used by the live gaze preview. Connect with a token query parameter, then send JSON messages for session.init, gaze_vector, and ping.",
+      responses: {
+        101: {
+          description: "WebSocket upgrade successful",
+        },
+      },
+    },
+  },
+}
+
 const authOpenApiSchema = normalizeAuthOpenApiSchema(await auth.api.generateOpenAPISchema())
 
 const app = new Elysia()
@@ -57,7 +73,10 @@ const app = new Elysia()
           version: "1.0.0",
           description: "Swagger UI for the GazeCore backend API.",
         },
-        paths: authOpenApiSchema.paths,
+        paths: {
+          ...authOpenApiSchema.paths,
+          ...gazeWebSocketDocs,
+        },
         components: authOpenApiSchema.components as never,
         tags: [
           { name: "App", description: "Health and root endpoints" },
@@ -118,4 +137,5 @@ Better Auth: http://localhost:3000/api/auth
 Health Check: http://localhost:3000/health
 Swagger: http://localhost:3000/swagger
 Gaze Routes: http://localhost:3000/api/gaze
+Live Gaze WS: ws://localhost:3000/api/gaze/screen/ws
 `)

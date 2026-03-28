@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto"
 import { gazeConfig } from "./gaze-config"
 import type { GazeAccessTokenClaims } from "./gaze-types"
+import type { GazeAccessTokenIssueInput, TokenPayloadRecord } from "../types/gaze-token"
 
 const JWT_HEADER = {
   alg: "HS256",
@@ -56,11 +57,7 @@ function assertClaimNumber(value: unknown, message: string) {
   return value
 }
 
-export function issueGazeAccessToken(input: {
-  uuid: string
-  apiKeyId: string
-  referenceId: string
-}) {
+export function issueGazeAccessToken(input: GazeAccessTokenIssueInput) {
   const nowSeconds = Math.floor(Date.now() / 1000)
   const claims: GazeAccessTokenClaims = {
     sub: input.uuid,
@@ -109,9 +106,9 @@ export function verifyGazeAccessToken(rawToken: string) {
     throw new GazeTokenError("Invalid access token signature.")
   }
 
-  let payload: Record<string, unknown>
+  let payload: TokenPayloadRecord
   try {
-    payload = JSON.parse(decodeBase64Url(payloadPart).toString("utf8")) as Record<string, unknown>
+    payload = JSON.parse(decodeBase64Url(payloadPart).toString("utf8")) as TokenPayloadRecord
   } catch {
     throw new GazeTokenError("Invalid access token payload.")
   }

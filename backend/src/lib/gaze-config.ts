@@ -31,7 +31,7 @@ export const gazeConfig = {
   gyroYawMultiplier: readNumberEnv("GAZECORE_GYRO_YAW_MULTIPLIER", 0.55),
   gyroPitchMultiplier: readNumberEnv("GAZECORE_GYRO_PITCH_MULTIPLIER", 0.55),
   gyroRollMultiplier: readNumberEnv("GAZECORE_GYRO_ROLL_MULTIPLIER", 0.08),
-  websocketPath: "/api/gaze/ws",
+  websocketPath: "/api/gaze/screen/ws",
 } as const
 
 export function buildGyroTopic(uuid: string) {

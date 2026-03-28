@@ -4,6 +4,7 @@ import { db } from "../db";
 import { user } from "../db/schema";
 import { auth } from "../lib/auth";
 import { authSchemas } from "../lib/schemas";
+import type { UserProfileChanges, UserResponse, UserRow } from "../types/user";
 
 const updateProfileBody = t.Object({
   name: t.Optional(t.String({ minLength: 1 })),
@@ -12,7 +13,7 @@ const updateProfileBody = t.Object({
 
 const errorResponse = (error: string, message: string) => ({ error, message });
 
-const toUserResponse = (row: typeof user.$inferSelect) => ({
+const toUserResponse = (row: UserRow): UserResponse => ({
   id: row.id,
   email: row.email,
   name: row.name,
@@ -65,7 +66,7 @@ export const userRoutes = new Elysia({ prefix: "/users" })
         return errorResponse("UNAUTHORIZED", "Sign in required");
       }
 
-      const changes: Partial<Pick<typeof user.$inferSelect, "name" | "image">> = {};
+      const changes: UserProfileChanges = {};
       if (body.name !== undefined) changes.name = body.name;
       if (body.image !== undefined) changes.image = body.image;
 
