@@ -15,6 +15,12 @@ export function buildCalibrationGrid(screenWidth: number, screenHeight: number):
   ]
 }
 
+export function getCalibrationTargetTransform(point: [number, number], screenWidth: number, screenHeight: number) {
+  const translateX = point[0] <= 0 ? "0%" : Math.abs(point[0] - screenWidth) <= 0.5 ? "-100%" : "-50%"
+  const translateY = point[1] <= 0 ? "0%" : Math.abs(point[1] - screenHeight) <= 0.5 ? "-100%" : "-50%"
+  return `translate(${translateX}, ${translateY})`
+}
+
 export function clampValue(value: number, minValue: number, maxValue: number): number {
   return Math.max(minValue, Math.min(maxValue, value))
 }

@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey } from "@better-auth/api-key";
+import { openAPI } from "better-auth/plugins";
 import { Resend } from "resend";
 import { user, session, verification, account, apikey } from "../db/schema";
 import { db } from "@/db";
@@ -75,6 +76,9 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    openAPI({
+      disableDefaultReference: true,
+    }),
     apiKey({
       defaultPrefix: "gaze_",
       enableMetadata: true,

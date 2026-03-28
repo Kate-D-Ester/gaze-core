@@ -9,8 +9,9 @@ export function CalibrationOverlay({ state }: { state: GazeCoreWidgetState }) {
       <div className="absolute left-4 top-4 rounded bg-black/70 px-3 py-2 text-sm text-white">
         <p>Point {state.calibIndex + 1} / 9</p>
         <p className="text-xs text-white/60">
-          {state.captureActive ? "Capturing..." : "Press Space to capture, Esc to cancel"}
+          {state.calibrationStatusText || (state.captureActive ? "Capturing..." : "Press Space to capture, Esc to cancel")}
         </p>
+        {state.calibrationError && <p className="mt-1 text-xs text-red-300">{state.calibrationError}</p>}
       </div>
 
       {state.captureActive && (
@@ -20,8 +21,12 @@ export function CalibrationOverlay({ state }: { state: GazeCoreWidgetState }) {
       )}
 
       <div
-        className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-yellow-400 bg-yellow-300"
-        style={{ left: state.calibPoint[0], top: state.calibPoint[1] }}
+        className="absolute h-5 w-5 rounded-full border-4 border-yellow-400 bg-yellow-300"
+        style={{
+          left: state.calibPoint[0],
+          top: state.calibPoint[1],
+          transform: state.calibrationTargetTransform,
+        }}
       />
 
       <Button className="absolute right-4 top-4" variant="secondary" onClick={state.stopCalibration}>

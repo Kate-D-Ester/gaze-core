@@ -3,8 +3,14 @@ import { gazeVector, type GazeSession, type GazeTrackingInput, type GazeVectorRe
 import {
   type TestCalibrationData,
   type TestCalibrationPoint,
+  type TestCalibrationRecord,
   testEyeTrackerStorage,
 } from "../../lib/gaze-core-widget-storage"
+import { buildGyroSnapshotRouteUrl, buildLivePreviewSocketUrl } from "../../lib/gaze-core-widget-backend/routes"
+import { GazeWidgetTokenManager } from "../../lib/gaze-core-widget-backend/token-manager"
+import type { GyroSnapshot } from "../../lib/gaze-core-widget-backend/types"
+import { connectLivePreviewSocket, WebSocketAuthorizationError } from "../../lib/gaze-core-widget-backend/websocket"
+import { exitFullscreenSafely, requestFullscreenSafely } from "../../lib/gaze-core-widget-fullscreen"
 import type {
   EyeCornerSelection,
   FrameState,
@@ -24,6 +30,7 @@ import {
   drawGazeOverlay,
   drawRoiOverlay,
   drawThresholdMask,
+  getCalibrationTargetTransform,
   modeVector,
   normalizeGazeVector,
   toPreviewGazeData,
@@ -32,6 +39,10 @@ import {
 export type GazeCoreWidgetOptions = {
   onLiveResult?: (result: LiveResult | null) => void
   onCalibrationComplete?: (data: TestCalibrationData) => void
+  onCalibrationRecordReady?: (record: TestCalibrationRecord) => void
+  backendBaseUrl?: string
+  apiKey?: string
+  deviceUuid?: string
   livePreviewSocketUrl?: string
   livePreviewToken?: string
   onLivePreviewPoint?: (point: LivePreviewPoint | null) => void
@@ -42,7 +53,8 @@ export type LivePreviewPoint = { x: number; y: number; timestamp: number }
 
 export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   const savedPrefs = testEyeTrackerStorage.readPrefs()
-  const savedCalibration = testEyeTrackerStorage.readCalibration()
+  const savedCalibrationRecord = testEyeTrackerStorage.readCalibrationRecord()
+  const savedCalibration = savedCalibrationRecord?.calibration ?? null
 
   const [currentStep, setCurrentStep] = useState<Step>("source")
   const [kind, setKind] = useState<"usb" | "network">(savedPrefs.kind)
@@ -56,9 +68,13 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   const [previewError, setPreviewError] = useState("")
   const [captureActive, setCaptureActive] = useState(false)
   const [captureProgress, setCaptureProgress] = useState(0)
+  const [calibrationStatusText, setCalibrationStatusText] = useState("")
+  const [calibrationError, setCalibrationError] = useState("")
+  const [gyroSnapshotPending, setGyroSnapshotPending] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
   const [calibIndex, setCalibIndex] = useState(0)
   const [calibrationGrid, setCalibrationGrid] = useState<[number, number][]>([])
+  const [calibrationViewport, setCalibrationViewport] = useState({ width: window.innerWidth, height: window.innerHeight })
   const [latestResult, setLatestResult] = useState<LiveResult | null>(null)
   const [livePreviewActive, setLivePreviewActive] = useState(false)
   const [livePreviewStatus, setLivePreviewStatus] = useState<LivePreviewConnectionStatus>("idle")
@@ -66,7 +82,9 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   const [livePreviewError, setLivePreviewError] = useState("")
   const [calibrationResult, setCalibrationResult] = useState<TestCalibrationResult>({
     data: savedCalibration,
-    rawJson: savedCalibration ? JSON.stringify(savedCalibration, null, 2) : "",
+    record: savedCalibrationRecord,
+    gyroZeroSnapshot: savedCalibrationRecord?.gyroZeroSnapshot ?? null,
+    rawJson: savedCalibrationRecord ? JSON.stringify(savedCalibrationRecord, null, 2) : "",
   })
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -93,10 +111,11 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   const captureProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const livePreviewSocketRef = useRef<WebSocket | null>(null)
   const livePreviewActiveRef = useRef(false)
-  const calibrationDataRef = useRef<TestCalibrationData | null>(savedCalibration)
-  const livePreviewTokenRef = useRef(options.livePreviewToken ?? "")
-  const livePreviewSocketUrlRef = useRef(options.livePreviewSocketUrl ?? "")
+  const calibrationRecordRef = useRef<TestCalibrationRecord | null>(savedCalibrationRecord)
+  const calibrationViewportRef = useRef(calibrationViewport)
   const onLivePreviewPointRef = useRef(options.onLivePreviewPoint)
+  const tokenManagerRef = useRef(new GazeWidgetTokenManager())
+  const fullscreenOwnedRef = useRef(false)
 
   useEffect(() => {
     currentStepRef.current = currentStep
@@ -115,14 +134,29 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   }, [livePreviewActive])
 
   useEffect(() => {
-    calibrationDataRef.current = calibrationResult.data
-  }, [calibrationResult.data])
+    calibrationRecordRef.current = calibrationResult.record
+  }, [calibrationResult.record])
 
   useEffect(() => {
-    livePreviewTokenRef.current = options.livePreviewToken ?? ""
-    livePreviewSocketUrlRef.current = options.livePreviewSocketUrl ?? ""
+    calibrationViewportRef.current = calibrationViewport
+  }, [calibrationViewport])
+
+  useEffect(() => {
     onLivePreviewPointRef.current = options.onLivePreviewPoint
-  }, [options.livePreviewSocketUrl, options.livePreviewToken, options.onLivePreviewPoint])
+    tokenManagerRef.current.updateConfig({
+      backendBaseUrl: options.backendBaseUrl,
+      apiKey: options.apiKey,
+      deviceUuid: options.deviceUuid,
+      initialToken: options.livePreviewToken,
+    })
+  }, [
+    options.apiKey,
+    options.backendBaseUrl,
+    options.deviceUuid,
+    options.livePreviewSocketUrl,
+    options.livePreviewToken,
+    options.onLivePreviewPoint,
+  ])
 
   useEffect(() => {
     testEyeTrackerStorage.writePrefs({
@@ -164,14 +198,118 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrating, calibIndex, captureActive])
 
+  function buildCalibrationRecord(
+    calibration: TestCalibrationData,
+    gyroZeroSnapshot: GyroSnapshot | null,
+  ): TestCalibrationRecord {
+    return {
+      calibration,
+      gyroZeroSnapshot,
+    }
+  }
+
+  function applyCalibrationRecord(record: TestCalibrationRecord | null) {
+    if (!record) {
+      testEyeTrackerStorage.clearCalibrationRecord()
+      calibrationRecordRef.current = null
+      setCalibrationResult({
+        data: null,
+        record: null,
+        gyroZeroSnapshot: null,
+        rawJson: "",
+      })
+      return
+    }
+
+    testEyeTrackerStorage.writeCalibrationRecord(record)
+    setCalibrationResult({
+      data: record.calibration,
+      record,
+      gyroZeroSnapshot: record.gyroZeroSnapshot,
+      rawJson: JSON.stringify(record, null, 2),
+    })
+    calibrationRecordRef.current = record
+  }
+
+  function resolveLivePreviewSocketUrl() {
+    if (!options.backendBaseUrl && !options.livePreviewSocketUrl) return ""
+    return buildLivePreviewSocketUrl(options.backendBaseUrl, options.livePreviewSocketUrl)
+  }
+
+  async function captureGyroZeroSnapshot() {
+    const calibrationData = calibrationRecordRef.current?.calibration ?? calibrationResult.data
+    if (!calibrationData) {
+      throw new Error("Run the 9-point calibration before capturing the gyro zero snapshot.")
+    }
+
+    if (!options.backendBaseUrl?.trim()) {
+      throw new Error("A backend base URL is required to capture the gyro zero snapshot.")
+    }
+
+    setCalibrationError("")
+    setCalibrationStatusText("Capturing gyro zero snapshot...")
+    setGyroSnapshotPending(true)
+
+    try {
+      const response = await tokenManagerRef.current.authorizedFetch(async (token) =>
+        fetch(buildGyroSnapshotRouteUrl(options.backendBaseUrl), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      )
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null
+        const message = typeof payload?.message === "string"
+          ? payload.message
+          : typeof payload?.error === "string"
+            ? payload.error
+            : "Unable to capture the gyro zero snapshot."
+
+        throw new Error(message)
+      }
+
+      const payload = await response.json() as {
+        snapshot?: GyroSnapshot
+      }
+
+      if (!payload.snapshot) {
+        throw new Error("The backend returned an empty gyro zero snapshot.")
+      }
+
+      const record = buildCalibrationRecord(calibrationData, payload.snapshot)
+      applyCalibrationRecord(record)
+      options.onCalibrationRecordReady?.(record)
+      setCalibrationStatusText("")
+      return payload.snapshot
+    } finally {
+      setGyroSnapshotPending(false)
+    }
+  }
+
+  function hasTokenAuthorizationConfig() {
+    return tokenManagerRef.current.canAuthorize()
+  }
+
+  function hasGyroSnapshotRequirements() {
+    return Boolean(options.backendBaseUrl?.trim()) && hasTokenAuthorizationConfig()
+  }
+
+  function hasLivePreviewSocketRoute() {
+    return Boolean(resolveLivePreviewSocketUrl())
+  }
+
   function hasLivePreviewRequirements() {
-    return Boolean(livePreviewSocketUrlRef.current && livePreviewTokenRef.current)
+    return hasLivePreviewSocketRoute() && hasTokenAuthorizationConfig()
   }
 
   function canStartLivePreview() {
     return (
       hasLivePreviewRequirements()
       && Boolean(calibrationResult.data)
+      && Boolean(calibrationResult.gyroZeroSnapshot)
       && previewActive
       && Boolean(sessionRef.current)
     )
@@ -226,12 +364,10 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     if (!livePreviewActiveRef.current) return
     const socket = livePreviewSocketRef.current
     if (!socket || socket.readyState !== WebSocket.OPEN) return
-    if (!livePreviewTokenRef.current || !calibrationDataRef.current) return
+    if (!calibrationRecordRef.current?.calibration) return
 
     socket.send(JSON.stringify({
       type: "gaze_vector",
-      token: livePreviewTokenRef.current,
-      calibration: calibrationDataRef.current,
       gazeVector: result.gazeVector,
       pupilCenter: result.iPupilDetectionReturn.pupilCenter,
       timestamp: result.timestamp,
@@ -248,13 +384,17 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     onLivePreviewPointRef.current?.(null)
   }
 
-  function startLivePreview() {
+  async function startLivePreview() {
     if (!hasLivePreviewRequirements()) {
-      setLivePreviewError("Live preview requires both websocket URL and auth token.")
+      setLivePreviewError("Live preview requires a websocket route and a valid access token or API key configuration.")
       return
     }
-    if (!calibrationResult.data) {
-      setLivePreviewError("Run 9-point calibration before live preview.")
+    if (!calibrationResult.record?.calibration) {
+      setLivePreviewError("Run the 9-point calibration before live preview.")
+      return
+    }
+    if (!calibrationResult.record.gyroZeroSnapshot) {
+      setLivePreviewError("Capture the gyro zero snapshot before starting live preview.")
       return
     }
     if (!previewActive) {
@@ -269,21 +409,46 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     setLivePreviewError("")
 
     try {
-      const socket = new WebSocket(livePreviewSocketUrlRef.current)
-      livePreviewSocketRef.current = socket
+      const socketUrl = resolveLivePreviewSocketUrl()
+      let socket: WebSocket
 
-      socket.onopen = () => {
-        setLivePreviewStatus("connected")
-        socket.send(JSON.stringify({
-          type: "live_preview_init",
-          token: livePreviewTokenRef.current,
-          calibration: calibrationDataRef.current,
-        }))
+      try {
+        const firstToken = await tokenManagerRef.current.ensureToken(false)
+        socket = await connectLivePreviewSocket({
+          socketUrl,
+          token: firstToken.token,
+        })
+      } catch (error) {
+        if (!(error instanceof WebSocketAuthorizationError) || !tokenManagerRef.current.canIssueToken()) {
+          throw error
+        }
+
+        const refreshedToken = await tokenManagerRef.current.ensureToken(true)
+        socket = await connectLivePreviewSocket({
+          socketUrl,
+          token: refreshedToken.token,
+        })
       }
+
+      livePreviewSocketRef.current = socket
+      setLivePreviewStatus("connected")
+      socket.send(JSON.stringify({
+        type: "session.init",
+        calibration: calibrationResult.record.calibration,
+        gyroZeroSnapshot: calibrationResult.record.gyroZeroSnapshot,
+      }))
 
       socket.onmessage = (event: MessageEvent<string>) => {
         try {
           const parsed = JSON.parse(event.data) as unknown
+          if (parsed && typeof parsed === "object") {
+            const record = parsed as Record<string, unknown>
+            if (record.type === "error") {
+              setLivePreviewStatus("error")
+              setLivePreviewError(String(record.detail ?? "Live preview websocket error."))
+              return
+            }
+          }
           const point = parseLivePreviewPoint(parsed)
           if (!point) return
           setLivePreviewPoint(point)
@@ -298,9 +463,13 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
         setLivePreviewError("Live preview websocket error.")
       }
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
+        livePreviewActiveRef.current = false
         setLivePreviewActive(false)
-        setLivePreviewStatus("idle")
+        setLivePreviewStatus(event.code === 4401 || event.code === 4403 ? "error" : "idle")
+        if (event.code === 4401 || event.code === 4403) {
+          setLivePreviewError(event.reason || "The live preview websocket authorization failed.")
+        }
       }
     } catch (error) {
       setLivePreviewActive(false)
@@ -600,28 +769,42 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     pushUpdate()
   }
 
-  function startCalibration() {
-    setCalibrationGrid(buildCalibrationGrid(window.innerWidth, window.innerHeight))
+  async function startCalibration() {
+    stopLivePreview()
+    setCalibrationError("")
+    setCalibrationStatusText("")
+    fullscreenOwnedRef.current = await requestFullscreenSafely()
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    calibrationViewportRef.current = viewport
+    setCalibrationViewport(viewport)
+    setCalibrationGrid(buildCalibrationGrid(viewport.width, viewport.height))
     savedPointsRef.current = []
     captureSamplesRef.current = []
     setCalibIndex(0)
     setCalibrating(true)
   }
 
-  function stopCalibration() {
+  async function stopCalibration() {
     setCalibrating(false)
     setCaptureActive(false)
     setCaptureProgress(0)
+    setCalibrationStatusText("")
     if (captureTimerRef.current) clearTimeout(captureTimerRef.current)
     if (captureProgressRef.current) clearInterval(captureProgressRef.current)
     captureTimerRef.current = null
     captureProgressRef.current = null
     captureSamplesRef.current = []
+    if (fullscreenOwnedRef.current) {
+      fullscreenOwnedRef.current = false
+      await exitFullscreenSafely()
+    }
   }
 
   function capturePoint() {
     if (!previewActive || captureActive || !calibrating) return
 
+    setCalibrationError("")
+    setCalibrationStatusText("Capturing gaze samples...")
     setCaptureActive(true)
     setCaptureProgress(0)
     captureSamplesRef.current = []
@@ -635,6 +818,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     }, 50)
 
     captureTimerRef.current = setTimeout(() => {
+      void (async () => {
       if (captureProgressRef.current) clearInterval(captureProgressRef.current)
       captureTimerRef.current = null
       captureProgressRef.current = null
@@ -643,6 +827,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
       captureSamplesRef.current = []
       setCaptureActive(false)
       setCaptureProgress(0)
+      setCalibrationStatusText("")
 
       const mostCommonVector = modeVector(samples)
       if (!mostCommonVector) return
@@ -659,31 +844,45 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
         const data: TestCalibrationData = {
           version: 1,
           createdAt: Date.now(),
-          screen: { width: window.innerWidth, height: window.innerHeight },
+          screen: calibrationViewportRef.current,
           points: savedPointsRef.current,
         }
         options.onCalibrationComplete?.(data)
-        testEyeTrackerStorage.writeCalibration(data)
-        setCalibrationResult({
-          data,
-          rawJson: JSON.stringify(data, null, 2),
-        })
-        stopCalibration()
+
+        const provisionalRecord = buildCalibrationRecord(data, calibrationResult.gyroZeroSnapshot ?? null)
+        applyCalibrationRecord(provisionalRecord)
+
+        try {
+          await captureGyroZeroSnapshot()
+        } catch (error) {
+          setCalibrationError(error instanceof Error ? error.message : "Unable to capture the gyro zero snapshot.")
+        }
+
+        await stopCalibration()
         return
       }
 
       setCalibIndex(nextIndex)
+      })()
     }, durationMs)
   }
 
   function clearCalibration() {
     stopLivePreview()
-    setCalibrationResult({ data: null, rawJson: "" })
-    localStorage.removeItem("gaze-core-test-calibration")
+    applyCalibrationRecord(null)
+    setCalibrationError("")
+    setCalibrationStatusText("")
   }
 
   const stepIndex = STEPS.indexOf(currentStep)
   const calibPoint = calibrating ? calibrationGrid[calibIndex] ?? null : null
+  const calibrationTargetTransform = calibPoint
+    ? getCalibrationTargetTransform(calibPoint, calibrationViewport.width, calibrationViewport.height)
+    : "translate(-50%, -50%)"
+  const gyroZeroReady = Boolean(calibrationResult.gyroZeroSnapshot)
+  const tokenAuthorizationReady = hasTokenAuthorizationConfig()
+  const gyroSnapshotConfigured = hasGyroSnapshotRequirements()
+  const livePreviewSocketRouteReady = hasLivePreviewSocketRoute()
   const livePreviewConfigured = hasLivePreviewRequirements()
   const livePreviewReady = canStartLivePreview()
 
@@ -711,8 +910,13 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     calibrating,
     calibIndex,
     calibPoint,
+    calibrationTargetTransform,
+    calibrationViewport,
     captureActive,
     captureProgress,
+    calibrationStatusText,
+    calibrationError,
+    gyroSnapshotPending,
     calibrationResult,
     canvasRef,
     thresholdCanvasRef,
@@ -726,7 +930,12 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     startCalibration,
     stopCalibration,
     capturePoint,
+    captureGyroZeroSnapshot,
     clearCalibration,
+    gyroZeroReady,
+    gyroSnapshotConfigured,
+    tokenAuthorizationReady,
+    livePreviewSocketRouteReady,
     livePreviewConfigured,
     livePreviewReady,
     livePreviewActive,

@@ -46,6 +46,9 @@ export const userRoutes = new Elysia({ prefix: "/users" })
       return toUserResponse(found);
     },
     {
+      detail: {
+        tags: ["Users"],
+      },
       response: {
         200: authSchemas.user,
         401: authSchemas.error,
@@ -85,6 +88,9 @@ export const userRoutes = new Elysia({ prefix: "/users" })
     },
     {
       body: updateProfileBody,
+      detail: {
+        tags: ["Users"],
+      },
       response: {
         200: authSchemas.user,
         401: authSchemas.error,
@@ -106,6 +112,9 @@ export const userRoutes = new Elysia({ prefix: "/users" })
       return toUserResponse(found);
     },
     {
+      detail: {
+        tags: ["Users"],
+      },
       response: {
         200: authSchemas.user,
         404: authSchemas.error,

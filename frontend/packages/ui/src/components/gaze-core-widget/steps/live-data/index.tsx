@@ -1,4 +1,4 @@
-﻿import type { GazeCoreWidgetState } from "../../types"
+import type { GazeCoreWidgetState } from "../../types"
 
 export function LiveDataStep({ state }: { state: GazeCoreWidgetState }) {
   return (
@@ -16,9 +16,13 @@ export function LiveDataStep({ state }: { state: GazeCoreWidgetState }) {
         <p>
           Insider pupil value: <span className="font-mono text-foreground">{state.latestResult?.insiderPupilValue ? state.latestResult.insiderPupilValue.join(", ") : "n/a"}</span>
         </p>
+        <p>
+          Gyro zero snapshot: <span className="font-medium text-foreground">{state.gyroZeroReady ? "captured" : "missing"}</span>
+        </p>
+        <p>
+          Live preview websocket: <span className="font-medium text-foreground">{state.livePreviewStatus}</span>
+        </p>
       </div>
     </section>
   )
 }
-
-

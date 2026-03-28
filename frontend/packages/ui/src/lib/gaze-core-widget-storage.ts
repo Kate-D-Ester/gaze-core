@@ -1,3 +1,5 @@
+import type { GyroSnapshot } from "./gaze-core-widget-backend/types"
+
 const KEYS = {
   prefs: "gaze-core-test-tracker-prefs",
   calibration: "gaze-core-test-calibration",
@@ -30,6 +32,11 @@ export type TestCalibrationData = {
   points: TestCalibrationPoint[]
 }
 
+export type TestCalibrationRecord = {
+  calibration: TestCalibrationData
+  gyroZeroSnapshot: GyroSnapshot | null
+}
+
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -41,6 +48,31 @@ function readJson<T>(key: string, fallback: T): T {
 
 function writeJson<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+function removeJson(key: string): void {
+  localStorage.removeItem(key)
+}
+
+function normalizeCalibrationRecord(raw: unknown): TestCalibrationRecord | null {
+  if (!raw || typeof raw !== "object") return null
+
+  const record = raw as Record<string, unknown>
+  if ("calibration" in record && record.calibration && typeof record.calibration === "object") {
+    return {
+      calibration: record.calibration as TestCalibrationData,
+      gyroZeroSnapshot: (record.gyroZeroSnapshot as GyroSnapshot | null | undefined) ?? null,
+    }
+  }
+
+  if ("points" in record) {
+    return {
+      calibration: record as TestCalibrationData,
+      gyroZeroSnapshot: null,
+    }
+  }
+
+  return null
 }
 
 export function defaultTestPrefs(): TestSetupPrefs {
@@ -56,6 +88,7 @@ export function defaultTestPrefs(): TestSetupPrefs {
 export const testEyeTrackerStorage = {
   readPrefs: () => readJson<TestSetupPrefs>(KEYS.prefs, defaultTestPrefs()),
   writePrefs: (prefs: TestSetupPrefs) => writeJson(KEYS.prefs, prefs),
-  readCalibration: () => readJson<TestCalibrationData | null>(KEYS.calibration, null),
-  writeCalibration: (data: TestCalibrationData) => writeJson(KEYS.calibration, data),
+  readCalibrationRecord: () => normalizeCalibrationRecord(readJson<unknown>(KEYS.calibration, null)),
+  writeCalibrationRecord: (record: TestCalibrationRecord) => writeJson(KEYS.calibration, record),
+  clearCalibrationRecord: () => removeJson(KEYS.calibration),
 }

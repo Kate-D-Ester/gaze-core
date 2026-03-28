@@ -1,6 +1,20 @@
-﻿import { Button } from "@workspace/ui/components/button"
+import { Button } from "@workspace/ui/components/button"
 import { SectionCard } from "../../SectionCard"
 import type { GazeCoreWidgetState } from "../../types"
+
+function RequirementStatus({
+  label,
+  ready,
+}: {
+  label: string
+  ready: boolean
+}) {
+  return (
+    <div className={ready ? "rounded border border-green-300/70 bg-green-50 px-2 py-1 text-green-700" : "rounded border border-dashed px-2 py-1 text-muted-foreground"}>
+      {label}: {ready ? "ready" : "missing"}
+    </div>
+  )
+}
 
 export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
   if (state.currentStep !== "mode") return null
@@ -19,26 +33,41 @@ export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
           <Button className="w-full" variant="outline" onClick={state.stopCalibration} disabled={!state.calibrating}>
             Stop Calibration
           </Button>
+          <Button
+            className="w-full"
+            variant="outline"
+            onClick={() => void state.captureGyroZeroSnapshot()}
+            disabled={!state.calibrationResult.data || !state.gyroSnapshotConfigured || state.gyroSnapshotPending}
+          >
+            {state.gyroSnapshotPending ? "Capturing Gyro Zero..." : state.gyroZeroReady ? "Re-Capture Gyro Zero" : "Capture Gyro Zero"}
+          </Button>
+          {state.calibrationStatusText && (
+            <p className="text-xs text-muted-foreground">{state.calibrationStatusText}</p>
+          )}
+          {state.calibrationError && (
+            <p className="rounded border border-red-300/60 bg-red-50 px-2 py-1 text-xs text-red-700">
+              {state.calibrationError}
+            </p>
+          )}
         </div>
 
         <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
           <p className="text-muted-foreground">
-            Live preview needs calibration JSON, live gaze vectors, auth token, and websocket route.
+            Live preview needs calibration JSON, a gyro zero snapshot, live gaze vectors, token authorization, and a websocket route.
           </p>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className={state.calibrationResult.data ? "text-green-600" : "text-muted-foreground"}>
-              Calibration: {state.calibrationResult.data ? "ready" : "missing"}
-            </div>
-            <div className={state.previewActive ? "text-green-600" : "text-muted-foreground"}>
-              Gaze stream: {state.previewActive ? "ready" : "missing"}
-            </div>
-            <div className={state.livePreviewConfigured ? "text-green-600" : "text-muted-foreground"}>
-              Token + Route: {state.livePreviewConfigured ? "ready" : "missing"}
-            </div>
-            <div className={state.livePreviewReady ? "text-green-600" : "text-muted-foreground"}>
-              Live preview: {state.livePreviewReady ? "enabled" : "blocked"}
-            </div>
+            <RequirementStatus label="Calibration JSON" ready={Boolean(state.calibrationResult.data)} />
+            <RequirementStatus label="Gyro Zero" ready={state.gyroZeroReady} />
+            <RequirementStatus label="Gaze Stream" ready={state.previewActive} />
+            <RequirementStatus label="Token/Auth" ready={state.tokenAuthorizationReady} />
+            <RequirementStatus label="WS Route" ready={state.livePreviewSocketRouteReady} />
+            <RequirementStatus label="Live Preview" ready={state.livePreviewReady} />
           </div>
+          {!state.gyroSnapshotConfigured && (
+            <p className="text-xs text-muted-foreground">
+              Gyro zero capture needs a backend base URL plus either an API key and device UUID or an already-issued token.
+            </p>
+          )}
           {state.livePreviewError && (
             <p className="rounded border border-red-300/60 bg-red-50 px-2 py-1 text-xs text-red-700">
               {state.livePreviewError}
@@ -77,5 +106,3 @@ export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
     </>
   )
 }
-
-
