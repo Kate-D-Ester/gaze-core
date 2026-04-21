@@ -19,17 +19,60 @@ function errorResponse(error: string, message: string) {
   return { error, message }
 }
 
-function parseJsonMessage(rawMessage: unknown) {
-  if (typeof rawMessage !== "string") {
-    throw new Error("WebSocket payload must be text JSON.")
+function buildZeroGyroReading(): GyroReading {
+  return {
+    x: 0,
+    y: 0,
+    z: 0,
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    timestamp: Date.now(),
+  }
+}
+
+async function parseJsonMessage(rawMessage: unknown) {
+  if (typeof rawMessage === "string") {
+    const parsed = JSON.parse(rawMessage) as unknown
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("WebSocket payload must be a JSON object.")
+    }
+
+    return parsed as JsonRecord
   }
 
-  const parsed = JSON.parse(rawMessage) as unknown
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("WebSocket payload must be a JSON object.")
+  if (rawMessage instanceof ArrayBuffer) {
+    return parseJsonMessage(Buffer.from(rawMessage).toString("utf8"))
   }
 
-  return parsed as JsonRecord
+  if (ArrayBuffer.isView(rawMessage)) {
+    const view = rawMessage as ArrayBufferView
+    return parseJsonMessage(Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString("utf8"))
+  }
+
+  if (rawMessage && typeof rawMessage === "object") {
+    const wrapper = rawMessage as {
+      data?: unknown
+      text?: () => Promise<string>
+      arrayBuffer?: () => Promise<ArrayBuffer>
+    }
+
+    if ("data" in wrapper && wrapper.data !== undefined) {
+      return parseJsonMessage(wrapper.data)
+    }
+
+    if (typeof wrapper.text === "function") {
+      return parseJsonMessage(await wrapper.text())
+    }
+
+    if (typeof wrapper.arrayBuffer === "function") {
+      return parseJsonMessage(await wrapper.arrayBuffer())
+    }
+
+    return rawMessage as JsonRecord
+  }
+
+  throw new Error("WebSocket payload must be JSON text or UTF-8 bytes.")
 }
 
 function isCalibrationPayload(value: unknown): value is CalibrationPayload {
@@ -164,6 +207,7 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
       return {
         uuid: claims.uuid,
         snapshot,
+        fallback: false,
       }
     } catch (error) {
       if (error instanceof GazeTokenError) {
@@ -171,10 +215,30 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
         return errorResponse(error.code, error.message)
       }
 
-      const message = error instanceof Error ? error.message : "Unable to capture the gyro snapshot."
-      console.error("[GAZE] gyro snapshot failed:", error)
-      set.status = 504
-      return errorResponse("GYRO_SNAPSHOT_FAILED", message)
+      const fallbackSnapshot = buildZeroGyroReading()
+      if (error instanceof Error) {
+        console.warn("[GAZE] gyro snapshot unavailable, using zero fallback:", error.message)
+      } else {
+        console.warn("[GAZE] gyro snapshot unavailable, using zero fallback.")
+      }
+
+      try {
+        const token = extractBearerToken(request.headers.get("authorization"))
+        const claims = verifyGazeAccessToken(token ?? "")
+        gazeSessionStore.rememberIssuedToken(claims)
+        gazeSessionStore.rememberGyroZeroSnapshot(claims.jti, fallbackSnapshot)
+        return {
+          uuid: claims.uuid,
+          snapshot: fallbackSnapshot,
+          fallback: true,
+        }
+      } catch {
+        set.status = 200
+        return {
+          snapshot: fallbackSnapshot,
+          fallback: true,
+        }
+      }
     }
     },
     {
@@ -191,7 +255,14 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
         gazeSessionStore.rememberIssuedToken(claims)
         gazeSessionStore.openSession(ws.id, claims)
 
-        const releaseGyroSubscription = await gazeMqttBridge.retainSubscription(claims.uuid)
+        let releaseGyroSubscription: (() => void) | null = null
+        try {
+          releaseGyroSubscription = await gazeMqttBridge.retainSubscription(claims.uuid)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown error"
+          console.warn(`[GAZE] MQTT subscription unavailable for ${claims.uuid}. Falling back to zero gyro.`, message)
+        }
+
         gazeSessionStore.setGyroRelease(ws.id, releaseGyroSubscription)
 
         sendSocketJson(ws, {
@@ -204,7 +275,7 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
         ws.close(4401, reason)
       }
     },
-    message(ws, rawMessage) {
+    async message(ws, rawMessage) {
       const session = gazeSessionStore.getSession(ws.id)
       if (!session) {
         sendSocketJson(ws, {
@@ -216,7 +287,7 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
       }
 
       try {
-        const payload = parseJsonMessage(rawMessage)
+        const payload = await parseJsonMessage(rawMessage)
         const sessionInit = parseSessionInitMessage(payload)
         if (sessionInit) {
           const initializedSession = gazeSessionStore.initializeSession(
@@ -224,15 +295,6 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
             sessionInit.calibration,
             sessionInit.gyroZeroSnapshot,
           )
-
-          if (!initializedSession?.gyroZeroSnapshot) {
-            sendSocketJson(ws, {
-              type: "error",
-              op: "session.init",
-              detail: "Gyro zero snapshot is required before live preview can start.",
-            })
-            return
-          }
 
           sendSocketJson(ws, {
             type: "ack",
@@ -248,7 +310,7 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
         const gazeVector = parseGazeVectorMessage(payload)
         if (gazeVector) {
           const updatedSession = gazeSessionStore.updateLatestGaze(ws.id, gazeVector)
-          if (!updatedSession?.calibration || !updatedSession.gyroZeroSnapshot) {
+          if (!updatedSession?.calibration) {
             sendSocketJson(ws, {
               type: "error",
               op: "gaze_vector",
@@ -257,15 +319,17 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
             return
           }
 
-          const currentGyro = gazeMqttBridge.latestReading(updatedSession.uuid)
-          if (!currentGyro) {
-            return
+          const zeroSnapshot = updatedSession.gyroZeroSnapshot ?? buildZeroGyroReading()
+          if (!updatedSession.gyroZeroSnapshot) {
+            gazeSessionStore.initializeSession(ws.id, updatedSession.calibration, zeroSnapshot)
           }
+
+          const currentGyro = gazeMqttBridge.latestReading(updatedSession.uuid) ?? buildZeroGyroReading()
 
           const solvedPoint = solveGazePoint({
             calibration: updatedSession.calibration,
             gazeVector: gazeVector.gazeVector,
-            zeroSnapshot: updatedSession.gyroZeroSnapshot,
+            zeroSnapshot,
             currentGyro,
             previousPoint: updatedSession.lastPoint
               ? { x: updatedSession.lastPoint.x, y: updatedSession.lastPoint.y }

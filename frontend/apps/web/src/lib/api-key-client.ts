@@ -1,4 +1,5 @@
 import type { ApiKeyRecord } from "@/types/auth"
+import { getAuthBaseUrl } from "@/lib/backend-base-url"
 
 type ApiKeysListResponse = {
   apiKeys?: ApiKeyRecord[]
@@ -12,7 +13,7 @@ type DeleteApiKeyResponse = {
   success?: boolean
 }
 
-const authApiUrl = import.meta.env.VITE_AUTH_BASE_URL || "http://localhost:3000/api/auth"
+const authApiUrl = getAuthBaseUrl()
 
 export async function listApiKeys() {
   const response = await fetch(`${authApiUrl}/api-key/list`, {

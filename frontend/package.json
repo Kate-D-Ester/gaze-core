@@ -4,16 +4,15 @@
   "private": true,
   "packageManager": "bun@1.0.0",
   "scripts": {
-    "build": "turbo build",
-    "dev": "turbo dev",
-    "lint": "turbo lint",
-    "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "build": "bun run --cwd apps/web build",
+    "dev": "bun run --cwd apps/web dev",
+    "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/web lint",
+    "format": "bun run --cwd packages/ui format && bun run --cwd apps/web format",
+    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck"
   },
   "devDependencies": {
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "turbo": "^2.8.17",
     "typescript": "5.9.3"
   },
   "engines": {

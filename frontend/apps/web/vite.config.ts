@@ -7,9 +7,13 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    port: 4001,
     fs: {
       allow: [path.resolve(__dirname, "../..")],
     },
+  },
+  preview: {
+    port: 4001,
   },
   resolve: {
     alias: {

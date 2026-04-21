@@ -21,9 +21,9 @@ export const auth = betterAuth({
     },
   }),
   secret: process.env.BETTER_AUTH_SECRET,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:4000",
   basePath: "/api/auth",
-  trustedOrigins: [(process.env.FRONTEND_URL || "http://localhost:5173")],
+  trustedOrigins: [(process.env.FRONTEND_URL || "http://localhost:4001")],
   session: {
     // Keep users signed in with rolling sessions, but expire after 14 days.
     expiresIn: 60 * 60 * 24 * 14,
@@ -38,7 +38,7 @@ export const auth = betterAuth({
       try {
         console.log(`📧 Sending verification email to: ${verificationUser.email}`)
         
-        const frontendVerifyUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/verify-email?token=${new URL(url).searchParams.get("token")}`
+        const frontendVerifyUrl = `${process.env.FRONTEND_URL || "http://localhost:4001"}/verify-email?token=${new URL(url).searchParams.get("token")}`
 
         const response = await resend.emails.send({
           from: "noreply@gaze.arunya.xyz", // Your domain

@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_BASE_URL = "http://localhost:3000"
+const DEFAULT_BACKEND_BASE_URL = "http://localhost:4000"
 
 export function normalizeBackendBaseUrl(baseUrl?: string) {
   const normalized = (baseUrl?.trim() || DEFAULT_BACKEND_BASE_URL).replace(/\/+$/g, "")
@@ -13,6 +13,10 @@ function buildRouteUrl(baseUrl: string | undefined, routePath: string) {
 
 export function buildTokenRouteUrl(baseUrl?: string) {
   return buildRouteUrl(baseUrl, "/api/gaze/token")
+}
+
+export function buildSessionTokenRouteUrl(baseUrl?: string) {
+  return buildRouteUrl(baseUrl, "/api/gaze/test/validate/uuid")
 }
 
 export function buildGyroSnapshotRouteUrl(baseUrl?: string) {

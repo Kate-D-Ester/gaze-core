@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams, useNavigate } from "react-router-dom"
 import { Button } from "@workspace/ui/components/button"
 import { authClient } from "@/lib/auth-client"
+import { getBackendBaseUrl } from "@/lib/backend-base-url"
 
 type VerifyEmailPageProps = {
   onVerified?: () => void
@@ -24,7 +25,7 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
       }
 
       try {
-        const response = await fetch(`${import.meta.env.VITE_AUTH_BASE_URL || "http://localhost:3000"}/api/auth/verify-email?token=${encodeURIComponent(token)}`, {
+        const response = await fetch(`${getBackendBaseUrl()}/api/auth/verify-email?token=${encodeURIComponent(token)}`, {
           method: "GET",
           credentials: "include",
         })

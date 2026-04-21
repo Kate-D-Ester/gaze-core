@@ -154,7 +154,7 @@ Connect your Vite frontend using **Eden Treaty** for end-to-end type safety:
 import { treaty } from "@elysiajs/eden";
 import type { App } from "../backend/src/index";
 
-const app = treaty<App>("http://localhost:3000");
+const app = treaty<App>("http://localhost:4000");
 
 // Fully typed API calls with autocomplete
 const { data, error } = await app.api.auth.signin.post({

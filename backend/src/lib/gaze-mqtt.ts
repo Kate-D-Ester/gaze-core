@@ -196,6 +196,7 @@ class GazeMqttBridge {
     const normalizedUuid = uuid.trim()
     const requestTimestamp = Date.now()
     const release = await this.retainSubscription(normalizedUuid)
+    const topic = buildGyroTopic(normalizedUuid)
 
     try {
       const latest = this.latestReading(normalizedUuid)
@@ -203,24 +204,28 @@ class GazeMqttBridge {
         return latest
       }
 
-      return await new Promise<GyroReading>((resolve, reject) => {
+      const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 1000
+
+      return await new Promise<GyroReading>((resolve) => {
         const waiters = this.waitersByUuid.get(normalizedUuid) ?? new Set<GyroWaiter>()
         const waiter: GyroWaiter = {
           minTimestamp: requestTimestamp,
           resolve,
-          reject,
+          reject: () => {},
           timeout: setTimeout(() => {
             waiters.delete(waiter)
             if (waiters.size === 0) {
               this.waitersByUuid.delete(normalizedUuid)
             }
-            reject(new Error("Timed out while waiting for the gyro snapshot."))
-          }, timeoutMs),
+            resolve(this.buildZeroGyroReading(topic))
+          }, safeTimeoutMs),
         }
 
         waiters.add(waiter)
         this.waitersByUuid.set(normalizedUuid, waiters)
       })
+    } catch {
+      return this.buildZeroGyroReading(topic)
     } finally {
       release()
     }

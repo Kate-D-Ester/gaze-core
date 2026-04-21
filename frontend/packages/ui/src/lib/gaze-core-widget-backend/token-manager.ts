@@ -1,4 +1,4 @@
-import { buildTokenRouteUrl } from "./routes"
+import { buildSessionTokenRouteUrl, buildTokenRouteUrl } from "./routes"
 import type { CachedAccessToken, GazeAccessTokenResponse } from "./types"
 
 type TokenManagerConfig = {
@@ -6,6 +6,7 @@ type TokenManagerConfig = {
   apiKey?: string
   deviceUuid?: string
   initialToken?: string
+  useSessionTokenIssuer?: boolean
 }
 
 function extractErrorMessage(payload: unknown, fallbackMessage: string) {
@@ -17,7 +18,7 @@ function extractErrorMessage(payload: unknown, fallbackMessage: string) {
   return fallbackMessage
 }
 
-async function requestGazeAccessToken(config: Required<Pick<TokenManagerConfig, "backendBaseUrl" | "apiKey" | "deviceUuid">>) {
+async function requestApiKeyGazeAccessToken(config: Required<Pick<TokenManagerConfig, "backendBaseUrl" | "apiKey" | "deviceUuid">>) {
   const response = await fetch(buildTokenRouteUrl(config.backendBaseUrl), {
     method: "POST",
     headers: {
@@ -47,6 +48,28 @@ async function requestGazeAccessToken(config: Required<Pick<TokenManagerConfig, 
   }
 }
 
+async function requestSessionGazeAccessToken(backendBaseUrl: string) {
+  const response = await fetch(buildSessionTokenRouteUrl(backendBaseUrl), {
+    method: "POST",
+    credentials: "include",
+  })
+
+  const payload = await response.json().catch(() => null) as GazeAccessTokenResponse | { message?: string; error?: string } | null
+  if (!response.ok || !payload || typeof payload !== "object" || !("token" in payload) || typeof payload.token !== "string") {
+    throw new Error(extractErrorMessage(payload, "Unable to issue the websocket access token."))
+  }
+
+  const expiresAt = new Date(payload.expiresAt).getTime()
+  if (!Number.isFinite(expiresAt)) {
+    throw new Error("The backend returned an invalid websocket token expiry.")
+  }
+
+  return {
+    token: payload.token,
+    expiresAt,
+  }
+}
+
 function shouldRefreshToken(tokenState: CachedAccessToken | null) {
   if (!tokenState) return true
   if (tokenState.source === "external") return false
@@ -57,6 +80,10 @@ export class GazeWidgetTokenManager {
   private config: TokenManagerConfig = {}
   private cachedToken: CachedAccessToken | null = null
   private pendingRefresh: Promise<CachedAccessToken> | null = null
+
+  private hasApiKeyIssueConfig() {
+    return Boolean(this.config.apiKey?.trim() && this.config.deviceUuid?.trim())
+  }
 
   updateConfig(config: TokenManagerConfig) {
     this.config = config
@@ -76,11 +103,8 @@ export class GazeWidgetTokenManager {
   }
 
   canIssueToken() {
-    return Boolean(
-      this.config.backendBaseUrl?.trim()
-      && this.config.apiKey?.trim()
-      && this.config.deviceUuid?.trim(),
-    )
+    return Boolean(this.config.backendBaseUrl?.trim())
+      && (this.hasApiKeyIssueConfig() || this.config.useSessionTokenIssuer === true)
   }
 
   canAuthorize() {
@@ -93,8 +117,8 @@ export class GazeWidgetTokenManager {
     }
 
     if (!this.canIssueToken()) {
-      if (this.cachedToken) return this.cachedToken
-      throw new Error("Backend base URL, API key, and device UUID are required for token authorization.")
+      if (this.cachedToken && !forceRefresh) return this.cachedToken
+      throw new Error("A backend base URL and authenticated session or API key configuration are required for token authorization.")
     }
 
     if (!forceRefresh && this.pendingRefresh) {
@@ -102,14 +126,15 @@ export class GazeWidgetTokenManager {
     }
 
     const backendBaseUrl = this.config.backendBaseUrl!.trim()
-    const apiKey = this.config.apiKey!.trim()
-    const deviceUuid = this.config.deviceUuid!.trim()
 
-    this.pendingRefresh = requestGazeAccessToken({
-      backendBaseUrl,
-      apiKey,
-      deviceUuid,
-    }).then((issuedToken) => {
+    this.pendingRefresh = (this.hasApiKeyIssueConfig()
+      ? requestApiKeyGazeAccessToken({
+          backendBaseUrl,
+          apiKey: this.config.apiKey!.trim(),
+          deviceUuid: this.config.deviceUuid!.trim(),
+        })
+      : requestSessionGazeAccessToken(backendBaseUrl)
+    ).then((issuedToken) => {
       const nextToken: CachedAccessToken = {
         token: issuedToken.token,
         expiresAt: issuedToken.expiresAt,

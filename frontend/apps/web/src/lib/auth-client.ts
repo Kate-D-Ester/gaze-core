@@ -1,7 +1,8 @@
 import { createAuthClient } from "better-auth/client"
+import { getAuthBaseUrl } from "@/lib/backend-base-url"
 
 function getApiBaseUrl() {
-  return import.meta.env.VITE_AUTH_BASE_URL || "http://localhost:3000/api/auth"
+  return getAuthBaseUrl()
 }
 
 export const authClient = createAuthClient({

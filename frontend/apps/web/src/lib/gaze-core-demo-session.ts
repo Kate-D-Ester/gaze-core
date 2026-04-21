@@ -31,18 +31,10 @@ function extractErrorMessage(payload: unknown, fallbackMessage: string) {
 
 export async function issueDemoGazeSession(input: {
   backendBaseUrl: string
-  apiKey: string
-  email: string
 }) {
   const response = await fetch(buildTestUuidRouteUrl(input.backendBaseUrl), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      apiKey: input.apiKey,
-      email: input.email,
-    }),
+    credentials: "include",
   })
 
   const payload = await response.json().catch(() => null) as GazeCoreDemoSession | { message?: string; error?: string } | null

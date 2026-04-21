@@ -13,7 +13,7 @@ node_modules
 # Testing
 coverage
 
-# Turbo
+# Turbo cache
 .turbo
 
 # Vercel

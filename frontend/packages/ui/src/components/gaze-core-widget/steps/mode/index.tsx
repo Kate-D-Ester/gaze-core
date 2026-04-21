@@ -65,7 +65,7 @@ export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
           </div>
           {!state.gyroSnapshotConfigured && (
             <p className="text-xs text-muted-foreground">
-              Gyro zero capture needs a backend base URL plus either an API key and device UUID or an already-issued token.
+              Gyro zero capture needs a backend base URL plus an authenticated token flow (session-issued or already issued).
             </p>
           )}
           {state.livePreviewError && (

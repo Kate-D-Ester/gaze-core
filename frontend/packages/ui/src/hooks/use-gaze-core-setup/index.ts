@@ -45,6 +45,7 @@ export type GazeCoreWidgetOptions = {
   deviceUuid?: string
   livePreviewSocketUrl?: string
   livePreviewToken?: string
+  useSessionTokenIssuer?: boolean
   onLivePreviewPoint?: (point: LivePreviewPoint | null) => void
 }
 
@@ -148,6 +149,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
       apiKey: options.apiKey,
       deviceUuid: options.deviceUuid,
       initialToken: options.livePreviewToken,
+      useSessionTokenIssuer: options.useSessionTokenIssuer,
     })
   }, [
     options.apiKey,
@@ -155,6 +157,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     options.deviceUuid,
     options.livePreviewSocketUrl,
     options.livePreviewToken,
+    options.useSessionTokenIssuer,
     options.onLivePreviewPoint,
   ])
 
@@ -386,7 +389,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
 
   async function startLivePreview() {
     if (!hasLivePreviewRequirements()) {
-      setLivePreviewError("Live preview requires a websocket route and a valid access token or API key configuration.")
+      setLivePreviewError("Live preview requires a websocket route and a valid access token configuration.")
       return
     }
     if (!calibrationResult.record?.calibration) {
