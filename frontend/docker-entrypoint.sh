@@ -9,5 +9,3 @@ window.__GAZECORE_CONFIG__ = {
   backendBaseUrl: "$ESCAPED_BACKEND_URL",
 };
 EOF
-
-exec nginx -g 'daemon off;'
