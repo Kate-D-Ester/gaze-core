@@ -8,6 +8,7 @@ import { db } from "@/db";
 import type { VerificationEmailPayload } from "@/types/auth";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+const isProduction = process.env.NODE_ENV === "production";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -24,6 +25,14 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:4000",
   basePath: "/api/auth",
   trustedOrigins: [(process.env.FRONTEND_URL || "http://localhost:4001")],
+  advanced: isProduction
+    ? {
+        defaultCookieAttributes: {
+          sameSite: "none",
+          secure: true,
+        },
+      }
+    : undefined,
   session: {
     // Keep users signed in with rolling sessions, but expire after 14 days.
     expiresIn: 60 * 60 * 24 * 14,
