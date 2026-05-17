@@ -17,7 +17,8 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine AS runner
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 EXPOSE 4001
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/bin/sh", "/docker-entrypoint.sh"]
