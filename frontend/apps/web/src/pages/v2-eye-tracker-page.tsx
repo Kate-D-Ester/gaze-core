@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { GazeCoreWidget } from "@workspace/ui/components/gaze-core-widget"
+import { GazeCoreSparseSamplingWidget } from "@workspace/ui/components/gaze-core-widget"
 import { getGazeCoreDemoConfig } from "@/lib/gaze-core-demo-config"
 import { issueDemoGazeSession, type GazeCoreDemoSession } from "@/lib/gaze-core-demo-session"
 
@@ -9,7 +9,7 @@ async function requestDemoSession(input: {
   return issueDemoGazeSession(input)
 }
 
-export function TestPage() {
+export function V2EyeTrackerPage() {
   const initialConfig = getGazeCoreDemoConfig()
   const [backendBaseUrl, setBackendBaseUrl] = useState(initialConfig.backendBaseUrl)
   const [session, setSession] = useState<GazeCoreDemoSession | null>(null)
@@ -66,9 +66,9 @@ export function TestPage() {
       <section className="border-b bg-card/70 px-6 py-5 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-col gap-4">
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold">GazeCore Eye Tracker V1</h1>
+            <h1 className="text-lg font-semibold">GazeCore Eye Tracker V2</h1>
             <p className="text-sm text-muted-foreground">
-              Issue a token-backed demo session from your signed-in account, then boot the widget with that session.
+              Reuse the signed-in demo session flow, then inspect sparse sampling and the darkest sampled pixel inside the ROI.
             </p>
           </div>
 
@@ -94,7 +94,7 @@ export function TestPage() {
           </form>
 
           <p className="text-xs text-muted-foreground">
-            This flow uses your authenticated backend session to issue access tokens. No frontend API key is required.
+            This page keeps the same authenticated session workflow while swapping the eye-tracker logic to sparse ROI sampling.
           </p>
 
           {error && (
@@ -126,7 +126,7 @@ export function TestPage() {
         </div>
       </section>
 
-      <GazeCoreWidget {...widgetConfig} />
+      <GazeCoreSparseSamplingWidget {...widgetConfig} />
     </main>
   )
 }
