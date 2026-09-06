@@ -31,6 +31,19 @@ function parseGyroPayload(payload: string): Pick<GyroReading, "x" | "y" | "z" | 
   return null
 }
 
+export function buildZeroGyroReading(topic?: string): GyroReading {
+  return {
+    x: 0,
+    y: 0,
+    z: 0,
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    ...(topic ? { topic } : {}),
+    timestamp: Date.now(),
+  }
+}
+
 class GazeMqttBridge {
   private client: MqttClient | null = null
   private connected = false
@@ -192,19 +205,6 @@ class GazeMqttBridge {
     return this.latestReadings.get(uuid.trim()) ?? null
   }
 
-  private buildZeroGyroReading(topic: string): GyroReading {
-    return {
-      x: 0,
-      y: 0,
-      z: 0,
-      yaw: 0,
-      pitch: 0,
-      roll: 0,
-      topic,
-      timestamp: Date.now(),
-    }
-  }
-
   async awaitSnapshot(uuid: string, timeoutMs: number) {
     const normalizedUuid = uuid.trim()
     const requestTimestamp = Date.now()
@@ -230,7 +230,7 @@ class GazeMqttBridge {
             if (waiters.size === 0) {
               this.waitersByUuid.delete(normalizedUuid)
             }
-            resolve(this.buildZeroGyroReading(topic))
+            resolve(buildZeroGyroReading(topic))
           }, safeTimeoutMs),
         }
 
@@ -238,7 +238,7 @@ class GazeMqttBridge {
         this.waitersByUuid.set(normalizedUuid, waiters)
       })
     } catch {
-      return this.buildZeroGyroReading(topic)
+      return buildZeroGyroReading(topic)
     } finally {
       release()
     }

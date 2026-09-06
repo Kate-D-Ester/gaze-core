@@ -296,6 +296,10 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
             sessionInit.gyroZeroSnapshot,
           )
 
+          if (!initializedSession) {
+            throw new Error("Live preview session was closed before initialization completed.")
+          }
+
           sendSocketJson(ws, {
             type: "ack",
             op: "session.init",

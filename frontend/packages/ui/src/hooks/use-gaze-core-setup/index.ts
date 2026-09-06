@@ -9,6 +9,7 @@ import {
 import { buildGyroSnapshotRouteUrl, buildLivePreviewSocketUrl } from "../../lib/gaze-core-widget-backend/routes"
 import { GazeWidgetTokenManager } from "../../lib/gaze-core-widget-backend/token-manager"
 import type { GyroSnapshot } from "../../lib/gaze-core-widget-backend/types"
+import { buildZeroGyroSnapshot, resolveGyroZeroSnapshot } from "../../lib/gaze-core-widget-backend/gyro"
 import { connectLivePreviewSocket, WebSocketAuthorizationError } from "../../lib/gaze-core-widget-backend/websocket"
 import { exitFullscreenSafely, requestFullscreenSafely } from "../../lib/gaze-core-widget-fullscreen"
 import type {
@@ -245,48 +246,59 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
       throw new Error("Run the 9-point calibration before capturing the gyro zero snapshot.")
     }
 
-    if (!options.backendBaseUrl?.trim()) {
-      throw new Error("A backend base URL is required to capture the gyro zero snapshot.")
-    }
-
     setCalibrationError("")
     setCalibrationStatusText("Capturing gyro zero snapshot...")
     setGyroSnapshotPending(true)
 
     try {
-      const response = await tokenManagerRef.current.authorizedFetch(async (token) =>
-        fetch(buildGyroSnapshotRouteUrl(options.backendBaseUrl), {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }),
-      )
+      let snapshot: GyroSnapshot | null = null
+      let usedFallback = false
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null
-        const message = typeof payload?.message === "string"
-          ? payload.message
-          : typeof payload?.error === "string"
-            ? payload.error
-            : "Unable to capture the gyro zero snapshot."
+      try {
+        if (!options.backendBaseUrl?.trim()) {
+          throw new Error("A backend base URL is required to capture the gyro zero snapshot.")
+        }
 
-        throw new Error(message)
+        const response = await tokenManagerRef.current.authorizedFetch(async (token) =>
+          fetch(buildGyroSnapshotRouteUrl(options.backendBaseUrl), {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+        )
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null
+          const message = typeof payload?.message === "string"
+            ? payload.message
+            : typeof payload?.error === "string"
+              ? payload.error
+              : "Unable to capture the gyro zero snapshot."
+
+          throw new Error(message)
+        }
+
+        const payload = await response.json() as {
+          snapshot?: GyroSnapshot
+        }
+
+        snapshot = payload.snapshot ?? null
+        if (!snapshot) {
+          throw new Error("The backend returned an empty gyro zero snapshot.")
+        }
+      } catch {
+        usedFallback = true
+        snapshot = buildZeroGyroSnapshot()
+        setCalibrationError("")
+        setCalibrationStatusText("Gyro unavailable; using eye tracking only.")
       }
 
-      const payload = await response.json() as {
-        snapshot?: GyroSnapshot
-      }
-
-      if (!payload.snapshot) {
-        throw new Error("The backend returned an empty gyro zero snapshot.")
-      }
-
-      const record = buildCalibrationRecord(calibrationData, payload.snapshot)
+      const record = buildCalibrationRecord(calibrationData, resolveGyroZeroSnapshot(snapshot))
       applyCalibrationRecord(record)
       options.onCalibrationRecordReady?.(record)
-      setCalibrationStatusText("")
-      return payload.snapshot
+      if (!usedFallback) setCalibrationStatusText("")
+      return record.gyroZeroSnapshot
     } finally {
       setGyroSnapshotPending(false)
     }
@@ -312,7 +324,6 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
     return (
       hasLivePreviewRequirements()
       && Boolean(calibrationResult.data)
-      && Boolean(calibrationResult.gyroZeroSnapshot)
       && previewActive
       && Boolean(sessionRef.current)
     )
@@ -396,10 +407,6 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
       setLivePreviewError("Run the 9-point calibration before live preview.")
       return
     }
-    if (!calibrationResult.record.gyroZeroSnapshot) {
-      setLivePreviewError("Capture the gyro zero snapshot before starting live preview.")
-      return
-    }
     if (!previewActive) {
       setLivePreviewError("Start camera preview first so gaze vectors are available.")
       return
@@ -438,7 +445,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
       socket.send(JSON.stringify({
         type: "session.init",
         calibration: calibrationResult.record.calibration,
-        gyroZeroSnapshot: calibrationResult.record.gyroZeroSnapshot,
+        gyroZeroSnapshot: resolveGyroZeroSnapshot(calibrationResult.record.gyroZeroSnapshot),
       }))
 
       socket.onmessage = (event: MessageEvent<string>) => {
@@ -882,7 +889,7 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
   const calibrationTargetTransform = calibPoint
     ? getCalibrationTargetTransform(calibPoint, calibrationViewport.width, calibrationViewport.height)
     : "translate(-50%, -50%)"
-  const gyroZeroReady = Boolean(calibrationResult.gyroZeroSnapshot)
+  const gyroZeroReady = Boolean(calibrationResult.gyroZeroSnapshot || calibrationResult.data)
   const tokenAuthorizationReady = hasTokenAuthorizationConfig()
   const gyroSnapshotConfigured = hasGyroSnapshotRequirements()
   const livePreviewSocketRouteReady = hasLivePreviewSocketRoute()
@@ -951,6 +958,4 @@ export function useGazeCoreSetupWidget(options: GazeCoreWidgetOptions = {}) {
 }
 
 export type GazeCoreSetupState = ReturnType<typeof useGazeCoreSetupWidget>
-
-
 

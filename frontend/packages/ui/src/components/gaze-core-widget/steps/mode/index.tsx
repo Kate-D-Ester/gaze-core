@@ -53,11 +53,11 @@ export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
 
         <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
           <p className="text-muted-foreground">
-            Live preview needs calibration JSON, a gyro zero snapshot, live gaze vectors, token authorization, and a websocket route.
+            Live preview needs calibration JSON, live gaze vectors, token authorization, and a websocket route. Gyro data is optional.
           </p>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <RequirementStatus label="Calibration JSON" ready={Boolean(state.calibrationResult.data)} />
-            <RequirementStatus label="Gyro Zero" ready={state.gyroZeroReady} />
+            <RequirementStatus label="Gyro Zero (optional)" ready={state.gyroZeroReady} />
             <RequirementStatus label="Gaze Stream" ready={state.previewActive} />
             <RequirementStatus label="Token/Auth" ready={state.tokenAuthorizationReady} />
             <RequirementStatus label="WS Route" ready={state.livePreviewSocketRouteReady} />
@@ -65,7 +65,7 @@ export function ModeStep({ state }: { state: GazeCoreWidgetState }) {
           </div>
           {!state.gyroSnapshotConfigured && (
             <p className="text-xs text-muted-foreground">
-              Gyro zero capture needs a backend base URL plus an authenticated token flow (session-issued or already issued).
+              If gyro capture is unavailable, live preview automatically uses a zero gyro snapshot and eye tracking continues normally.
             </p>
           )}
           {state.livePreviewError && (

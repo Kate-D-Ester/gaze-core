@@ -26,7 +26,7 @@ export function buildGyroSnapshotRouteUrl(baseUrl?: string) {
 export function buildLivePreviewSocketUrl(baseUrl?: string, overrideSocketUrl?: string) {
   if (overrideSocketUrl?.trim()) return overrideSocketUrl.trim()
 
-  const url = new URL("/api/gaze/ws", `${normalizeBackendBaseUrl(baseUrl)}/`)
+  const url = new URL("/api/gaze/screen/ws", `${normalizeBackendBaseUrl(baseUrl)}/`)
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
   return url.toString()
 }
