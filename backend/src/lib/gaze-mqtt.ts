@@ -192,6 +192,19 @@ class GazeMqttBridge {
     return this.latestReadings.get(uuid.trim()) ?? null
   }
 
+  private buildZeroGyroReading(topic: string): GyroReading {
+    return {
+      x: 0,
+      y: 0,
+      z: 0,
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      topic,
+      timestamp: Date.now(),
+    }
+  }
+
   async awaitSnapshot(uuid: string, timeoutMs: number) {
     const normalizedUuid = uuid.trim()
     const requestTimestamp = Date.now()
