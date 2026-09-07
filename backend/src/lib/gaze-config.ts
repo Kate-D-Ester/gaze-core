@@ -45,6 +45,19 @@ export function buildGyroTopic(uuid: string) {
 
 export function buildWebSocketUrlFromRequest(request: Request) {
   const url = new URL(request.url)
+
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase()
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+
+  if (forwardedProto === "http" || forwardedProto === "https") {
+    url.protocol = `${forwardedProto}:`
+  }
+  if (forwardedHost) {
+    const publicOrigin = new URL(`http://${forwardedHost}`)
+    url.hostname = publicOrigin.hostname
+    url.port = publicOrigin.port
+  }
+
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
   url.pathname = gazeConfig.websocketPath
   url.search = ""
