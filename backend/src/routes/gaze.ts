@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia"
 import { validateGazeApiKey, GazeApiKeyError } from "../lib/gaze-api-key"
 import { buildWebSocketUrlFromRequest, gazeConfig } from "../lib/gaze-config"
+import { startOptionalGyroSubscription } from "../lib/gaze-websocket"
 import { solveGazePoint } from "../lib/gaze-fusion"
 import { gazeMqttBridge } from "../lib/gaze-mqtt"
 import { gazeSessionStore } from "../lib/gaze-session-store"
@@ -255,21 +256,30 @@ export const gazeRoutes = new Elysia({ prefix: "/gaze" })
         gazeSessionStore.rememberIssuedToken(claims)
         gazeSessionStore.openSession(ws.id, claims)
 
-        let releaseGyroSubscription: (() => void) | null = null
-        try {
-          releaseGyroSubscription = await gazeMqttBridge.retainSubscription(claims.uuid)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "unknown error"
-          console.warn(`[GAZE] MQTT subscription unavailable for ${claims.uuid}. Falling back to zero gyro.`, message)
-        }
-
-        gazeSessionStore.setGyroRelease(ws.id, releaseGyroSubscription)
-
         sendSocketJson(ws, {
           type: "connected",
           uuid: claims.uuid,
           sessionId: ws.id,
         })
+
+        startOptionalGyroSubscription(
+          () => gazeMqttBridge.retainSubscription(claims.uuid),
+          (releaseGyroSubscription) => {
+            const activeSession = gazeSessionStore.getSession(ws.id)
+            if (!activeSession) {
+              releaseGyroSubscription()
+              return
+            }
+            gazeSessionStore.setGyroRelease(ws.id, releaseGyroSubscription)
+          },
+          (error) => {
+            const message = error instanceof Error ? error.message : "unknown error"
+            console.warn(
+              `[GAZE] MQTT subscription unavailable for ${claims.uuid}. Falling back to zero gyro.`,
+              message,
+            )
+          },
+        )
       } catch (error) {
         const reason = error instanceof Error ? error.message : "Unable to open live preview session."
         ws.close(4401, reason)
