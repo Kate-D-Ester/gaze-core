@@ -1,6 +1,7 @@
 import { LiveControls } from "@/features/eye-tracking/steps/live-controls"
 import { CalibrationControls } from "@/features/eye-tracking/steps/calibration-controls"
 import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
+import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
 import { PupilControls } from "@/features/eye-tracking/steps/pupil-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
@@ -343,6 +344,13 @@ export function V2Page() {
               </button>
             )}
           </div>
+          <ThresholdControls
+            tracker={tracker}
+            update={(next) => {
+              update(next)
+              if (step > 2) setStep(2)
+            }}
+          />
           <EyePreview
             tracker={tracker}
             selectRegion={step === 1}
@@ -434,9 +442,7 @@ export function V2Page() {
               chooseRegion={chooseRegion}
             />
           )}
-          {step === 2 && (
-            <PupilControls tracker={tracker} update={update} usable={usable} />
-          )}
+          {step === 2 && <PupilControls tracker={tracker} usable={usable} />}
           {step === 3 && (
             <ModelControls
               tracker={tracker}

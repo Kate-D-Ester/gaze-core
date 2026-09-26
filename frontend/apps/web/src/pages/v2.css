@@ -1131,6 +1131,30 @@
 .eye-pipeline-details summary > span {
   font-size: 9px;
 }
+.eye-threshold-controls {
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+.eye-threshold-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.eye-threshold-heading strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.eye-threshold-controls .eye-field {
+  margin: 6px 0 0;
+  gap: 3px;
+}
+.eye-threshold-controls .eye-threshold-levels {
+  margin: 3px 0 0;
+}
 .eye-threshold-modes {
   display: flex;
   gap: 4px;
@@ -1138,7 +1162,7 @@
   border: 1px solid var(--line);
   background: var(--muted);
   border-radius: 6px;
-  margin: 14px 0 8px;
+  margin: 0;
 }
 .eye-threshold-modes button {
   flex: 1;
