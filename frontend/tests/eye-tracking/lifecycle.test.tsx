@@ -136,3 +136,24 @@ test("source dimensions survive ROI invalidation before a new frame arrives", as
   expect((controller as any).dimensions).toEqual({ width: 640, height: 360 })
   expect(controller.frame).toBeNull()
 })
+
+test("high-resolution camera frames retain eye detail before ROI cropping", async () => {
+  Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+    configurable: true,
+    get: () => 1920,
+  })
+  Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+    configurable: true,
+    get: () => 1080,
+  })
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("")
+  })
+  await act(async () => resolveCamera(stream()))
+  await act(async () => {
+    resolvePlay()
+    await pending!
+  })
+  expect(controller.dimensions).toEqual({ width: 1280, height: 720 })
+})

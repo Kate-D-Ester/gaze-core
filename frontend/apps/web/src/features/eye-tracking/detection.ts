@@ -96,12 +96,98 @@ function validEllipse(e: Ellipse, width: number, height: number): boolean {
     e.center[1] < height - e.major * 0.2
   )
 }
+/** Between-class variance gives a second intensity estimate when a lash is darkest. */
+function otsuThreshold(gray: Uint8Array): number {
+  const histogram = new Uint32Array(256)
+  let total = 0
+  for (const value of gray) {
+    histogram[value]++
+    total += value
+  }
+  let count = 0,
+    sum = 0,
+    best = -1,
+    threshold = 0
+  for (let value = 0; value < 255; value++) {
+    count += histogram[value]
+    sum += value * histogram[value]
+    if (!count || count === gray.length) continue
+    const difference = sum / count - (total - sum) / (gray.length - count)
+    const variance = count * (gray.length - count) * difference ** 2
+    if (variance > best) {
+      best = variance
+      threshold = value
+    }
+  }
+  return threshold
+}
+function pupilContrast(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  e: Ellipse
+) {
+  let inside = 0,
+    outside = 0,
+    ni = 0,
+    no = 0
+  const interior = new Uint32Array(256)
+  const c = Math.cos(e.angle),
+    s = Math.sin(e.angle)
+  const step = Math.max(1, Math.floor(e.minor / 8))
+  const r = Math.ceil(e.major * 1.65)
+  for (
+    let y = Math.max(0, Math.floor(e.center[1] - r));
+    y < Math.min(height, e.center[1] + r);
+    y += step
+  )
+    for (
+      let x = Math.max(0, Math.floor(e.center[0] - r));
+      x < Math.min(width, e.center[0] + r);
+      x += step
+    ) {
+      const dx = x - e.center[0],
+        dy = y - e.center[1]
+      const q =
+        ((c * dx + s * dy) / e.major) ** 2 + ((-s * dx + c * dy) / e.minor) ** 2
+      if (q < 0.64) {
+        inside += gray[y * width + x]
+        interior[gray[y * width + x]]++
+        ni++
+      } else if (q > 1.15 ** 2 && q < 1.65 ** 2) {
+        outside += gray[y * width + x]
+        no++
+      }
+    }
+  if (!ni || !no) return { contrast: 0, homogeneity: 0 }
+  let count = 0,
+    low = -1,
+    high = 255
+  for (let value = 0; value < 256; value++) {
+    count += interior[value]
+    if (low < 0 && count >= ni * 0.2) low = value
+    if (count >= ni * 0.8) {
+      high = value
+      break
+    }
+  }
+  // Trimmed intensity spread tolerates small glints, but penalizes an iris enclosing a darker pupil.
+  return {
+    contrast: outside / no - inside / ni,
+    homogeneity: 1 / (1 + (high - low) / 35),
+  }
+}
+export type PupilDetectionOptions = {
+  thresholdMode?: "auto" | "manual"
+  previous?: Ellipse | null
+}
 export function detectSpatialPupil(
   cv: CV,
   gray: Uint8Array,
   width: number,
   height: number,
-  thresholdOffset: number
+  thresholdOffset: number,
+  options: PupilDetectionOptions = {}
 ): Detection {
   const result: Detection = {
     ellipse: null,
@@ -114,60 +200,49 @@ export function detectSpatialPupil(
   }
   if (width < 24 || height < 24 || gray.length !== width * height)
     return { ...result, reason: "Select a larger eye region" }
-  let min = 255,
-    max = 0
-  for (const v of gray) {
-    min = Math.min(min, v)
-    max = Math.max(max, v)
-  }
-  if (max - min < 18) return { ...result, reason: "More pupil contrast needed" }
   const patch = darkestPatch(gray, width, height)
   if (!patch) return result
   result.seed = patch.point
+  const otsu = otsuThreshold(gray)
+  const thresholds =
+    options.thresholdMode === "manual"
+      ? [Math.round(Math.max(0, Math.min(255, thresholdOffset)))]
+      : [5, 15, 25].map((delta, index) =>
+          Math.round(
+            Math.max(
+              0,
+              Math.min(
+                245,
+                Math.max(patch.value + delta, otsu * [0.55, 0.8, 1][index]) +
+                  thresholdOffset
+              )
+            )
+          )
+        )
   const owned: { delete(): void }[] = []
-  const own = <T extends { delete(): void }>(mat: T): T => {
-    owned.push(mat)
-    return mat
+  const own = <T extends { delete(): void }>(value: T): T => {
+    owned.push(value)
+    return value
   }
   try {
     const scale = Math.min(width, height) / 480
-    const kernel = own(cv.Mat.ones(3, 3, cv.CV_8U))
-    let best = 0
-    for (const [index, delta] of [5, 15, 25].entries()) {
-      const threshold = Math.min(
-        245,
-        Math.max(0, patch.value + delta + thresholdOffset)
-      )
-      const data = new Uint8Array(gray.length),
-        half = Math.min(
-          Math.min(width, height) * 0.48,
-          125 * Math.max(0.7, scale)
-        )
-      for (let y = 0; y < height; y++)
-        for (let x = 0; x < width; x++)
-          if (
-            Math.abs(x - patch.point[0]) <= half &&
-            Math.abs(y - patch.point[1]) <= half &&
-            gray[y * width + x] <= threshold
-          )
-            data[y * width + x] = 255
-      const source = own(
-          cv.matFromArray(height, width, cv.CV_8UC1, Array.from(data))
-        ),
-        mask = own(new cv.Mat())
-      cv.dilate(
-        source,
-        mask,
-        kernel,
-        new cv.Point(-1, -1),
-        Math.max(1, Math.round(scale * 4))
+    let best = -Infinity
+    for (const [index, threshold] of thresholds.entries()) {
+      // Segment the ENTIRE user-selected ROI. No moving window around a dark lash.
+      const data = Uint8Array.from(gray, (value) =>
+        value <= threshold ? 255 : 0
       )
       result.previews.push({
-        label: ["Strict", "Balanced", "Relaxed"][index],
-        threshold: Math.round(threshold),
-        mask: new Uint8Array(mask.data),
+        label:
+          options.thresholdMode === "manual"
+            ? "Manual"
+            : ["Strict", "Balanced", "Relaxed"][index],
+        threshold,
+        mask: data,
         score: 0,
       })
+      const mask = own(new cv.Mat(height, width, cv.CV_8UC1))
+      mask.data.set(data)
       const contours = own(new cv.MatVector()),
         hierarchy = own(new cv.Mat())
       cv.findContours(
@@ -177,11 +252,9 @@ export function detectSpatialPupil(
         cv.RETR_EXTERNAL,
         cv.CHAIN_APPROX_NONE
       )
-      let largest: ReturnType<CV["matFromArray"]> | null = null,
-        area = 0
       for (let i = 0; i < contours.size(); i++) {
         const contour = own(contours.get(i)),
-          a = cv.contourArea(contour),
+          area = cv.contourArea(contour),
           box = cv.boundingRect(contour)
         if (
           box.x <= 1 ||
@@ -191,57 +264,77 @@ export function detectSpatialPupil(
         )
           continue
         if (
-          a < Math.max(35, 1000 * scale * scale) ||
-          a > width * height * 0.35 ||
-          Math.max(box.width / box.height, box.height / box.width) > 3 ||
+          area < 28 ||
+          area > width * height * 0.45 ||
+          Math.max(box.width / box.height, box.height / box.width) > 4 ||
           contour.rows < 6
         )
           continue
-        if (a > area) {
-          largest = contour
-          area = a
+        const points: Point[] = []
+        for (let j = 0; j < contour.data32S.length; j += 2)
+          points.push([contour.data32S[j], contour.data32S[j + 1]])
+        const initial = convertEllipse(cv.fitEllipse(contour))
+        if (!validEllipse(initial, width, height)) continue
+        const refined = refineContour(points)
+        if (refined.length < 6 || refined.length < points.length * 0.35)
+          continue
+        const refinedMat = own(
+          cv.matFromArray(refined.length, 1, cv.CV_32FC2, refined.flat())
+        )
+        const fitted = convertEllipse(cv.fitEllipse(refinedMat))
+        if (!validEllipse(fitted, width, height)) continue
+        const tolerance = Math.max(1.5, 4 * scale)
+        const fill = Math.min(1, area / (Math.PI * fitted.major * fitted.minor))
+        fitted.confidence = Math.min(
+          fill,
+          points.filter((p) => edgeError(p, fitted) <= tolerance).length /
+            points.length
+        )
+        const { contrast, homogeneity } = pupilContrast(
+          gray,
+          width,
+          height,
+          fitted
+        )
+        if (fitted.confidence < 0.65 || contrast < 8) continue
+        result.previews[index].score = Math.max(
+          result.previews[index].score,
+          fitted.confidence
+        )
+        // Comparable, dimensionless scores: large shadows no longer win by area².
+        let score =
+          fitted.confidence *
+          (0.65 + 0.35 * Math.min(1, contrast / 100)) *
+          homogeneity
+        if (options.previous) {
+          const previous = options.previous
+          const distance = Math.hypot(
+            fitted.center[0] - previous.center[0],
+            fitted.center[1] - previous.center[1]
+          )
+          const position = Math.exp(
+            -0.5 *
+              (distance /
+                Math.max(previous.major * 2, Math.min(width, height) * 0.1)) **
+                2
+          )
+          const size = Math.exp(
+            -2 * Math.abs(Math.log(fitted.major / previous.major))
+          )
+          score *= 0.35 + 0.65 * position * size
         }
+        if (score <= best) continue
+        best = score
+        result.selected = index
+        result.contour = points
+        result.refined = refined
+        result.ellipse = fitted
+        result.reason =
+          fitted.confidence >= 0.82 ? "Pupil found" : "Pupil fit is weak"
       }
-      if (!largest) continue
-      const points: Point[] = []
-      for (let i = 0; i < largest.data32S.length; i += 2)
-        points.push([largest.data32S[i], largest.data32S[i + 1]])
-      const initial = convertEllipse(cv.fitEllipse(largest))
-      if (!validEllipse(initial, width, height)) continue
-      const tolerance = Math.max(1.5, 4 * scale)
-      const overlap =
-        points.filter((p) => edgeError(p, initial) <= tolerance).length /
-        points.length
-      const fill = Math.min(1, area / (Math.PI * initial.major * initial.minor))
-      const score =
-        fill *
-        points.filter((p) => edgeError(p, initial) <= tolerance * 2.5).length **
-          2 *
-        overlap
-      result.previews[index].score = overlap
-      if (score <= best) continue
-      const refined = refineContour(points)
-      if (refined.length < 6 || refined.length < points.length * 0.35) continue
-      const refinedMat = own(
-        cv.matFromArray(refined.length, 1, cv.CV_32FC2, refined.flat())
-      )
-      const fitted = convertEllipse(cv.fitEllipse(refinedMat))
-      if (!validEllipse(fitted, width, height)) continue
-      // Confidence describes the FINAL fit, not an earlier threshold candidate.
-      fitted.confidence = Math.min(
-        fill,
-        points.filter((p) => edgeError(p, fitted) <= tolerance).length /
-          points.length
-      )
-      if (fitted.confidence < 0.65) continue
-      best = score
-      result.selected = index
-      result.contour = points
-      result.refined = refined
-      result.ellipse = fitted
-      result.reason =
-        fitted.confidence >= 0.85 ? "Pupil found" : "Pupil fit is weak"
     }
+    if (result.selected < 0 && result.previews.length)
+      result.selected = options.thresholdMode === "manual" ? 0 : 1
     return result
   } finally {
     for (let i = owned.length - 1; i >= 0; i--) owned[i].delete()

@@ -1,7 +1,37 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react"
-import { Camera, ScanEye } from "lucide-react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react"
+import { Camera, Crop, ScanEye } from "lucide-react"
 import type { TrackerController } from "./use-tracker"
 import type { Ellipse, Point, Rect, TrackingFrame } from "./types"
+import {
+  moveRegion,
+  regionFromPoints,
+  resizeRegion,
+  type ResizeHandle,
+} from "./roi"
+
+const HANDLES: { handle: ResizeHandle; label: string; x: number; y: number }[] =
+  [
+    { handle: "nw", label: "top left", x: 0, y: 0 },
+    { handle: "n", label: "top", x: 50, y: 0 },
+    { handle: "ne", label: "top right", x: 100, y: 0 },
+    { handle: "e", label: "right", x: 100, y: 50 },
+    { handle: "se", label: "bottom right", x: 100, y: 100 },
+    { handle: "s", label: "bottom", x: 50, y: 100 },
+    { handle: "sw", label: "bottom left", x: 0, y: 100 },
+    { handle: "w", label: "left", x: 0, y: 50 },
+  ]
+type RegionGesture = {
+  pointerId: number
+  start: Point
+  region: Rect
+  mode: "draw" | "move" | ResizeHandle
+}
 
 function drawEllipse(
   ctx: CanvasRenderingContext2D,
@@ -23,24 +53,31 @@ function drawEllipse(
   )
   ctx.stroke()
 }
+
 export function EyePreview({
   tracker,
   selectRegion,
   selectCorners,
   onRegion,
   onCorner,
+  onEditRegion,
 }: {
   tracker: TrackerController
   selectRegion: boolean
   selectCorners: boolean
   onRegion: (roi: Rect) => void
   onCorner: (p: Point) => void
+  onEditRegion?: () => void
 }) {
-  const ref = useRef<HTMLCanvasElement>(null),
-    start = useRef<Point | null>(null)
+  const ref = useRef<HTMLCanvasElement>(null)
+  const gesture = useRef<RegionGesture | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
-  const frame = tracker.frame,
-    roi = tracker.settings.roi
+  const [redraw, setRedraw] = useState(false)
+  const [view, setView] = useState<"image" | "threshold">("image")
+  const { frame, dimensions } = tracker
+  const roi = tracker.settings.roi
+  const displayRegion = selection ?? roi
+
   useEffect(() => {
     const canvas = ref.current,
       source = tracker.sourceCanvas.current
@@ -51,6 +88,23 @@ export function EyePreview({
     if (!ctx) return
     const colors = getComputedStyle(canvas)
     ctx.drawImage(source, 0, 0)
+    const preview = frame?.detection.previews[frame.detection.selected]
+    if (view === "threshold") {
+      ctx.fillStyle = "#111111"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (preview && frame) {
+        const image = ctx.createImageData(frame.roi.width, frame.roi.height)
+        for (let i = 0; i < preview.mask.length; i++) {
+          const j = i * 4
+          image.data[j] =
+            image.data[j + 1] =
+            image.data[j + 2] =
+              preview.mask[i]
+          image.data[j + 3] = 255
+        }
+        ctx.putImageData(image, frame.roi.x, frame.roi.y)
+      }
+    }
     const rect = selection ?? roi
     ctx.fillStyle = "rgba(0,0,0,.42)"
     ctx.beginPath()
@@ -77,7 +131,7 @@ export function EyePreview({
       ctx.arc(p[0] + roi.x, p[1] + roi.y, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
-    if (frame?.model) {
+    if (frame?.model && view === "image") {
       const m = frame.model
       ctx.strokeStyle = colors.getPropertyValue("--eye-sphere")
       ctx.lineWidth = 1
@@ -114,17 +168,19 @@ export function EyePreview({
     roi,
     selection,
     selectRegion,
+    view,
   ])
-  function point(event: PointerEvent<HTMLCanvasElement>): Point {
-    const canvas = event.currentTarget,
-      b = canvas.getBoundingClientRect()
+
+  function point(event: PointerEvent<HTMLElement>): Point {
+    const canvas = ref.current!
+    const box = canvas.getBoundingClientRect()
     return [
       Math.round(
         Math.max(
           0,
           Math.min(
-            canvas.width,
-            ((event.clientX - b.left) * canvas.width) / b.width
+            dimensions.width,
+            ((event.clientX - box.left) * dimensions.width) / box.width
           )
         )
       ),
@@ -132,23 +188,102 @@ export function EyePreview({
         Math.max(
           0,
           Math.min(
-            canvas.height,
-            ((event.clientY - b.top) * canvas.height) / b.height
+            dimensions.height,
+            ((event.clientY - box.top) * dimensions.height) / box.height
           )
         )
       ),
     ]
   }
-  function updateSelection(p: Point) {
-    if (!start.current) return null
-    const a = start.current
-    return {
-      x: Math.min(a[0], p[0]),
-      y: Math.min(a[1], p[1]),
-      width: Math.abs(p[0] - a[0]),
-      height: Math.abs(p[1] - a[1]),
+  function beginGesture(
+    event: PointerEvent<HTMLElement>,
+    handle?: ResizeHandle
+  ) {
+    if (event.button !== 0 || gesture.current) return
+    const p = point(event)
+    if (selectCorners && !selectRegion) {
+      onCorner(p)
+      return
     }
+    if (!selectRegion) return
+    event.preventDefault()
+    const inside =
+      p[0] >= roi.x &&
+      p[0] <= roi.x + roi.width &&
+      p[1] >= roi.y &&
+      p[1] <= roi.y + roi.height
+    gesture.current = {
+      pointerId: event.pointerId,
+      start: p,
+      region: roi,
+      mode: handle ?? (redraw || !inside ? "draw" : "move"),
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.currentTarget.focus()
   }
+  function nextRegion(event: PointerEvent<HTMLElement>) {
+    const current = gesture.current
+    if (!current || current.pointerId !== event.pointerId) return null
+    const p = point(event),
+      delta: Point = [p[0] - current.start[0], p[1] - current.start[1]]
+    if (current.mode === "draw")
+      return regionFromPoints(current.start, p, dimensions)
+    if (current.mode === "move")
+      return moveRegion(current.region, delta, dimensions)
+    return resizeRegion(current.region, current.mode, delta, dimensions)
+  }
+  function commitRegion(next: Rect) {
+    if (
+      next.x !== roi.x ||
+      next.y !== roi.y ||
+      next.width !== roi.width ||
+      next.height !== roi.height
+    )
+      onRegion(next)
+  }
+  function cancelGesture() {
+    gesture.current = null
+    setSelection(null)
+  }
+  function finishGesture(event: PointerEvent<HTMLElement>) {
+    const current = gesture.current,
+      next = nextRegion(event)
+    if (!current || !next) return
+    const p = point(event)
+    const moved =
+      Math.hypot(p[0] - current.start[0], p[1] - current.start[1]) >= 2
+    cancelGesture()
+    setRedraw(false)
+    if (moved) commitRegion(next)
+  }
+  function editWithKeyboard(
+    event: KeyboardEvent<HTMLElement>,
+    handle?: ResizeHandle
+  ) {
+    if (!selectRegion) return
+    if (event.key === "Escape") {
+      cancelGesture()
+      setRedraw(false)
+      return
+    }
+    const direction: Record<string, Point> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }
+    const delta = direction[event.key]
+    if (!delta) return
+    event.preventDefault()
+    const amount = event.altKey ? 10 : 1
+    const change: Point = [delta[0] * amount, delta[1] * amount]
+    commitRegion(
+      handle || event.shiftKey
+        ? resizeRegion(roi, handle ?? "se", change, dimensions)
+        : moveRegion(roi, change, dimensions)
+    )
+  }
+
   return (
     <div className="eye-preview">
       <div className="eye-preview-heading">
@@ -156,51 +291,120 @@ export function EyePreview({
           <span
             className={tracker.source ? "status-light on" : "status-light"}
           />
-          {tracker.source ? "Camera view" : "Preview"}
+          {tracker.source ? "Eye view" : "Preview"}
         </span>
-        <span>
-          {tracker.source?.kind === "sample"
-            ? "SIMULATED INPUT"
-            : tracker.source
-              ? "LOCAL PROCESSING"
-              : "NO SOURCE"}
-        </span>
+        {tracker.source && (
+          <div className="eye-preview-tools">
+            <div
+              className="eye-preview-switch"
+              role="group"
+              aria-label="Preview display"
+            >
+              <button
+                aria-pressed={view === "image"}
+                onClick={() => setView("image")}
+              >
+                Image
+              </button>
+              <button
+                aria-pressed={view === "threshold"}
+                onClick={() => setView("threshold")}
+              >
+                Threshold
+              </button>
+            </div>
+            <button
+              className={`eye-roi-edit ${selectRegion ? "active" : ""}`}
+              aria-pressed={selectRegion}
+              onClick={() => {
+                setRedraw(false)
+                onEditRegion?.()
+                ref.current?.focus()
+              }}
+            >
+              <Crop size={13} />
+              Edit ROI
+            </button>
+          </div>
+        )}
       </div>
       {tracker.source ? (
-        <canvas
-          ref={ref}
-          aria-label="Eye camera preview. Drag to select an eye region."
-          className={selectRegion || selectCorners ? "selectable" : ""}
-          onPointerDown={(event) => {
-            if (selectCorners) {
-              onCorner(point(event))
-              return
-            }
-            if (!selectRegion) return
-            start.current = point(event)
-            event.currentTarget.setPointerCapture(event.pointerId)
-          }}
-          onPointerMove={(event) => {
-            if (start.current) setSelection(updateSelection(point(event)))
-          }}
-          onPointerCancel={() => {
-            start.current = null
-            setSelection(null)
-          }}
-          onPointerUp={(event) => {
-            const rect = updateSelection(point(event))
-            start.current = null
-            setSelection(null)
-            if (rect && rect.width >= 24 && rect.height >= 24) onRegion(rect)
-          }}
-        />
+        <>
+          {selectRegion && (
+            <div className="eye-roi-toolbar">
+              <span>
+                {redraw ? "Draw a new box" : "Drag to move · handles to resize"}
+              </span>
+              <button aria-pressed={redraw} onClick={() => setRedraw(!redraw)}>
+                Redraw
+              </button>
+            </div>
+          )}
+          <div
+            className="eye-preview-image"
+            style={{ maxWidth: dimensions.width }}
+            onPointerMove={(event) => {
+              const next = nextRegion(event)
+              if (next) setSelection(next)
+            }}
+            onPointerUp={finishGesture}
+            onPointerCancel={cancelGesture}
+            onLostPointerCapture={cancelGesture}
+          >
+            <canvas
+              ref={ref}
+              width={dimensions.width}
+              height={dimensions.height}
+              aria-label={
+                selectRegion
+                  ? "Eye region editor. Arrow keys move; Shift and arrows resize; Alt uses 10 pixel steps."
+                  : "Eye camera preview"
+              }
+              tabIndex={selectRegion ? 0 : undefined}
+              className={
+                selectRegion
+                  ? redraw
+                    ? "selectable"
+                    : "movable"
+                  : selectCorners
+                    ? "selectable"
+                    : ""
+              }
+              onPointerDown={(event) => beginGesture(event)}
+              onKeyDown={(event) => editWithKeyboard(event)}
+            />
+            {selectRegion && !redraw && (
+              <div
+                className="eye-roi-overlay"
+                style={{
+                  left: `${(displayRegion.x / dimensions.width) * 100}%`,
+                  top: `${(displayRegion.y / dimensions.height) * 100}%`,
+                  width: `${(displayRegion.width / dimensions.width) * 100}%`,
+                  height: `${(displayRegion.height / dimensions.height) * 100}%`,
+                }}
+              >
+                {HANDLES.map(({ handle, label, x, y }) => (
+                  <button
+                    key={handle}
+                    className={`eye-roi-handle ${handle}`}
+                    aria-label={`Resize ROI ${label}`}
+                    title={`Resize ${label}; arrow keys adjust`}
+                    style={{ left: `${x}%`, top: `${y}%` }}
+                    onPointerDown={(event) => beginGesture(event, handle)}
+                    onKeyDown={(event) => editWithKeyboard(event, handle)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       ) : (
         <div className="eye-preview-empty">
           <div className="eye-camera-outline">
             <Camera size={30} strokeWidth={1.2} />
           </div>
-          <h2>A clear view starts here.</h2>
-          <p>Connect an eye camera or explore the sample.</p>
+          <h2>Connect an eye camera</h2>
+          <p>Or open a video or sample.</p>
           <span className="eye-viewfinder-corner tl" />
           <span className="eye-viewfinder-corner tr" />
           <span className="eye-viewfinder-corner bl" />
@@ -210,14 +414,17 @@ export function EyePreview({
       <div className="eye-preview-footer">
         <span>
           {selectRegion
-            ? "Drag a box around one eye"
+            ? `${displayRegion.width} × ${displayRegion.height} px · ${displayRegion.x}, ${displayRegion.y}`
             : selectCorners
-              ? "Select the inner and outer eye corners"
-              : (frame?.detection.reason ?? "Your camera stays on this device")}
+              ? "Select both eye corners"
+              : (frame?.detection.reason ??
+                (view === "threshold"
+                  ? "Waiting for threshold image"
+                  : "Local processing"))}
         </span>
         <span>
           {frame
-            ? `${frame.width} × ${frame.height} · ${Math.round(frame.processingMs)} ms / frame`
+            ? `${frame.width} × ${frame.height} · ${Math.round(frame.processingMs)} ms`
             : "—"}
         </span>
       </div>

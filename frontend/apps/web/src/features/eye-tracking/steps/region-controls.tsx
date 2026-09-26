@@ -1,6 +1,8 @@
-import { ChevronDown } from "lucide-react"
+import { useState } from "react"
+import { ChevronDown, Maximize } from "lucide-react"
 import type { Rect } from "../types"
 import type { TrackerController } from "../use-tracker"
+import { clampRegion, MIN_REGION_SIZE } from "../roi"
 
 export function RegionControls({
   tracker,
@@ -13,76 +15,126 @@ export function RegionControls({
   onConfirm: (value: boolean) => void
   chooseRegion: (roi: Rect) => void
 }) {
-  const { settings } = tracker
+  const roi = tracker.settings.roi
+  const [edit, setEdit] = useState<{
+    original: Rect
+    values: Record<keyof Rect, string>
+  } | null>(null)
+  const values =
+    edit?.original === roi
+      ? edit.values
+      : {
+          x: String(roi.x),
+          y: String(roi.y),
+          width: String(roi.width),
+          height: String(roi.height),
+        }
+  const next = clampRegion(
+    {
+      x: Number(values.x),
+      y: Number(values.y),
+      width: Number(values.width),
+      height: Number(values.height),
+    },
+    tracker.dimensions
+  )
+  const changed =
+    next.x !== roi.x ||
+    next.y !== roi.y ||
+    next.width !== roi.width ||
+    next.height !== roi.height
+  const dirty = Object.keys(values).some(
+    (key) => values[key as keyof Rect] !== String(roi[key as keyof Rect])
+  )
   return (
     <>
-      <h3>Keep the whole eye in view.</h3>
-      <p className="eye-muted">
-        Include room for looking in every direction. Leave out the other eye,
-        eyebrows and dark frame edges.
-      </p>
+      <h3>One eye, with room to move.</h3>
+      <p className="eye-muted">Move or resize the box in the preview.</p>
       <button
-        className="eye-button secondary"
-        onClick={() =>
-          chooseRegion({
-            x: 0,
-            y: 0,
-            width: tracker.dimensions.width,
-            height: tracker.dimensions.height,
-          })
-        }
+        className="eye-text-button"
+        onClick={() => chooseRegion({ x: 0, y: 0, ...tracker.dimensions })}
       >
-        Use full frame
+        <Maximize size={14} />
+        Full frame
       </button>
-      <label className="eye-check">
-        <input
-          type="checkbox"
-          checked={eyeConfirmed}
-          onChange={(e) => {
-            onConfirm(e.target.checked)
-          }}
-        />
-        I can clearly see one pupil.
-      </label>
-      <details className="eye-details">
-        <summary>
-          Region coordinates
-          <ChevronDown size={14} />
-        </summary>
-        <div className="eye-number-grid">
+      <form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (changed) chooseRegion(next)
+          setEdit(null)
+        }}
+      >
+        <div className="eye-number-grid eye-roi-coordinates">
           {(["x", "y", "width", "height"] as const).map((key) => (
             <label className="eye-field" key={key}>
-              {key}
+              {key === "x"
+                ? "Left"
+                : key === "y"
+                  ? "Top"
+                  : key === "width"
+                    ? "Width"
+                    : "Height"}{" "}
+              · px
               <input
                 type="number"
-                value={settings.roi[key]}
-                min={key === "x" || key === "y" ? 0 : 24}
+                value={values[key]}
+                step={1}
+                aria-label={`ROI ${key}`}
+                min={
+                  key === "x" || key === "y"
+                    ? 0
+                    : Math.min(
+                        MIN_REGION_SIZE,
+                        key === "width"
+                          ? tracker.dimensions.width
+                          : tracker.dimensions.height
+                      )
+                }
                 max={
                   key === "x" || key === "width"
                     ? tracker.dimensions.width
                     : tracker.dimensions.height
                 }
-                onChange={(e) => {
-                  const next = {
-                      ...settings.roi,
-                      [key]: Math.round(Number(e.target.value)),
-                    },
-                    width = tracker.dimensions.width,
-                    height = tracker.dimensions.height
-                  if (
-                    next.x >= 0 &&
-                    next.y >= 0 &&
-                    next.width >= 24 &&
-                    next.height >= 24 &&
-                    next.x + next.width <= width &&
-                    next.y + next.height <= height
-                  )
-                    chooseRegion(next)
-                }}
+                onChange={(event) =>
+                  setEdit({
+                    original: roi,
+                    values: { ...values, [key]: event.target.value },
+                  })
+                }
               />
             </label>
           ))}
         </div>
+        <button
+          className="eye-button secondary"
+          type="submit"
+          disabled={!dirty}
+        >
+          Apply coordinates
+        </button>
+      </form>
+      <label className="eye-check">
+        <input
+          type="checkbox"
+          checked={eyeConfirmed}
+          onChange={(event) => onConfirm(event.target.checked)}
+        />
+        One pupil is clearly visible
+      </label>
+      <details className="eye-details">
+        <summary>
+          Editing tips
+          <ChevronDown size={14} />
+        </summary>
+        <p className="eye-small">
+          Drag inside to move, or use the handles to resize. Redraw starts a new
+          box. Keep eyebrows and dark frame edges outside.
+        </p>
+        <p className="eye-small">
+          Focus the preview and use arrow keys to move. Shift + arrows resize;
+          Alt changes by 10 pixels. Escape cancels a drag.
+        </p>
       </details>
     </>
   )

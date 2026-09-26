@@ -14,6 +14,7 @@ import {
 import type { CV } from "./opencv"
 import type {
   Detection,
+  Ellipse,
   EyeModel,
   FrameSettings,
   Gaze,
@@ -23,6 +24,9 @@ import type {
 export class TrackingEngine {
   private readonly model = new EyeModelEstimator()
   private configKey = ""
+  private previous: Ellipse | null = null
+  private seenAt = -Infinity
+  private pending: { ellipse: Ellipse; time: number } | null = null
   constructor(privateCv: CV) {
     this.cv = privateCv
   }
@@ -30,6 +34,9 @@ export class TrackingEngine {
   reset() {
     this.model.reset()
     this.configKey = ""
+    this.previous = null
+    this.pending = null
+    this.seenAt = -Infinity
   }
   process(
     rgba: Uint8ClampedArray,
@@ -60,12 +67,13 @@ export class TrackingEngine {
       settings.format,
       roi,
       settings.threshold,
+      settings.thresholdMode,
       settings.fov,
       settings.radiusMm,
       settings.corners,
     ])
     if (key !== this.configKey) {
-      this.model.reset()
+      this.reset()
       this.configKey = key
     }
     const cropped = new Uint8ClampedArray(roi.width * roi.height * 4)
@@ -82,13 +90,19 @@ export class TrackingEngine {
       model: EyeModel | null = null,
       gaze: Gaze | null = null
     if (settings.format === "spatial") {
+      if (timestamp - this.seenAt > 250) {
+        this.previous = null
+        this.pending = null
+      }
       detection = detectSpatialPupil(
         this.cv,
         gray,
         roi.width,
         roi.height,
-        settings.threshold
+        settings.threshold,
+        { thresholdMode: settings.thresholdMode, previous: this.previous }
       )
+      this.associate(detection, timestamp, roi.width, roi.height)
       const e = detection.ellipse
       model = this.model.getLatest()
       if (e && !settings.locked)
@@ -98,7 +112,7 @@ export class TrackingEngine {
           height
         )
       const k = cameraIntrinsics(width, height, settings.fov)
-      if (e && e.confidence >= 0.85 && model?.ready && k) {
+      if (e && detection.tracking === "tracking" && model?.ready && k) {
         const sphere = sphereFromProjection(
           model.center,
           model.radius,
@@ -201,5 +215,53 @@ export class TrackingEngine {
       gaze,
       processingMs: performance.now() - start,
     }
+  }
+  /** Never replace a missing measurement with an old gaze. Confirm abrupt relocations. */
+  private associate(
+    detection: Detection,
+    timestamp: number,
+    width: number,
+    height: number
+  ) {
+    const candidate = detection.ellipse
+    if (!candidate) {
+      this.pending = null
+      detection.tracking = this.previous ? "reacquiring" : "lost"
+      detection.reason = this.previous ? "Reacquiring pupil" : "Pupil not found"
+      return
+    }
+    const compatible = (a: Ellipse, b: Ellipse) => {
+      const distance = Math.hypot(
+        a.center[0] - b.center[0],
+        a.center[1] - b.center[1]
+      )
+      return (
+        distance <= Math.max(b.major * 2, Math.min(width, height) * 0.18) &&
+        a.major / b.major >= 0.6 &&
+        a.major / b.major <= 1.6 &&
+        a.minor / b.minor >= 0.45 &&
+        a.minor / b.minor <= 2.2
+      )
+    }
+    const continuous = this.previous && compatible(candidate, this.previous)
+    const confirmed =
+      this.pending &&
+      timestamp - this.pending.time <= 150 &&
+      compatible(candidate, this.pending.ellipse)
+    const accepted = continuous
+      ? candidate.confidence >= 0.72
+      : candidate.confidence >= 0.82 && (!this.previous || confirmed)
+    if (!accepted) {
+      this.pending = { ellipse: candidate, time: timestamp }
+      detection.ellipse = null
+      detection.tracking = "reacquiring"
+      detection.reason = "Reacquiring pupil"
+      return
+    }
+    this.previous = candidate
+    this.seenAt = timestamp
+    this.pending = null
+    detection.tracking = "tracking"
+    detection.reason = "Pupil found"
   }
 }

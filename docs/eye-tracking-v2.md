@@ -17,8 +17,8 @@ Visit `http://127.0.0.1:4012/v2`. Camera capture requires localhost or HTTPS and
 ## Use the pipeline
 
 1. **Camera:** select a camera, open an eye video, or try the synthetic sample.
-2. **Eye region:** drag around one eye, keeping the entire pupil movement inside the region. Confirm that one pupil is visible. This is a manual region selection, not face or eye classification.
-3. **Pupil:** inspect the green outline and threshold previews. Adjust the threshold only if needed. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye.
+2. **Eye region:** use **Edit ROI** to move the box, resize its eight handles, or **Redraw** it. Arrow keys move the region; Shift + arrows resize it and Alt uses 10-pixel steps. Numeric coordinates are applied together. Keep the entire pupil movement inside the region, then confirm that one pupil is visible. This is a manual region selection, not face or eye classification.
+3. **Pupil:** inspect the mint outline while looking around. Switch the main preview between **Image** and **Threshold**. In Tracker 2, **Auto** derives three cutoffs from image intensities; its slider adjusts their bias. **Manual** applies one absolute grayscale cutoff (0–255), with an exact numeric entry. The threshold view shows the mask used by the detector; the pupil should be one isolated white region. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye.
 4. **Eye model:** in Tracker 1, select the two eye corners. In Tracker 2, slowly look in several directions until the blue sphere is stable and the model can be locked. Camera geometry is available under the disclosure.
 5. **Calibrate:** keep the head and camera still and look at each of nine targets. Each target requires settled, fresh, stable gaze samples.
 6. **Live gaze:** open the gaze view, validate against five other targets, or export the current result as JSON. Validation reports root-mean-square distance in browser CSS pixels. It is not an angular-accuracy measurement.
@@ -33,13 +33,14 @@ The synthetic sample drives a generated eye through the same detector, model and
 
 **Eye Tracker 2** implements the sequence from Jason Orlosky's [The Hidden Math Behind 3D Eye Tracking](https://www.youtube.com/watch?v=Gh8LS9erugE) and [MIT-licensed reference implementation](https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker):
 
-- Locate a dark, spatially uniform patch with a sparse mean/variance search.
-- Try grayscale thresholds at patch intensity plus 5, 15 and 25, with a user offset. Dilate, extract contours and fit ellipses with OpenCV.
-- Refine the contour using three-point inward bisectors, refit and score contour-to-ellipse agreement. Reject uniform frames, clipped contours and implausible shapes.
+- Locate a dark, spatially uniform patch with a sparse mean/variance search and calculate an Otsu intensity split.
+- Search the entire selected ROI. Auto cutoffs combine patch intensity plus 5, 15 and 25 with 55%, 80% and 100% of the Otsu split, plus a user bias. Manual mode applies one absolute cutoff. Extract all candidate contours and fit ellipses with OpenCV. Masks are not dilated, preserving pupil size.
+- Refine the contour using three-point inward bisectors, refit and score contour-to-ellipse agreement. Rank candidates using local contrast, interior intensity consistency and proximity to the previous pupil. Reject uniform frames, clipped contours and implausible shapes.
+- Confirm abrupt relocations across two frames and use confidence hysteresis for an established track. A previous observation guides recovery for at most 250 ms; missing measurements never produce stale gaze.
 - Intersect the minor-axis lines of diverse pupil ellipses. Use deterministic consensus and weighted least squares to reject outliers and unstable parallel lines. Average recent center estimates and use the observed outer pupil extent to estimate the projected sphere radius.
 - Unproject each pupil center through a pinhole camera and intersect that ray with the sphere. Normalize the sphere-center-to-intersection vector to obtain gaze.
 
-The source snapshot (with normalized line endings and trailing whitespace) and original license are in `research/`. The tutorial explicitly leaves screen calibration for a later video. The nine-point affine mapping and independent validation are additions in this implementation.
+The source snapshot (with normalized line endings and trailing whitespace) and original license are in `research/`. The tutorial explicitly leaves screen calibration for a later video. Full-ROI candidate search, automatic/manual threshold controls, temporal association, the nine-point affine mapping and independent validation are robustness and usability additions to the reference pipeline. Input frames preserve up to 1280 × 960 pixels before ROI cropping.
 
 ## Mathematical conventions and deliberate corrections
 
@@ -72,6 +73,6 @@ cd apps/web
 bunx eslint src/features/eye-tracking src/pages/v2-page.tsx
 ```
 
-The suite covers analytic rays and spheres, rotated ellipse axes, robust center fitting, calibration rank rejection and known mappings, genuine OpenCV detection on synthetic grayscale images, loss of pupils, stale model support, source cancellation and source startup while settings change. The production browser walkthrough covers both formats, calibration, validation and responsive layouts.
+The suite covers analytic rays and spheres, rotated ellipse axes, robust center fitting, calibration rank rejection and known mappings, genuine OpenCV detection on synthetic grayscale images, loss of pupils, stale model support, source cancellation and source startup while settings change. Detection regressions cover pupils across the ROI despite a darker eyelash, a larger dark distractor, an enclosing iris, absolute thresholds, abrupt false jumps, recovery and mild partial occlusion. ROI tests cover bounds, handles, movement, redraw and commit-on-release behavior. The production browser walkthrough covers both formats, calibration, validation and responsive layouts.
 
 The repository-wide lint command also checks pre-existing components that currently fail lint (`PreviewCanvasPanel`, the shared button component and the authentication page). The new V2 modules pass their scoped lint check. The OpenCV worker adds approximately 10.8 MB before transfer compression; its first load takes longer than the UI. Vite's `fs`, `path` and `crypto` externalization notices originate from unused Node branches in the OpenCV distribution.

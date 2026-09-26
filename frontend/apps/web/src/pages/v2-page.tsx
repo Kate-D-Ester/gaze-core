@@ -11,8 +11,6 @@ import {
   Check,
   CircleHelp,
   Eye,
-  LockKeyhole,
-  Play,
   Square,
   X,
 } from "lucide-react"
@@ -44,29 +42,23 @@ const STEPS = [
 ]
 const COPY = [
   [
-    "Give your eye a clear view.",
-    "Use a near-eye camera, or open a recorded eye video.",
+    "Choose a source",
+    "Connect a camera, open an eye video, or try the sample.",
+  ],
+  ["Frame one eye", "Keep the pupil’s full range of movement inside the box."],
+  [
+    "Check the pupil",
+    "The outline should follow the pupil as you look around.",
   ],
   [
-    "Focus on one eye.",
-    "Drag a box around the eye. Keep the pupil and its full movement inside.",
+    "Build the eye model",
+    "Look left, right, up and down, then around the edges.",
   ],
   [
-    "Find a clean pupil outline.",
-    "The green ellipse should follow the pupil as you look around.",
+    "Calibrate your screen",
+    "Follow nine points while keeping your head still.",
   ],
-  [
-    "Build your eye model.",
-    "Slowly look left, right, up and down, then around the edges.",
-  ],
-  [
-    "Make gaze meet the screen.",
-    "Look at nine points to map the gaze ray to this browser window.",
-  ],
-  [
-    "Your gaze, in real time.",
-    "Check the dot, validate accuracy, or export the current result.",
-  ],
+  ["Live gaze", "Check your gaze, validate accuracy, or export a result."],
 ]
 export function V2Page() {
   const tracker = useTracker(),
@@ -95,7 +87,12 @@ export function V2Page() {
     (next: Partial<FrameSettings>) => {
       configure(next)
       clearCalibration()
-      if ("roi" in next || "threshold" in next || "format" in next)
+      if (
+        "roi" in next ||
+        "threshold" in next ||
+        "thresholdMode" in next ||
+        "format" in next
+      )
         setPupilReady(false)
     },
     [configure, clearCalibration]
@@ -109,8 +106,7 @@ export function V2Page() {
   }
   const usable =
     !!frame?.detection.ellipse &&
-    (settings.format === "classic" ||
-      frame.detection.ellipse.confidence >= 0.85)
+    (settings.format === "classic" || frame.detection.tracking === "tracking")
   const feature = frame?.gaze ? gazeFeature(frame.gaze.direction) : null
   const screenPoint =
     calibration && feature ? mapGaze(calibration, feature) : null
@@ -118,7 +114,7 @@ export function V2Page() {
   const allowed = [
     true,
     !!source,
-    regionReady && !!source,
+    regionReady && eyeConfirmed && !!source,
     pupilReady && !!source,
     settings.locked && !!source,
     !!calibration && !!source,
@@ -163,6 +159,7 @@ export function V2Page() {
   )
   useEffect(() => {
     const resized = () => {
+      if (!calibration && !capture && !focus) return
       setStep((current) => Math.min(current, 4))
       setCalibration(null)
       setValidation(null)
@@ -172,10 +169,18 @@ export function V2Page() {
     }
     window.addEventListener("resize", resized)
     return () => window.removeEventListener("resize", resized)
-  }, [])
+  }, [calibration, capture, focus])
   function chooseRegion(roi: Rect) {
+    if (
+      roi.x === settings.roi.x &&
+      roi.y === settings.roi.y &&
+      roi.width === settings.roi.width &&
+      roi.height === settings.roi.height
+    )
+      return
     update({ roi, corners: null })
-    setRegionReady(true)
+    setStep(1)
+    setRegionReady(false)
     setEyeConfirmed(false)
     setCorner(null)
   }
@@ -242,8 +247,7 @@ export function V2Page() {
       </header>
       <div className="eye-title-row">
         <div>
-          <div className="eye-eyebrow">V2 PROGRESS</div>
-          <h1>Eye tracking, step by step.</h1>
+          <h1>Eye tracking</h1>
         </div>
         <div className="eye-formats" aria-label="Tracker format">
           {(["classic", "spatial"] as const).map((format, i) => (
@@ -255,6 +259,7 @@ export function V2Page() {
                 update({
                   format,
                   threshold: format === "classic" ? 50 : 0,
+                  thresholdMode: format === "classic" ? "manual" : "auto",
                   corners: null,
                 })
                 setStep(0)
@@ -264,7 +269,7 @@ export function V2Page() {
               }}
             >
               <span>Eye Tracker {i + 1}</span>
-              <small>{i === 0 ? "Original method" : "3D · video method"}</small>
+              <small>{i === 0 ? "Corner model" : "3D model"}</small>
             </button>
           ))}
         </div>
@@ -295,23 +300,24 @@ export function V2Page() {
               </button>
             ))}
           </nav>
-          <div className="eye-sidebar-note">
-            <Eye size={18} />
-            <p>
+          <details className="eye-details eye-method-help">
+            <summary>
+              About this method
+              <CircleHelp size={13} />
+            </summary>
+            <p className="eye-small">
               {settings.format === "spatial"
-                ? "From a pupil outline to a 3D gaze ray."
-                : "The original corner-based eye model."}
+                ? "Builds a 3D gaze ray from the pupil outline."
+                : "Uses eye corners to estimate gaze."}
             </p>
             <a
               href="https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker"
               target="_blank"
               rel="noreferrer"
             >
-              {settings.format === "spatial"
-                ? "Based on Jason Orlosky’s method ↗"
-                : "View the reference research ↗"}
+              Reference research ↗
             </a>
-          </div>
+          </details>
         </aside>
         <section className="eye-main-column">
           <div className="eye-stage-heading">
@@ -337,13 +343,6 @@ export function V2Page() {
               </button>
             )}
           </div>
-          {source?.kind === "sample" && (
-            <div className="eye-sample-banner">
-              <Play size={13} />
-              Synthetic sample · demonstration only
-              <span>Camera accuracy is not measured here.</span>
-            </div>
-          )}
           <EyePreview
             tracker={tracker}
             selectRegion={step === 1}
@@ -352,6 +351,10 @@ export function V2Page() {
             }
             onRegion={chooseRegion}
             onCorner={chooseCorner}
+            onEditRegion={() => {
+              setStep(1)
+              setNotice("")
+            }}
           />
           <div className="eye-preview-caption">
             <span>
@@ -367,20 +370,26 @@ export function V2Page() {
               Gaze ray
             </span>
             <span className="eye-caption-right">
-              {source?.name ?? "No camera connected"}
+              {source?.kind === "sample"
+                ? "Synthetic sample · demo"
+                : (source?.name ?? "No source")}
             </span>
           </div>
-          <div className="eye-section-label eye-preview-label">
-            {settings.format === "spatial"
-              ? "THRESHOLD COMPARISON"
-              : "PUPIL SEGMENTATION"}
-            <span>
-              {frame?.detection.ellipse
-                ? `${Math.round(frame.detection.ellipse.confidence * 100)}% contour fit`
-                : "Waiting for pupil"}
-            </span>
-          </div>
-          <PipelinePreviews frame={frame} />
+          {source && step >= 2 && (
+            <details className="eye-details eye-pipeline-details">
+              <summary>
+                {settings.format === "spatial"
+                  ? "Threshold comparison"
+                  : "Pupil segmentation"}
+                <span>
+                  {frame?.detection.ellipse
+                    ? `${Math.round(frame.detection.ellipse.confidence * 100)}% fit`
+                    : "No pupil"}
+                </span>
+              </summary>
+              <PipelinePreviews frame={frame} />
+            </details>
+          )}
           {(tracker.error || notice) && (
             <p
               className={`eye-message ${tracker.error ? "error" : ""}`}
@@ -420,7 +429,7 @@ export function V2Page() {
               eyeConfirmed={eyeConfirmed}
               onConfirm={(value) => {
                 setEyeConfirmed(value)
-                if (value) setRegionReady(true)
+                setRegionReady(value)
               }}
               chooseRegion={chooseRegion}
             />
@@ -462,12 +471,6 @@ export function V2Page() {
               onExport={exportResult}
             />
           )}
-          <div className="eye-controls-footer">
-            <span>
-              <LockKeyhole size={13} />
-              Frames stay on your device
-            </span>
-          </div>
         </aside>
       </div>
       <footer className="eye-bottom-bar">

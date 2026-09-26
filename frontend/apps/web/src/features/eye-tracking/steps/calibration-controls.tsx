@@ -16,11 +16,8 @@ export function CalibrationControls({
           <i key={i} />
         ))}
       </div>
-      <h3>Nine points. One clear mapping.</h3>
-      <p className="eye-muted">
-        Keep your head and camera still. Look at each dot until it fills. Valid
-        frames are captured automatically.
-      </p>
+      <h3>9-point calibration</h3>
+      <p className="eye-muted">Keep still. Follow each dot until it fills.</p>
       <button
         className="eye-button primary"
         disabled={!usable || !locked}
@@ -29,10 +26,7 @@ export function CalibrationControls({
         Start calibration
         <Crosshair size={17} />
       </button>
-      <p className="eye-small">
-        Usually 20–30 seconds. Recalibrate after moving the camera or resizing
-        this window.
-      </p>
+      <p className="eye-small">About 20–30 seconds.</p>
     </>
   )
 }

@@ -45,7 +45,7 @@
   outline-offset: 4px;
 }
 .eye-header {
-  height: 78px;
+  height: 56px;
   padding: 0 4%;
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -106,7 +106,7 @@
 .eye-title-row {
   max-width: 1550px;
   margin: auto;
-  padding: 38px 4% 31px;
+  padding: 18px 4%;
   display: flex;
   justify-content: space-between;
   gap: 25px;
@@ -119,11 +119,11 @@
   color: var(--muted-foreground);
 }
 .eye-title-row h1 {
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1.3;
   font-weight: 520;
   letter-spacing: -1.2px;
-  margin: 7px 0 0;
+  margin: 0;
 }
 .eye-formats {
   display: flex;
@@ -134,8 +134,8 @@
   gap: 4px;
 }
 .eye-formats button {
-  min-width: 153px;
-  padding: 10px 18px;
+  min-width: 135px;
+  padding: 7px 13px;
   border: 1px solid transparent;
   border-radius: 7px;
   display: flex;
@@ -161,8 +161,8 @@
   max-width: 1550px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 180px minmax(300px, 1fr) 280px;
-  gap: 32px;
+  grid-template-columns: 150px minmax(300px, 1fr) 280px;
+  gap: 24px;
   padding: 0 4% 22px;
 }
 .eye-sidebar {
@@ -188,7 +188,7 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin-top: 20px;
+  margin-top: 12px;
 }
 .eye-step {
   position: relative;
@@ -202,7 +202,7 @@
   border-radius: 7px;
 }
 .eye-step.active {
-  background: var(--muted);
+  background: color-mix(in srgb, var(--eye-sphere) 22%, var(--card));
   color: var(--foreground);
   font-weight: 600;
 }
@@ -256,14 +256,14 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin: 6px 0 23px;
+  margin: 0 0 14px;
 }
 .eye-stage-heading h2 {
   font-weight: 520;
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: -0.7px;
   line-height: 1.3;
-  margin: 7px 0 8px;
+  margin: 4px 0;
 }
 .eye-stage-heading p {
   font-size: 12px;
@@ -294,7 +294,7 @@
   align-items: center;
   justify-content: space-between;
   color: var(--eye-preview-text);
-  padding: 14px 17px;
+  padding: 9px 12px;
   font-size: 11px;
   border-bottom: 1px solid var(--eye-preview-line);
 }
@@ -308,7 +308,7 @@
   letter-spacing: 1.4px;
   color: var(--eye-preview-muted);
 }
-.eye-preview > canvas {
+.eye-preview-image > canvas {
   width: 100%;
   height: auto;
   display: block;
@@ -316,11 +316,11 @@
   touch-action: none;
   background: var(--eye-preview);
 }
-.eye-preview > canvas.selectable {
+.eye-preview-image > canvas.selectable {
   cursor: crosshair;
 }
 .eye-preview-empty {
-  height: 310px;
+  height: 300px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -387,7 +387,7 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 16px;
+  padding: 8px 12px;
   color: var(--eye-preview-muted);
   font-size: 9px;
   border-top: 1px solid var(--eye-preview-line);
@@ -398,7 +398,7 @@
   align-items: center;
   font-size: 9px;
   color: var(--muted-foreground);
-  padding: 12px 1px;
+  padding: 9px 1px;
 }
 .eye-preview-caption > span {
   display: flex;
@@ -483,14 +483,14 @@
   font-size: 17px;
   letter-spacing: -0.5px;
   font-weight: 530;
-  margin: 24px 0 8px;
+  margin: 16px 0 6px;
   line-height: 1.4;
 }
 .eye-muted {
   font-size: 11px;
-  line-height: 1.8;
+  line-height: 1.6;
   color: var(--dim);
-  margin: 0 0 22px;
+  margin: 0 0 14px;
 }
 .eye-field {
   display: flex;
@@ -498,7 +498,7 @@
   gap: 7px;
   color: var(--foreground);
   font-size: 10px;
-  margin: 18px 0;
+  margin: 12px 0;
 }
 .eye-field input:not([type="range"]),
 .eye-field select {
@@ -552,7 +552,7 @@
   gap: 10px;
   color: var(--muted-foreground);
   font-size: 9px;
-  margin: 23px 0;
+  margin: 14px 0;
 }
 .eye-divider:before,
 .eye-divider:after {
@@ -600,7 +600,7 @@
 .eye-bottom-bar {
   max-width: 1550px;
   margin: 0 auto;
-  padding: 20px 4% 32px;
+  padding: 12px 4% 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -661,7 +661,7 @@
   gap: 9px;
   align-items: center;
   font-size: 11px;
-  margin: 25px 0;
+  margin: 18px 0;
   color: var(--foreground);
 }
 .eye-check input {
@@ -669,8 +669,8 @@
 }
 .eye-details {
   border-top: 1px solid var(--line);
-  margin-top: 24px;
-  padding-top: 14px;
+  margin-top: 16px;
+  padding-top: 12px;
 }
 .eye-details summary {
   font-size: 10px;
@@ -721,7 +721,7 @@
   align-items: center;
   gap: 10px;
 }
-.eye-range input {
+.eye-range input[type="range"] {
   accent-color: var(--primary);
   width: 100%;
 }
@@ -984,16 +984,200 @@
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
+.eye-preview-image {
+  position: relative;
+  width: 100%;
+  margin-inline: auto;
+}
+.eye-preview-image > canvas.movable {
+  cursor: move;
+}
+.eye-preview-image > canvas:focus-visible {
+  outline: 2px solid var(--eye-sphere);
+  outline-offset: -3px;
+}
+.eye-preview-tools,
+.eye-preview-switch,
+.eye-roi-edit,
+.eye-roi-toolbar {
+  display: flex;
+  align-items: center;
+}
+.eye-preview-tools {
+  gap: 9px;
+}
+.eye-preview-switch {
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--eye-preview-line);
+  border-radius: 5px;
+}
+.eye-preview-tools button,
+.eye-roi-toolbar button {
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--eye-preview-muted);
+  background: transparent;
+  line-height: 1.3;
+}
+.eye-preview-switch button[aria-pressed="true"] {
+  color: var(--eye-preview-text);
+  background: var(--eye-preview-line);
+}
+.eye-preview-tools .eye-roi-edit {
+  gap: 5px;
+  border: 1px solid var(--eye-preview-line);
+  color: var(--eye-preview-text);
+}
+.eye-preview-tools .eye-roi-edit.active,
+.eye-roi-toolbar button[aria-pressed="true"] {
+  color: var(--eye-sphere);
+  border-color: var(--eye-sphere);
+  background: color-mix(in srgb, var(--eye-sphere) 12%, var(--eye-preview));
+}
+.eye-preview button:focus-visible {
+  outline: 2px solid var(--eye-sphere);
+  outline-offset: 2px;
+}
+.eye-roi-toolbar {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 12px;
+  color: var(--eye-sphere);
+  border-bottom: 1px solid var(--eye-preview-line);
+  font-size: 10px;
+  background: color-mix(in srgb, var(--eye-sphere) 8%, var(--eye-preview));
+}
+.eye-roi-toolbar button {
+  color: var(--eye-sphere);
+  border: 1px solid var(--eye-preview-line);
+}
+.eye-roi-overlay {
+  position: absolute;
+  pointer-events: none;
+}
+.eye-roi-handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+  border: 0;
+  background: transparent;
+}
+.eye-roi-handle::after {
+  content: "";
+  display: block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--eye-preview);
+  border-radius: 2px;
+  background: var(--eye-sphere);
+  margin: auto;
+  box-shadow: 0 0 0 1px var(--eye-sphere);
+}
+.eye-roi-handle.n,
+.eye-roi-handle.s {
+  cursor: ns-resize;
+}
+.eye-roi-handle.e,
+.eye-roi-handle.w {
+  cursor: ew-resize;
+}
+.eye-roi-handle.nw,
+.eye-roi-handle.se {
+  cursor: nwse-resize;
+}
+.eye-roi-handle.ne,
+.eye-roi-handle.sw {
+  cursor: nesw-resize;
+}
+.eye-roi-coordinates {
+  gap: 0 10px;
+  margin-top: 6px;
+}
+.eye-roi-coordinates .eye-field {
+  margin: 7px 0;
+}
+.eye-controls form > .eye-button {
+  width: 100%;
+  margin-top: 8px;
+}
+.eye-source-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.eye-source-options .eye-button {
+  padding-inline: 8px;
+}
+.eye-method-help {
+  margin-top: 24px;
+}
+.eye-method-help > a {
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.eye-pipeline-details {
+  margin-top: 3px;
+  padding-top: 10px;
+}
+.eye-pipeline-details .eye-thumbnails {
+  margin-top: 12px;
+}
+.eye-pipeline-details summary > span {
+  font-size: 9px;
+}
+.eye-threshold-modes {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: var(--muted);
+  border-radius: 6px;
+  margin: 14px 0 8px;
+}
+.eye-threshold-modes button {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.eye-threshold-modes button[aria-pressed="true"] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--eye-pupil) 22%, var(--card));
+  box-shadow: 0 0 0 1px var(--line);
+}
+.eye-range input.eye-threshold-value {
+  width: 64px;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--card);
+  font-size: 11px;
+}
+.eye-threshold-levels {
+  font-size: 10px;
+  color: var(--dim);
+  margin: 6px 0 12px;
+}
 @media (min-width: 1500px) {
   .eye-workspace {
-    grid-template-columns: 200px minmax(300px, 1fr) 310px;
-    gap: 40px;
+    grid-template-columns: 160px minmax(300px, 1fr) 290px;
+    gap: 28px;
   }
   .eye-preview-empty {
-    height: 385px;
+    height: 360px;
   }
   .eye-controls {
-    padding: 26px;
+    padding: 20px;
   }
   .eye-thumbnail-image {
     height: 105px;
@@ -1039,7 +1223,7 @@
     padding: 0;
   }
   .eye-sidebar > .eye-section-label,
-  .eye-sidebar-note {
+  .eye-method-help {
     display: none;
   }
   .eye-sidebar nav {
@@ -1057,8 +1241,8 @@
     display: none;
   }
   .eye-title-row {
-    padding-top: 28px;
-    padding-bottom: 24px;
+    padding-top: 16px;
+    padding-bottom: 16px;
   }
   .eye-title-row h1 {
     font-size: 24px;
@@ -1104,11 +1288,11 @@
   .eye-title-row {
     align-items: stretch;
     flex-direction: column;
-    gap: 20px;
-    padding: 26px 20px 20px;
+    gap: 14px;
+    padding: 16px 20px;
   }
   .eye-title-row h1 {
-    font-size: 26px;
+    font-size: 23px;
   }
   .eye-formats {
     width: 100%;
@@ -1120,8 +1304,8 @@
   .eye-workspace {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 0 20px;
+    gap: 16px;
+    padding: 0 16px;
   }
   .eye-sidebar nav {
     overflow-x: auto;
@@ -1161,7 +1345,7 @@
   .eye-controls {
     width: 100%;
     margin: 0;
-    padding: 22px;
+    padding: 18px;
   }
   .eye-controls h3 {
     margin-top: 18px;
@@ -1170,14 +1354,14 @@
     font-size: 12px;
   }
   .eye-button {
-    min-height: 43px;
+    min-height: 39px;
     font-size: 12px;
   }
   .eye-field {
     font-size: 11px;
   }
   .eye-bottom-bar {
-    padding: 22px 20px 30px;
+    padding: 14px 16px 24px;
     align-items: flex-start;
   }
   .eye-bottom-bar > span {
@@ -1226,6 +1410,24 @@
   }
   .eye-focus-caption p {
     max-width: 260px;
+  }
+}
+@media (max-width: 420px) {
+  .eye-preview-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .eye-preview-tools {
+    flex: 1;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+  .eye-preview-tools button {
+    padding-inline: 6px;
+  }
+  .eye-roi-toolbar {
+    padding-inline: 8px;
+    font-size: 9px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

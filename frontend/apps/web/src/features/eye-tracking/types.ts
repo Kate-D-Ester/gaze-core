@@ -28,6 +28,7 @@ export type ThresholdPreview = {
   score: number
 }
 export type Detection = {
+  tracking?: "tracking" | "reacquiring" | "lost"
   ellipse: Ellipse | null
   seed: Point | null
   contour: Point[]
@@ -40,6 +41,7 @@ export type FrameSettings = {
   format: TrackerFormat
   roi: Rect
   threshold: number
+  thresholdMode?: "auto" | "manual"
   fov: number
   radiusMm: number
   corners: [Point, Point] | null

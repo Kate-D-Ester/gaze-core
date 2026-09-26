@@ -72,3 +72,79 @@ test("inward contour test is invariant to translation and scaling", () => {
     ])
   ).toEqual([])
 })
+
+function movingEye(cx: number, cy: number, pupilValue = 45, lash = true) {
+  const data = new Uint8Array(320 * 240).fill(185)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++) {
+      if (lash && x > 12 && x < 305 && y > 8 && y < 24) data[y * 320 + x] = 5
+      if ((x - cx) ** 2 / 17 ** 2 + (y - cy) ** 2 / 11 ** 2 <= 1)
+        data[y * 320 + x] = pupilValue
+    }
+  return data
+}
+test("a darker eyelash does not limit pupil detection to one corner of the ROI", () => {
+  for (const [x, y] of [
+    [45, 65],
+    [160, 65],
+    [275, 65],
+    [45, 185],
+    [160, 185],
+    [275, 185],
+  ]) {
+    const result = detectSpatialPupil(cv, movingEye(x, y), 320, 240, 0)
+    expect(result.ellipse).not.toBeNull()
+    expect(
+      Math.hypot(result.ellipse!.center[0] - x, result.ellipse!.center[1] - y)
+    ).toBeLessThan(2)
+  }
+})
+test("candidate selection stays with the pupil when a larger dark reflection distractor exists", () => {
+  const data = movingEye(225, 160, 45, false)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++)
+      if ((x - 65) ** 2 / 33 ** 2 + (y - 65) ** 2 / 23 ** 2 <= 1)
+        data[y * 320 + x] = 5
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    previous: {
+      center: [222, 160],
+      major: 17,
+      minor: 11,
+      angle: 0,
+      confidence: 0.95,
+    },
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 225, result.ellipse!.center[1] - 160)
+  ).toBeLessThan(2)
+})
+test("manual threshold is the displayed absolute grayscale cutoff", () => {
+  const data = movingEye(160, 120, 65, false)
+  const low = detectSpatialPupil(cv, data, 320, 240, 40, {
+    thresholdMode: "manual",
+  })
+  expect(low.ellipse).toBeNull()
+  const high = detectSpatialPupil(cv, data, 320, 240, 90, {
+    thresholdMode: "manual",
+  })
+  expect(high.ellipse).not.toBeNull()
+  expect(high.previews).toHaveLength(1)
+  expect(high.previews[0].threshold).toBe(90)
+  expect(high.ellipse!.major).toBeCloseTo(17, 0)
+})
+
+test("automatic thresholds select the pupil rather than the enclosing iris", () => {
+  const data = new Uint8Array(320 * 240).fill(200)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++) {
+      const q = (x - 160) ** 2 / 44 ** 2 + (y - 120) ** 2 / 35 ** 2
+      if (q <= 1) data[y * 320 + x] = 100
+      if ((x - 160) ** 2 / 20 ** 2 + (y - 120) ** 2 / 16 ** 2 <= 1)
+        data[y * 320 + x] = 20
+    }
+  const result = detectSpatialPupil(cv, data, 320, 240, 0)
+  expect(result.ellipse).not.toBeNull()
+  expect(Math.abs(result.ellipse!.major - 20)).toBeLessThan(1)
+  expect(Math.abs(result.ellipse!.minor - 16)).toBeLessThan(1)
+})

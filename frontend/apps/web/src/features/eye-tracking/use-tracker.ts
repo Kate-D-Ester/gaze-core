@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS: FrameSettings = {
   format: "spatial",
   roi: { x: 0, y: 0, width: 640, height: 480 },
   threshold: 0,
+  thresholdMode: "auto",
   fov: 45,
   radiusMm: 12,
   corners: null,
@@ -94,7 +95,7 @@ export function useTracker() {
     (next: Source, video: HTMLVideoElement | null) => {
       const c = control.current
       const scale = video
-        ? Math.min(640 / video.videoWidth, 480 / video.videoHeight, 1)
+        ? Math.min(1280 / video.videoWidth, 960 / video.videoHeight, 1)
         : 1
       const width = video
           ? Math.max(2, Math.round(video.videoWidth * scale))
@@ -136,8 +137,8 @@ export function useTracker() {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-            width: { ideal: 640 },
-            height: { ideal: 480 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
           audio: false,
         })

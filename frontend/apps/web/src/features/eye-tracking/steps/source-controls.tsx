@@ -1,4 +1,4 @@
-import { ArrowRight, Upload, Play } from "lucide-react"
+import { ArrowRight, ChevronDown, Upload, Play } from "lucide-react"
 import type { TrackerController } from "../use-tracker"
 
 export function SourceControls({
@@ -15,18 +15,16 @@ export function SourceControls({
   const { source } = tracker
   return (
     <>
-      <h3>Start with your camera.</h3>
-      <p className="eye-muted">
-        A close, sharp view of one eye works best. Tracker 2 is designed for a
-        near-eye infrared camera.
-      </p>
       <label className="eye-field">
         Camera
-        <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+        <select
+          value={deviceId}
+          onChange={(event) => setDeviceId(event.target.value)}
+        >
           <option value="">Default camera</option>
-          {tracker.devices.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label || "Camera"}
+          {tracker.devices.map((device) => (
+            <option key={device.deviceId} value={device.deviceId}>
+              {device.label || "Camera"}
             </option>
           ))}
         </select>
@@ -52,40 +50,49 @@ export function SourceControls({
         </button>
       )}
       <div className="eye-divider">
-        <span>or explore another source</span>
+        <span>or</span>
       </div>
-      <label className="eye-button secondary eye-upload">
-        <Upload size={16} />
-        Open eye video
-        <input
-          type="file"
-          accept="video/*"
-          disabled={tracker.busy || !tracker.engineReady}
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) {
-              resetSource()
-              void tracker.startVideo(file)
-            }
-            e.target.value = ""
+      <div className="eye-source-options">
+        <label className="eye-button secondary eye-upload">
+          <Upload size={15} />
+          Eye video
+          <input
+            type="file"
+            accept="video/*"
+            aria-label="Open eye video"
+            disabled={tracker.busy || !tracker.engineReady}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) {
+                resetSource()
+                void tracker.startVideo(file)
+              }
+              event.target.value = ""
+            }}
+          />
+        </label>
+        <button
+          className="eye-button secondary"
+          disabled={!tracker.engineReady}
+          onClick={() => {
+            resetSource()
+            tracker.startSample()
           }}
-        />
-      </label>
-      <button
-        className="eye-button secondary"
-        disabled={!tracker.engineReady}
-        onClick={() => {
-          resetSource()
-          tracker.startSample()
-        }}
-      >
-        <Play size={15} />
-        Try sample
-      </button>
-      <div className="eye-source-status">
-        <span className={source ? "status-light on" : "status-light"} />
-        {source ? "Source connected" : "Camera is off"}
+        >
+          <Play size={15} />
+          Try sample
+        </button>
       </div>
+      <details className="eye-details">
+        <summary>
+          Camera tips
+          <ChevronDown size={14} />
+        </summary>
+        <p className="eye-small">
+          Use a close, sharp view of one eye. Tracker 2 works best with a
+          near-eye infrared camera.
+        </p>
+      </details>
     </>
   )
 }

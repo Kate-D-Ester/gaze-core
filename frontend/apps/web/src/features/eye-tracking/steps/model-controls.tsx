@@ -75,8 +75,7 @@ export function ModelControls({
             {frame?.model?.ready ? "Ready to lock." : "Look around slowly."}
           </h3>
           <p className="eye-muted">
-            At least 30 good observations across five directions are needed.
-            Lock when the blue sphere is stable.
+            Look toward each edge. Lock when the sphere is stable.
           </p>
           <div className="eye-progress-track">
             <i
@@ -91,7 +90,7 @@ export function ModelControls({
         className="eye-button secondary"
         onClick={() => {
           update({ locked: false })
-          setNotice("Eye model reset. Look around to rebuild it.")
+          setNotice("Look around to rebuild.")
         }}
       >
         <RotateCcw size={15} />
