@@ -8,7 +8,8 @@
     "dev": "bun run --cwd apps/web dev",
     "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/web lint",
     "format": "bun run --cwd packages/ui format && bun run --cwd apps/web format",
-    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck"
+    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck",
+    "test": "bun test"
   },
   "devDependencies": {
     "prettier": "^3.8.1",

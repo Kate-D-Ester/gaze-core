@@ -67,6 +67,7 @@ export function TestPage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-4">
           <div className="space-y-1">
             <h1 className="text-lg font-semibold">GazeCore Test</h1>
+            <a href="/v2" className="text-sm underline">Open V2 progress — Eye Tracker 1 & 2</a>
             <p className="text-sm text-muted-foreground">
               Issue a token-backed demo session from your signed-in account, then boot the widget with that session.
             </p>

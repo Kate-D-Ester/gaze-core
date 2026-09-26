@@ -61,3 +61,6 @@ next-env.d.ts
 
 **/tests
 **/.venv
+# Versioned frontend regression tests
+!frontend/tests/
+!frontend/tests/**

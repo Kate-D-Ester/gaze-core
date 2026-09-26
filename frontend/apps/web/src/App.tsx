@@ -5,10 +5,16 @@ import { useAuthActions } from "@/hooks/use-auth-actions"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { AuthPage } from "@/pages/auth-page"
 import { DashboardPage } from "@/pages/dashboard-page"
+import { V2Page } from "@/pages/v2-page"
 import { TestPage } from "@/pages/test-page"
 import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
+  const location = useLocation()
+  return location.pathname === "/v2" ? <V2Page /> : <AccountApp />
+}
+
+function AccountApp() {
   const { session, setSession, loadingSession, isAuthenticated, loadSession, signOut } = useAuthSession()
 
   const [busy, setBusy] = useState(false)
