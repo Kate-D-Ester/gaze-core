@@ -49,29 +49,37 @@ export function EyePreview({
     canvas.height = source.height
     const ctx = canvas.getContext("2d")
     if (!ctx) return
+    const colors = getComputedStyle(canvas)
     ctx.drawImage(source, 0, 0)
     const rect = selection ?? roi
-    ctx.fillStyle = "rgba(8,17,17,.42)"
+    ctx.fillStyle = "rgba(0,0,0,.42)"
     ctx.beginPath()
     ctx.rect(0, 0, canvas.width, canvas.height)
     ctx.rect(rect.x, rect.y, rect.width, rect.height)
     ctx.fill("evenodd")
-    ctx.strokeStyle = selectRegion ? "#e1eeef" : "#65dbc8"
+    ctx.strokeStyle = selectRegion
+      ? "#fafafa"
+      : colors.getPropertyValue("--eye-pupil")
     ctx.lineWidth = 1.5
     ctx.setLineDash([7, 5])
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
     ctx.setLineDash([])
     if (frame?.detection.ellipse) {
-      drawEllipse(ctx, frame.detection.ellipse, [roi.x, roi.y], "#67f0cf")
+      drawEllipse(
+        ctx,
+        frame.detection.ellipse,
+        [roi.x, roi.y],
+        colors.getPropertyValue("--eye-pupil")
+      )
       const p = frame.detection.ellipse.center
-      ctx.fillStyle = "#dffff5"
+      ctx.fillStyle = "#fafafa"
       ctx.beginPath()
       ctx.arc(p[0] + roi.x, p[1] + roi.y, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
     if (frame?.model) {
       const m = frame.model
-      ctx.strokeStyle = "#6ba6ff"
+      ctx.strokeStyle = colors.getPropertyValue("--eye-sphere")
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.arc(...m.center, m.radius, 0, Math.PI * 2)
@@ -83,7 +91,7 @@ export function EyePreview({
       ctx.lineTo(m.center[0], m.center[1] + 6)
       ctx.stroke()
       if (frame.detection.ellipse) {
-        ctx.strokeStyle = "#fbdb8a"
+        ctx.strokeStyle = colors.getPropertyValue("--eye-ray")
         ctx.beginPath()
         ctx.moveTo(...m.center)
         ctx.lineTo(
@@ -94,7 +102,7 @@ export function EyePreview({
       }
     }
     for (const p of tracker.settings.corners ?? []) {
-      ctx.fillStyle = "#f5c876"
+      ctx.fillStyle = colors.getPropertyValue("--eye-ray")
       ctx.beginPath()
       ctx.arc(...p, 5, 0, Math.PI * 2)
       ctx.fill()
@@ -287,8 +295,9 @@ export function SpherePreview({ frame }: { frame: TrackingFrame | null }) {
   useEffect(() => {
     const ctx = ref.current?.getContext("2d")
     if (!ctx) return
+    const colors = getComputedStyle(ref.current!)
     ctx.clearRect(0, 0, 280, 220)
-    ctx.strokeStyle = "#cbd7d4"
+    ctx.strokeStyle = colors.getPropertyValue("--line")
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.arc(140, 105, 74, 0, Math.PI * 2)
@@ -303,13 +312,13 @@ export function SpherePreview({ frame }: { frame: TrackingFrame | null }) {
     }
     const gaze = frame?.gaze?.direction
     if (gaze) {
-      ctx.strokeStyle = "#128877"
+      ctx.strokeStyle = colors.color
       ctx.lineWidth = 3
       ctx.beginPath()
       ctx.moveTo(140, 105)
       ctx.lineTo(140 + gaze[0] * 115, 105 + gaze[1] * 115)
       ctx.stroke()
-      ctx.fillStyle = "#128877"
+      ctx.fillStyle = colors.color
       ctx.beginPath()
       ctx.arc(140 + gaze[0] * 74, 105 + gaze[1] * 74, 6, 0, Math.PI * 2)
       ctx.fill()

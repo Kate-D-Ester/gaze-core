@@ -1,15 +1,25 @@
 .eye-app {
-  --ink: #20322e;
-  --dim: #6e7d77;
-  --line: #dde5e0;
-  --accent: #167b69;
-  background: #f5f7f4;
+  --ink: var(--foreground);
+  --dim: var(--muted-foreground);
+  --line: var(--border);
+  --eye-action: var(--primary);
+  --eye-pupil: #a7d7c5;
+  --eye-sphere: #b8cafa;
+  --eye-ray: #edd7a4;
+  --eye-preview: #111111;
+  --eye-preview-line: #353535;
+  --eye-preview-text: #fafafa;
+  --eye-preview-muted: #a3a3a3;
+  background: var(--background);
   color: var(--ink);
   min-height: 100svh;
   font-family: "Geist Variable", sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color-scheme: light;
+}
+.dark .eye-app {
+  color-scheme: dark;
 }
 .eye-app * {
   box-sizing: border-box;
@@ -31,7 +41,7 @@
 .eye-app input:focus-visible,
 .eye-app select:focus-visible,
 .eye-app summary:focus-visible {
-  outline: 2px solid #17866f;
+  outline: 2px solid var(--primary);
   outline-offset: 4px;
 }
 .eye-header {
@@ -41,7 +51,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fcfdfb;
+  background: var(--card);
 }
 .eye-brand {
   display: flex;
@@ -57,13 +67,13 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border: 1px solid #b9cac0;
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 .eye-version {
   font-size: 10px;
   letter-spacing: 0.4px;
-  color: #6a796e;
+  color: var(--muted-foreground);
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: 2px 5px;
@@ -86,12 +96,12 @@
   flex-shrink: 0;
   width: 6px;
   height: 6px;
-  background: #95a3a0;
+  background: var(--muted-foreground);
   border-radius: 50%;
 }
 .status-light.on {
-  background: #298c70;
-  box-shadow: 0 0 0 3px #298c700c;
+  background: var(--eye-pupil);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--eye-pupil) 18%, transparent);
 }
 .eye-title-row {
   max-width: 1550px;
@@ -106,7 +116,7 @@
   font-size: 10px;
   letter-spacing: 1.6px;
   font-weight: 600;
-  color: #6c8075;
+  color: var(--muted-foreground);
 }
 .eye-title-row h1 {
   font-size: 30px;
@@ -119,7 +129,7 @@
   display: flex;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #eaf0e9;
+  background: var(--muted);
   padding: 4px;
   gap: 4px;
 }
@@ -132,12 +142,12 @@
   flex-direction: column;
   gap: 1px;
   text-align: left;
-  color: #6c7b70;
+  color: var(--muted-foreground);
 }
 .eye-formats button[aria-pressed="true"] {
-  background: #fff;
-  border-color: #d8e2d8;
-  box-shadow: 0 2px 4px #1b382908;
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: 0 2px 4px #00000008;
   color: var(--ink);
 }
 .eye-formats span {
@@ -162,7 +172,7 @@
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 1.2px;
-  color: #718177;
+  color: var(--muted-foreground);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -188,12 +198,12 @@
   text-align: left;
   padding: 10px 9px;
   font-size: 12px;
-  color: #65776c;
+  color: var(--muted-foreground);
   border-radius: 7px;
 }
 .eye-step.active {
-  background: #e2ece3;
-  color: #155b43;
+  background: var(--muted);
+  color: var(--foreground);
   font-weight: 600;
 }
 .eye-step-number {
@@ -201,32 +211,32 @@
   height: 24px;
   display: grid;
   place-items: center;
-  border: 1px solid #d9e3d9;
+  border: 1px solid var(--border);
   border-radius: 50%;
   font-size: 9px;
   font-weight: 500;
 }
 .eye-step.active .eye-step-number {
-  background: #2d6852;
-  color: #fff;
-  border-color: #2d6852;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
 }
 .eye-step.done .eye-step-number {
-  color: #28694f;
-  background: #e6ece5;
+  color: var(--foreground);
+  background: var(--muted);
 }
 .eye-step-dot {
   margin-left: auto;
   width: 4px;
   height: 4px;
-  background: #3d7958;
+  background: var(--primary);
   border-radius: 50%;
 }
 .eye-sidebar-note {
   border-top: 1px solid var(--line);
   padding: 24px 8px;
   margin-top: 40px;
-  color: #75877a;
+  color: var(--muted-foreground);
 }
 .eye-sidebar-note p {
   font-size: 12px;
@@ -270,23 +280,23 @@
   border-radius: 6px;
   border: 1px solid var(--line);
   flex-shrink: 0;
-  background: #ffffff80;
+  background: var(--card);
 }
 .eye-preview {
   border-radius: 11px;
-  background: #172624;
-  border: 1px solid #253b36;
+  background: var(--eye-preview);
+  border: 1px solid var(--eye-preview-line);
   overflow: hidden;
-  box-shadow: 0 4px 12px #1d33200b;
+  box-shadow: 0 4px 12px #00000008;
 }
 .eye-preview-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #dae3df;
+  color: var(--eye-preview-text);
   padding: 14px 17px;
   font-size: 11px;
-  border-bottom: 1px solid #ffffff0f;
+  border-bottom: 1px solid var(--eye-preview-line);
 }
 .eye-preview-heading > span:first-child {
   display: flex;
@@ -296,7 +306,7 @@
 .eye-preview-heading > span:last-child {
   font-size: 8px;
   letter-spacing: 1.4px;
-  color: #8caaa0;
+  color: var(--eye-preview-muted);
 }
 .eye-preview > canvas {
   width: 100%;
@@ -304,7 +314,7 @@
   display: block;
   object-fit: contain;
   touch-action: none;
-  background: #132220;
+  background: var(--eye-preview);
 }
 .eye-preview > canvas.selectable {
   cursor: crosshair;
@@ -316,31 +326,26 @@
   align-items: center;
   justify-content: center;
   position: relative;
-  background: radial-gradient(
-    ellipse at center,
-    #253c35 0,
-    #192a26 55%,
-    #172624 100%
-  );
+  background: var(--eye-preview);
 }
 .eye-camera-outline {
   width: 65px;
   height: 65px;
-  border: 1px solid #476157;
+  border: 1px solid var(--eye-preview-line);
   border-radius: 18px;
   display: grid;
   place-items: center;
-  color: #9cb7a6;
+  color: var(--eye-preview-muted);
   margin: 0 0 18px;
 }
 .eye-preview-empty h2 {
   font-size: 17px;
   font-weight: 450;
   letter-spacing: -0.4px;
-  color: #d8e5db;
+  color: var(--eye-preview-text);
 }
 .eye-preview-empty p {
-  color: #859e8f;
+  color: var(--eye-preview-muted);
   font-size: 11px;
   margin-top: 7px;
 }
@@ -348,7 +353,7 @@
   position: absolute;
   width: 26px;
   height: 26px;
-  border-color: #6e917751;
+  border-color: var(--eye-preview-line);
 }
 .eye-viewfinder-corner.tl {
   top: 37px;
@@ -383,16 +388,16 @@
   justify-content: space-between;
   gap: 10px;
   padding: 12px 16px;
-  color: #95afa4;
+  color: var(--eye-preview-muted);
   font-size: 9px;
-  border-top: 1px solid #ffffff0b;
+  border-top: 1px solid var(--eye-preview-line);
 }
 .eye-preview-caption {
   display: flex;
   gap: 14px;
   align-items: center;
   font-size: 9px;
-  color: #7b8e80;
+  color: var(--muted-foreground);
   padding: 12px 1px;
 }
 .eye-preview-caption > span {
@@ -407,13 +412,13 @@
   border-radius: 50%;
 }
 .legend-dot.pupil {
-  background: #399e85;
+  background: var(--eye-pupil);
 }
 .legend-dot.sphere {
-  background: #709fe0;
+  background: var(--eye-sphere);
 }
 .legend-dot.ray {
-  background: #c2a45b;
+  background: var(--eye-ray);
 }
 .eye-caption-right {
   margin-left: auto;
@@ -433,26 +438,26 @@
 }
 .eye-thumbnail {
   border: 1px solid var(--line);
-  background: #fcfdfb;
+  background: var(--card);
   border-radius: 7px;
   overflow: hidden;
 }
 .eye-thumbnail.selected {
-  border-color: #72a995;
+  border-color: var(--primary);
 }
 .eye-thumbnail-image {
   height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e9eeea;
-  color: #a7b7ab;
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 .eye-thumbnail-image canvas {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #18201b;
+  background: var(--eye-preview);
 }
 .eye-thumbnail > div:last-child {
   padding: 8px 10px;
@@ -463,10 +468,10 @@
 }
 .eye-thumbnail > div:last-child span:last-child {
   font-size: 8px;
-  color: #829085;
+  color: var(--muted-foreground);
 }
 .eye-controls {
-  background: #fcfdfa;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 21px 20px;
@@ -491,7 +496,7 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
-  color: #53695b;
+  color: var(--foreground);
   font-size: 10px;
   margin: 18px 0;
 }
@@ -499,10 +504,10 @@
 .eye-field select {
   height: 39px;
   width: 100%;
-  border: 1px solid #d9e2d9;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
-  color: #354d3c;
+  background: var(--card);
+  color: var(--foreground);
   padding: 8px 10px;
   font-size: 11px;
 }
@@ -526,26 +531,26 @@
   margin: 9px 0;
 }
 .eye-button.primary {
-  background: #28684f;
-  color: #fff;
-  border: 1px solid #28684f;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: 1px solid var(--primary);
 }
 .eye-button.primary:hover {
-  background: #205840;
+  background: color-mix(in srgb, var(--primary) 85%, var(--background));
 }
 .eye-button.secondary {
-  background: #fcfdfb;
-  color: #4d6555;
-  border: 1px solid #d8e1d8;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
 }
 .eye-button.secondary:hover {
-  background: #edf3eb;
+  background: var(--muted);
 }
 .eye-divider {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #9baa9e;
+  color: var(--muted-foreground);
   font-size: 9px;
   margin: 23px 0;
 }
@@ -554,7 +559,7 @@
   content: "";
   height: 1px;
   flex: 1;
-  background: #e1e8df;
+  background: var(--border);
 }
 .eye-upload {
   position: relative;
@@ -569,14 +574,14 @@
   cursor: pointer;
 }
 .eye-upload:focus-within {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--eye-action);
   outline-offset: 4px;
 }
 .eye-source-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #839886;
+  color: var(--muted-foreground);
   font-size: 10px;
   margin: 27px 0 21px;
 }
@@ -584,7 +589,7 @@
   border-top: 1px solid var(--line);
   padding-top: 18px;
   margin-top: 26px;
-  color: #8c9e8d;
+  color: var(--muted-foreground);
   font-size: 9px;
 }
 .eye-controls-footer span {
@@ -605,14 +610,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #899c8d;
+  color: var(--muted-foreground);
   font-size: 10px;
 }
 .eye-bottom-bar > span i {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #a6b7a7;
+  background: var(--muted-foreground);
 }
 .eye-bottom-bar > div {
   display: flex;
@@ -623,29 +628,29 @@
 }
 .eye-message {
   font-size: 12px;
-  color: #4e6953;
-  background: #e4eee0;
-  border: 1px solid #cedec8;
+  color: var(--foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
   padding: 12px;
   border-radius: 6px;
   margin-top: 15px;
 }
 .eye-message.error {
-  color: #8f4133;
-  background: #fff1e9;
-  border-color: #edc6b5;
+  color: var(--foreground);
+  background: color-mix(in srgb, #f5c4c8 12%, var(--card));
+  border-color: color-mix(in srgb, #f5c4c8 45%, var(--border));
 }
 .eye-sample-banner {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 10px;
-  background: #e6eddc;
-  border: 1px solid #d8e1c8;
+  background: var(--muted);
+  border: 1px solid var(--border);
   padding: 8px 11px;
   margin-bottom: 10px;
   border-radius: 5px;
-  color: #586845;
+  color: var(--foreground);
 }
 .eye-sample-banner span {
   margin-left: auto;
@@ -657,10 +662,10 @@
   align-items: center;
   font-size: 11px;
   margin: 25px 0;
-  color: #536e56;
+  color: var(--foreground);
 }
 .eye-check input {
-  accent-color: #307456;
+  accent-color: var(--primary);
 }
 .eye-details {
   border-top: 1px solid var(--line);
@@ -674,7 +679,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #647c68;
+  color: var(--muted-foreground);
 }
 .eye-details code {
   display: block;
@@ -689,7 +694,7 @@
 }
 .eye-small {
   font-size: 10px;
-  color: #8c9b88;
+  color: var(--muted-foreground);
   line-height: 1.7;
   margin: 14px 0;
 }
@@ -698,14 +703,14 @@
   align-items: center;
   gap: 9px;
   margin: 25px 0 5px;
-  background: #edeede;
+  background: var(--muted);
   padding: 12px;
   border-radius: 7px;
   font-size: 11px;
 }
 .eye-fit-status.good {
-  background: #e4eee1;
-  color: #3d7750;
+  background: var(--muted);
+  color: var(--foreground);
 }
 .eye-fit-status strong {
   margin-left: auto;
@@ -717,7 +722,7 @@
   gap: 10px;
 }
 .eye-range input {
-  accent-color: #35835b;
+  accent-color: var(--primary);
   width: 100%;
 }
 .eye-range output {
@@ -745,19 +750,19 @@
   display: block;
   font-size: 8px;
   font-weight: 400;
-  color: #90a08c;
+  color: var(--muted-foreground);
   margin-top: 3px;
 }
 .eye-progress-track {
   height: 4px;
   border-radius: 3px;
-  background: #e3eade;
+  background: var(--muted);
   margin: 20px 0;
 }
 .eye-progress-track i {
   height: 4px;
   display: block;
-  background: #428b61;
+  background: var(--primary);
   border-radius: 3px;
   transition: width 0.2s;
 }
@@ -766,7 +771,7 @@
   align-items: center;
   gap: 7px;
   font-size: 10px;
-  color: #648165;
+  color: var(--muted-foreground);
   margin: 15px 0;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -776,51 +781,51 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 30px;
   margin: 32px 0;
-  background: #ecf2e7;
+  background: var(--muted);
   padding: 25px 40px;
-  border: 1px solid #dde7d7;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 .eye-calibration-illustration i {
   width: 5px;
   height: 5px;
-  background: #72926f;
+  background: var(--muted-foreground);
   border-radius: 50%;
   margin: auto;
 }
 .eye-calibration-illustration i:nth-child(5) {
-  background: #2d794a;
-  box-shadow: 0 0 0 5px #2d794a18;
+  background: var(--primary);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 .eye-gaze-map {
   aspect-ratio: 1.4;
   position: relative;
-  border: 1px solid #dce6d5;
+  border: 1px solid var(--border);
   border-radius: 7px;
   margin: 26px 0 12px;
-  background: #f0f5e9;
+  background: var(--muted);
   overflow: hidden;
 }
 .eye-gaze-map .map-center-x {
   position: absolute;
   top: 50%;
   width: 100%;
-  border-top: 1px dashed #d4dfcd;
+  border-top: 1px dashed var(--border);
 }
 .eye-gaze-map .map-center-y {
   position: absolute;
   left: 50%;
   height: 100%;
-  border-left: 1px dashed #d4dfcd;
+  border-left: 1px dashed var(--border);
 }
 .eye-gaze-map > i {
   position: absolute;
-  background: #3a8659;
+  background: var(--primary);
   width: 9px;
   height: 9px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 5px #3a865914;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 .eye-gaze-map > span:last-child {
   position: absolute;
@@ -829,18 +834,18 @@
   right: 0;
   text-align: center;
   font-size: 9px;
-  color: #98a98e;
+  color: var(--muted-foreground);
 }
 .eye-live-coordinates {
   display: flex;
   gap: 28px;
   font-size: 10px;
-  color: #97a48b;
+  color: var(--muted-foreground);
   margin-bottom: 24px;
 }
 .eye-live-coordinates b {
   margin-left: 8px;
-  color: #59754f;
+  color: var(--foreground);
   font-size: 14px;
   font-weight: 450;
   font-variant-numeric: tabular-nums;
@@ -856,7 +861,7 @@
 }
 .eye-validation > span {
   font-size: 10px;
-  color: #7b9175;
+  color: var(--muted-foreground);
 }
 .eye-validation strong {
   font-size: 17px;
@@ -864,15 +869,15 @@
 }
 .eye-validation small {
   font-size: 9px;
-  color: #8c9f85;
+  color: var(--muted-foreground);
 }
 .eye-calibration,
 .eye-focus-view {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: #f5f8f0;
-  color: #24492e;
+  background: var(--background);
+  color: var(--foreground);
 }
 .eye-calibration-top {
   display: flex;
@@ -881,7 +886,7 @@
   padding: 24px 30px;
   font-size: 10px;
   letter-spacing: 1px;
-  color: #778e6c;
+  color: var(--muted-foreground);
 }
 .eye-calibration-top b {
   margin-left: 20px;
@@ -906,7 +911,7 @@
 }
 .eye-calibration-instruction p {
   font-size: 10px;
-  color: #90a285;
+  color: var(--muted-foreground);
   margin-top: 5px;
 }
 .eye-calibration-target {
@@ -927,18 +932,18 @@
   stroke-width: 2;
 }
 .target-track {
-  stroke: #dce6d1;
+  stroke: var(--border);
 }
 .target-progress {
-  stroke: #427b3c;
+  stroke: var(--primary);
   transition: stroke-dasharray 0.1s;
 }
 .eye-calibration-target i {
   height: 10px;
   width: 10px;
-  background: #356e32;
+  background: var(--primary);
   border-radius: 50%;
-  box-shadow: 0 0 0 5px #467b3912;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 .eye-calibration-bottom {
   position: absolute;
@@ -947,7 +952,7 @@
   right: 15%;
   text-align: center;
   font-size: 10px;
-  color: #91a282;
+  color: var(--muted-foreground);
   pointer-events: none;
 }
 .eye-focus-view > .eye-icon-button {
@@ -967,15 +972,15 @@
 }
 .eye-focus-caption p {
   font-size: 12px;
-  color: #7d9872;
+  color: var(--muted-foreground);
 }
 .eye-live-dot {
   position: absolute;
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #388248;
-  box-shadow: 0 0 0 12px #4b884814;
+  background: var(--primary);
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--primary) 10%, transparent);
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
