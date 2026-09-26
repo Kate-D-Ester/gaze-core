@@ -35,7 +35,8 @@ The synthetic sample drives a generated eye through the same detector, model and
 
 - Locate a dark, spatially uniform patch with a sparse mean/variance search and calculate an Otsu intensity split.
 - Search the entire selected ROI. Auto cutoffs combine patch intensity plus 5, 15 and 25 with 55%, 80% and 100% of the Otsu split, plus a user bias. Manual mode applies one absolute cutoff. Extract all candidate contours and fit ellipses with OpenCV. Masks are not dilated, preserving pupil size.
-- Refine the contour using three-point inward bisectors, refit and score contour-to-ellipse agreement. Rank candidates using local contrast, interior intensity consistency and proximity to the previous pupil. Reject uniform frames, clipped contours and implausible shapes.
+- Refine the contour using three-point inward bisectors, refit and score contour-to-ellipse agreement. For weak fits, deterministic stratified fitting trials recover the outer rim around limited reflection notches. Recovery requires support across angular sectors, at least 55% of contour points near the rim, and a filled-area ratio between 0.75 and 1.15. Rank candidates using local contrast, interior intensity consistency and proximity to the previous pupil. Reject uniform frames, clipped contours and implausible shapes. The primitive is OpenCV’s [least-squares fitEllipse](https://docs.opencv.org/4.x/d3/dc0/group__imgproc__shape.html); the recovery checks are additions here.
+- Retain the previous threshold band when scores are nearly equal (0.03 margin), and keep that preview band during loss instead of jumping back to the middle mask. Auto still recalculates cutoffs for each frame; Manual fixes one absolute cutoff.
 - Confirm abrupt relocations across two frames and use confidence hysteresis for an established track. A previous observation guides recovery for at most 250 ms; missing measurements never produce stale gaze.
 - Intersect the minor-axis lines of diverse pupil ellipses. Use deterministic consensus and weighted least squares to reject outliers and unstable parallel lines. Average recent center estimates and use the observed outer pupil extent to estimate the projected sphere radius.
 - Unproject each pupil center through a pinhole camera and intersect that ray with the sphere. Normalize the sphere-center-to-intersection vector to obtain gaze.
@@ -61,6 +62,15 @@ Screen features are `(gx/−gz, gy/−gz)`. An affine map fits normalized browse
 The defaults of 45° vertical field of view and 12 mm eye radius are **assumptions**, not measured camera or subject parameters. Enter the actual camera field of view when known. The radius mostly sets metric scale; it cannot turn this model into a calibrated eye-anatomy measurement.
 
 The tutorial's minor-axis convergence and outer-extent sphere fit are approximate eye models. They do not compensate for corneal refraction, lens distortion, pupil-size changes, eyelid occlusion or head/camera motion. Screen calibration is empirical and only valid for the current pose and viewport. A dark object can resemble a pupil, which is why the visible eye-region and contour checks are required. Real footage and camera-specific validation are needed before making accuracy claims.
+
+## Troubleshooting threshold and pupil loss
+
+- **Auto bias is not a fixed cutoff.** The UI shows the actual cutoff of the displayed mask. Auto recomputes from each frame and may select another mask when it has a better pupil candidate. Switch to **Manual** to hold the current cutoff, then fine-tune it until the pupil is one white region against a dark surround.
+- A fixed cutoff does not fix the incoming camera intensities. If available, lock camera exposure/gain in the camera's own controls, focus the pupil rim, and keep illumination steady. The app crops the ROI after capture; it does not lock camera exposure. Bright reflections inside the pupil remain inside the ROI. Exposure control capabilities vary by device; see the [MediaStream Image Capture specification](https://w3c.github.io/mediacapture-image/).
+- A solid mint outline is accepted. A dashed sand outline is a current, unaccepted candidate; it contributes neither eye-model observations nor gaze. Weak candidates report a short reason rather than silently disappearing. The blue sphere is an estimated eye model and is only shown from the Eye model step onward.
+- Keep the pupil's full movement and some surrounding iris inside the ROI. Avoid cutting through the pupil or raising the cutoff until the iris merges into it. Small enclosed glints are tolerated; large edge-connected reflections or blur can still leave insufficient rim information.
+
+The September 27 screenshot investigation reproduced a weak fit (about 74%) on the cleaner threshold mask. Rim recovery raised its geometric support to about 84%, above the unchanged 82% acquisition gate. One image-view crop also recovered; the most distorted crop still had no reliable automatic detection. These are screenshot-derived static checks, not measured gaze accuracy or proof of video stability. User image data stays out of version control.
 
 ## Verification
 

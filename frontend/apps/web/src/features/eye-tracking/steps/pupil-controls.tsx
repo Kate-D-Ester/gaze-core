@@ -9,24 +9,26 @@ export function PupilControls({
   usable: boolean
 }) {
   const { source, frame } = tracker
+  const outline = frame?.detection.ellipse ?? frame?.detection.candidate
   return (
     <>
       <div className={`eye-fit-status ${usable ? "good" : ""}`}>
         <Eye size={18} />
         {usable
           ? "Tracking"
-          : frame?.detection.tracking === "reacquiring"
-            ? "Reacquiring"
-            : "No pupil"}
+          : outline
+            ? "Checking outline"
+            : frame?.detection.tracking === "reacquiring"
+              ? "Reacquiring"
+              : "No pupil"}
         <strong>
-          {frame?.detection.ellipse
-            ? `${Math.round(frame.detection.ellipse.confidence * 100)}%`
-            : "—"}
+          {outline ? `${Math.round(outline.confidence * 100)}%` : "—"}
         </strong>
       </div>
       <p className="eye-small">
-        Tune the threshold above the preview until the outline follows the
-        pupil.
+        {frame?.detection.candidate
+          ? frame.detection.reason
+          : "A solid mint outline is tracked. A dashed outline is not used for gaze."}
       </p>
       {source?.kind === "sample" && (
         <button

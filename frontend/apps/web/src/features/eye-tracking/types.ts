@@ -28,6 +28,8 @@ export type ThresholdPreview = {
   score: number
 }
 export type Detection = {
+  /** Visible feedback only; never used to fit the eye model or produce gaze. */
+  candidate?: Ellipse
   tracking?: "tracking" | "reacquiring" | "lost"
   ellipse: Ellipse | null
   seed: Point | null

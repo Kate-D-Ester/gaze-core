@@ -24,6 +24,7 @@ import type {
 export class TrackingEngine {
   private readonly model = new EyeModelEstimator()
   private configKey = ""
+  private previousSelected: number | undefined
   private previous: Ellipse | null = null
   private seenAt = -Infinity
   private pending: { ellipse: Ellipse; time: number } | null = null
@@ -34,6 +35,7 @@ export class TrackingEngine {
   reset() {
     this.model.reset()
     this.configKey = ""
+    this.previousSelected = undefined
     this.previous = null
     this.pending = null
     this.seenAt = -Infinity
@@ -100,8 +102,14 @@ export class TrackingEngine {
         roi.width,
         roi.height,
         settings.threshold,
-        { thresholdMode: settings.thresholdMode, previous: this.previous }
+        {
+          thresholdMode: settings.thresholdMode,
+          previous: this.previous,
+          previousSelected: this.previousSelected,
+        }
       )
+      this.previousSelected =
+        detection.selected >= 0 ? detection.selected : undefined
       this.associate(detection, timestamp, roi.width, roi.height)
       const e = detection.ellipse
       model = this.model.getLatest()
@@ -227,7 +235,8 @@ export class TrackingEngine {
     if (!candidate) {
       this.pending = null
       detection.tracking = this.previous ? "reacquiring" : "lost"
-      detection.reason = this.previous ? "Reacquiring pupil" : "Pupil not found"
+      if (this.previous && detection.reason === "Pupil not found")
+        detection.reason = "Reacquiring pupil"
       return
     }
     const compatible = (a: Ellipse, b: Ellipse) => {
@@ -253,9 +262,13 @@ export class TrackingEngine {
       : candidate.confidence >= 0.82 && (!this.previous || confirmed)
     if (!accepted) {
       this.pending = { ellipse: candidate, time: timestamp }
+      detection.candidate = candidate
       detection.ellipse = null
       detection.tracking = "reacquiring"
-      detection.reason = "Reacquiring pupil"
+      detection.reason =
+        candidate.confidence < 0.82
+          ? "Weak outline · adjust cutoff or reduce glare"
+          : "Confirming pupil movement"
       return
     }
     this.previous = candidate

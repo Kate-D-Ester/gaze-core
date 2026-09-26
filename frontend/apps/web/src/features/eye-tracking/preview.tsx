@@ -61,6 +61,7 @@ export function EyePreview({
   onRegion,
   onCorner,
   onEditRegion,
+  showModel = false,
 }: {
   tracker: TrackerController
   selectRegion: boolean
@@ -68,6 +69,7 @@ export function EyePreview({
   onRegion: (roi: Rect) => void
   onCorner: (p: Point) => void
   onEditRegion?: () => void
+  showModel?: boolean
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const gesture = useRef<RegionGesture | null>(null)
@@ -118,6 +120,17 @@ export function EyePreview({
     ctx.setLineDash([7, 5])
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
     ctx.setLineDash([])
+    const candidate = frame?.detection.candidate
+    if (!frame?.detection.ellipse && candidate) {
+      ctx.setLineDash([4, 4])
+      drawEllipse(
+        ctx,
+        candidate,
+        [roi.x, roi.y],
+        colors.getPropertyValue("--eye-ray")
+      )
+      ctx.setLineDash([])
+    }
     if (frame?.detection.ellipse) {
       drawEllipse(
         ctx,
@@ -131,7 +144,7 @@ export function EyePreview({
       ctx.arc(p[0] + roi.x, p[1] + roi.y, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
-    if (frame?.model && view === "image") {
+    if (showModel && frame?.model && view === "image") {
       const m = frame.model
       ctx.strokeStyle = colors.getPropertyValue("--eye-sphere")
       ctx.lineWidth = 1
@@ -168,6 +181,7 @@ export function EyePreview({
     roi,
     selection,
     selectRegion,
+    showModel,
     view,
   ])
 

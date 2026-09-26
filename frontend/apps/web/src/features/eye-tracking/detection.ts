@@ -96,6 +96,83 @@ function validEllipse(e: Ellipse, width: number, height: number): boolean {
     e.center[1] < height - e.major * 0.2
   )
 }
+/** Fit remaining rim arcs without treating a reflection's inward notch as pupil boundary. */
+function recoverPupilRim(
+  cv: CV,
+  points: Point[],
+  refined: Point[],
+  initial: Ellipse,
+  area: number,
+  width: number,
+  height: number
+): Ellipse | null {
+  const fit = (sample: Point[]): Ellipse | null => {
+    if (sample.length < 6) return null
+    const mat = cv.matFromArray(sample.length, 1, cv.CV_32FC2, sample.flat())
+    try {
+      const ellipse = convertEllipse(cv.fitEllipse(mat))
+      return validEllipse(ellipse, width, height) ? ellipse : null
+    } finally {
+      mat.delete()
+    }
+  }
+  const support = (ellipse: Ellipse) => {
+    const tolerance = Math.max(1.5, ellipse.minor * 0.045)
+    const inliers = points.filter((p) => edgeError(p, ellipse) <= tolerance)
+    // Counting angular sectors prevents a long reflection edge from dominating the fit.
+    const sectors = new Set<number>()
+    const c = Math.cos(ellipse.angle),
+      s = Math.sin(ellipse.angle)
+    for (const [x, y] of inliers) {
+      const dx = x - ellipse.center[0],
+        dy = y - ellipse.center[1]
+      const angle = Math.atan2(
+        (-s * dx + c * dy) / ellipse.minor,
+        (c * dx + s * dy) / ellipse.major
+      )
+      sectors.add(Math.min(31, Math.floor(((angle + Math.PI) * 16) / Math.PI)))
+    }
+    const fill = area / (Math.PI * ellipse.major * ellipse.minor)
+    const confidence = Math.min(1, fill, sectors.size / 32)
+    // A few arcs cannot justify reconstructing an otherwise missing pupil.
+    if (fill < 0.75 || fill > 1.15 || inliers.length < points.length * 0.55)
+      return null
+    return {
+      ellipse: { ...ellipse, confidence },
+      inliers,
+      score: confidence + (0.05 * inliers.length) / points.length,
+    }
+  }
+  let best = support(initial)
+  let seed = 1729
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 4294967296
+  }
+  // Deterministic, stratified trials cover the contour without relying on one unbroken arc.
+  for (let trial = 0; trial < 32; trial++) {
+    const sample = Array.from(
+      { length: 8 },
+      (_, i) =>
+        refined[
+          Math.min(
+            refined.length - 1,
+            Math.floor(((i + random()) * refined.length) / 8)
+          )
+        ]
+    )
+    const ellipse = fit(sample)
+    if (!ellipse) continue
+    const candidate = support(ellipse)
+    if (candidate && (!best || candidate.score > best.score)) best = candidate
+  }
+  if (!best) return null
+  const refitted = fit(best.inliers)
+  const candidate = refitted && support(refitted)
+  if (candidate && candidate.score >= best.score) best = candidate
+  return best.ellipse
+}
+
 /** Between-class variance gives a second intensity estimate when a lash is darkest. */
 function otsuThreshold(gray: Uint8Array): number {
   const histogram = new Uint32Array(256)
@@ -180,6 +257,7 @@ function pupilContrast(
 export type PupilDetectionOptions = {
   thresholdMode?: "auto" | "manual"
   previous?: Ellipse | null
+  previousSelected?: number
 }
 export function detectSpatialPupil(
   cv: CV,
@@ -227,6 +305,7 @@ export function detectSpatialPupil(
   try {
     const scale = Math.min(width, height) / 480
     let best = -Infinity
+    let irregular = false
     for (const [index, threshold] of thresholds.entries()) {
       // Segment the ENTIRE user-selected ROI. No moving window around a dark lash.
       const data = Uint8Array.from(gray, (value) =>
@@ -281,7 +360,7 @@ export function detectSpatialPupil(
         const refinedMat = own(
           cv.matFromArray(refined.length, 1, cv.CV_32FC2, refined.flat())
         )
-        const fitted = convertEllipse(cv.fitEllipse(refinedMat))
+        let fitted = convertEllipse(cv.fitEllipse(refinedMat))
         if (!validEllipse(fitted, width, height)) continue
         const tolerance = Math.max(1.5, 4 * scale)
         const fill = Math.min(1, area / (Math.PI * fitted.major * fitted.minor))
@@ -290,13 +369,29 @@ export function detectSpatialPupil(
           points.filter((p) => edgeError(p, fitted) <= tolerance).length /
             points.length
         )
+        if (fitted.confidence < 0.85) {
+          const recovered = recoverPupilRim(
+            cv,
+            points,
+            refined,
+            fitted,
+            area,
+            width,
+            height
+          )
+          if (recovered && recovered.confidence > fitted.confidence)
+            fitted = recovered
+        }
         const { contrast, homogeneity } = pupilContrast(
           gray,
           width,
           height,
           fitted
         )
-        if (fitted.confidence < 0.65 || contrast < 8) continue
+        if (fitted.confidence < 0.65 || contrast < 8) {
+          if (area > 100 && contrast >= 8) irregular = true
+          continue
+        }
         result.previews[index].score = Math.max(
           result.previews[index].score,
           fitted.confidence
@@ -323,6 +418,8 @@ export function detectSpatialPupil(
           )
           score *= 0.35 + 0.65 * position * size
         }
+        // Only switch threshold bands for a meaningful improvement in candidate quality.
+        if (index === options.previousSelected) score += 0.03
         if (score <= best) continue
         best = score
         result.selected = index
@@ -333,8 +430,19 @@ export function detectSpatialPupil(
           fitted.confidence >= 0.82 ? "Pupil found" : "Pupil fit is weak"
       }
     }
-    if (result.selected < 0 && result.previews.length)
-      result.selected = options.thresholdMode === "manual" ? 0 : 1
+    if (result.selected < 0 && result.previews.length) {
+      const previous = options.previousSelected
+      result.selected =
+        previous !== undefined &&
+        previous >= 0 &&
+        previous < result.previews.length
+          ? previous
+          : options.thresholdMode === "manual"
+            ? 0
+            : 1
+      if (irregular)
+        result.reason = "Outline too irregular · adjust cutoff or reduce glare"
+    }
     return result
   } finally {
     for (let i = owned.length - 1; i >= 0; i--) owned[i].delete()

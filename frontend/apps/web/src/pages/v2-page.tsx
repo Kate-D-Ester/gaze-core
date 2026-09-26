@@ -353,6 +353,7 @@ export function V2Page() {
           />
           <EyePreview
             tracker={tracker}
+            showModel={step >= 3}
             selectRegion={step === 1}
             selectCorners={
               step === 3 && settings.format === "classic" && !settings.locked

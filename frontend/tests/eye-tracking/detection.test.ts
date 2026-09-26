@@ -148,3 +148,58 @@ test("automatic thresholds select the pupil rather than the enclosing iris", () 
   expect(Math.abs(result.ellipse!.major - 20)).toBeLessThan(1)
   expect(Math.abs(result.ellipse!.minor - 16)).toBeLessThan(1)
 })
+
+test("an edge-connected glint does not pull the ellipse away from the pupil rim", () => {
+  const data = new Uint8Array(320 * 240).fill(180)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++) {
+      if ((x - 160) ** 2 / 50 ** 2 + (y - 120) ** 2 / 45 ** 2 <= 1)
+        data[y * 320 + x] = 80
+      if (
+        (x - 152) ** 2 + (y - 161) ** 2 < 14 ** 2 ||
+        (x - 172) ** 2 + (y - 161) ** 2 < 12 ** 2
+      )
+        data[y * 320 + x] = 245
+    }
+  const result = detectSpatialPupil(cv, data, 320, 240, 110, {
+    thresholdMode: "manual",
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 160, result.ellipse!.center[1] - 120)
+  ).toBeLessThan(2)
+  expect(Math.abs(result.ellipse!.major - 50)).toBeLessThan(2)
+  expect(Math.abs(result.ellipse!.minor - 45)).toBeLessThan(2)
+  expect(result.ellipse!.confidence).toBeGreaterThanOrEqual(0.82)
+})
+
+test("a crescent with most of the pupil missing cannot become a confident eye", () => {
+  const data = new Uint8Array(320 * 240).fill(180)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++) {
+      if ((x - 160) ** 2 / 50 ** 2 + (y - 120) ** 2 / 45 ** 2 <= 1)
+        data[y * 320 + x] = 80
+      if ((x - 180) ** 2 + (y - 120) ** 2 < 48 ** 2) data[y * 320 + x] = 245
+    }
+  const result = detectSpatialPupil(cv, data, 320, 240, 110, {
+    thresholdMode: "manual",
+  })
+  expect(result.ellipse?.confidence ?? 0).toBeLessThan(0.82)
+})
+
+test("auto preview keeps its previous threshold when candidates are equivalent or lost", () => {
+  const options = { previousSelected: 2 }
+  const found = detectSpatialPupil(cv, frame(), 320, 240, 0, options)
+  expect(found.ellipse).not.toBeNull()
+  expect(found.selected).toBe(2)
+  const lost = detectSpatialPupil(
+    cv,
+    new Uint8Array(320 * 240).fill(180),
+    320,
+    240,
+    0,
+    options
+  )
+  expect(lost.ellipse).toBeNull()
+  expect(lost.selected).toBe(2)
+})

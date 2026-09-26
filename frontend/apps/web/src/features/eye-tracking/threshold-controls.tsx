@@ -33,6 +33,7 @@ export function ThresholdControls({
             <button
               aria-pressed={!manual}
               onClick={() => {
+                if (!manual) return
                 setDraft(null)
                 update({ thresholdMode: "auto", threshold: 0 })
               }}
@@ -42,6 +43,7 @@ export function ThresholdControls({
             <button
               aria-pressed={manual}
               onClick={() => {
+                if (manual) return
                 setDraft(null)
                 update({
                   thresholdMode: "manual",
@@ -85,8 +87,8 @@ export function ThresholdControls({
       </label>
       <p className="eye-threshold-levels">
         {manual
-          ? `0 dark · 255 light${spatial ? "" : " · equalized image"}`
-          : `Cutoffs ${frame?.detection.previews.map((p) => p.threshold).join(" / ") || "—"}`}
+          ? `Fixed cutoff ${settings.threshold} · 0 dark / 255 light${spatial ? "" : " · equalized image"}`
+          : `Using ${selected?.threshold ?? "—"} · Auto updates every frame. Manual holds this cutoff.`}
       </p>
     </section>
   )

@@ -118,9 +118,10 @@ test("spatial association rejects one-frame jumps but reacquires sustained eye m
   expect(
     engine.process(image(100, 120), 320, 240, settings, 1, 0).detection.ellipse
   ).not.toBeNull()
-  expect(
-    engine.process(image(265, 70), 320, 240, settings, 2, 40).detection.ellipse
-  ).toBeNull()
+  const jump = engine.process(image(265, 70), 320, 240, settings, 2, 40)
+  expect(jump.detection.ellipse).toBeNull()
+  expect(jump.detection.candidate).toBeDefined()
+  expect(jump.gaze).toBeNull()
   const recovered = engine.process(image(103, 120), 320, 240, settings, 3, 80)
   expect(recovered.detection.ellipse!.center[0]).toBeCloseTo(103, 0)
   expect(
