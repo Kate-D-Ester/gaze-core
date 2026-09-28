@@ -7,6 +7,7 @@ import { validateEmailDomain } from "./email-validator";
 import { db } from "@/db";
 import { user } from "@/db/schema";
 import type { EmailRequestBody, MiddlewareErrorResponse, UserIdLookupResult } from "@/types/middleware";
+import { getFrontendOrigins } from "./frontend-origins";
 
 async function getNormalizedEmailFromRequest(request: Request): Promise<string | null> {
   const body = (await request.clone().json()) as EmailRequestBody
@@ -47,7 +48,7 @@ export const createAuthPlugin = () =>
   new Elysia({ name: "better-auth-plugin" })
     .use(
       cors({
-        origin: process.env.FRONTEND_URL || "http://localhost:4001",
+        origin: getFrontendOrigins(),
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization"],

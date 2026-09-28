@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { user, session, verification, account, apikey } from "../db/schema";
 import { db } from "@/db";
 import type { VerificationEmailPayload } from "@/types/auth";
+import { getFrontendOrigins } from "./frontend-origins";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const isProduction = process.env.NODE_ENV === "production";
@@ -24,7 +25,7 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:4000",
   basePath: "/api/auth",
-  trustedOrigins: [(process.env.FRONTEND_URL || "http://localhost:4001")],
+  trustedOrigins: getFrontendOrigins(),
   advanced: isProduction
     ? {
         defaultCookieAttributes: {
