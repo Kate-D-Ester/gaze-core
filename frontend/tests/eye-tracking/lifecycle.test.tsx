@@ -241,7 +241,13 @@ test("eye region setup does not require a pupil confirmation checkbox", async ()
 
 test("network stream URLs activate the camera pipeline with source dimensions", async () => {
   const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(null, { status: 415 })
+  let requestedUrl = ""
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input)
+    return new Response("video", {
+      headers: { "Content-Type": "video/mp4" },
+    })
+  }
   let pending: Promise<void>
   try {
     await act(async () => {
@@ -257,6 +263,7 @@ test("network stream URLs activate the camera pipeline with source dimensions", 
     expect(controller.source?.kind).toBe("network")
     expect(controller.dimensions).toEqual({ width: 640, height: 360 })
     expect(controller.busy).toBe(false)
+    expect(requestedUrl).toBe("https://camera.example/stream.mp4")
   } finally {
     globalThis.fetch = originalFetch
   }

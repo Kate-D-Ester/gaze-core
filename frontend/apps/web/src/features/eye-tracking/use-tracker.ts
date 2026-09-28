@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { getBackendBaseUrl } from "@/lib/backend-base-url"
-import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
+import { openNetworkSource } from "./network-source"
 import { shouldIncludePreviewMasks } from "./preview-mask-policy"
 import { drawSample } from "./sample"
 import type { FrameSettings, Point, TrackingFrame } from "./types"
@@ -242,101 +241,59 @@ export function useTracker() {
       const c = control.current,
         generation = c.sourceEpoch
       try {
-        const url = new URL(input.trim())
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error("Use an HTTP or HTTPS network stream URL.")
-
-        const startBrowserVideo = async () => {
-          const video = document.createElement("video")
-          video.muted = true
-          video.playsInline = true
-          video.crossOrigin = "anonymous"
-          video.src = url.href
-          c.video = video
-          try {
-            await video.play()
-            await waitForDimensions(video)
-          } catch {
-            throw new Error(
-              "This source is not browser-playable. MJPEG cameras need the local GazeCore stream relay."
-            )
+        const abort = new AbortController()
+        c.networkAbort = abort
+        const networkSource = await openNetworkSource(input, abort.signal)
+        if (generation !== c.sourceEpoch) {
+          if (networkSource.kind === "mjpeg") {
+            await networkSource.frames.return(undefined)
+          } else {
+            networkSource.video.pause()
+            networkSource.video.removeAttribute("src")
+            networkSource.video.load()
           }
-          if (generation !== c.sourceEpoch) return
-          activate({ kind: "network", name: url.hostname }, video)
-          video.addEventListener(
+          return
+        }
+
+        if (networkSource.kind === "video") {
+          activate(
+            { kind: "network", name: networkSource.name },
+            networkSource.video
+          )
+          networkSource.video.addEventListener(
             "error",
             () => {
-              if (c.video === video) {
+              if (c.video === networkSource.video) {
                 stop()
                 setError(
-                  "This network source is not a browser-playable video or MJPEG stream. Check the camera stream URL."
+                  "This network video stopped. Check its stream URL and CORS settings."
                 )
               }
             },
             { once: true }
           )
+          return
         }
 
-        const apiBase =
-          typeof import.meta.env !== "undefined" && import.meta.env.DEV
-            ? ""
-            : getBackendBaseUrl()
-        const relayUrl = `${apiBase}/api/camera/mjpeg?url=${encodeURIComponent(url.href)}`
-        const abort = new AbortController()
-        c.networkAbort = abort
-        let response: Response
-        try {
-          response = await fetch(relayUrl, { signal: abort.signal })
-        } catch {
-          abort.abort()
-          c.networkAbort = null
-          await startBrowserVideo()
-          return
-        }
-        if (generation !== c.sourceEpoch) {
-          await response.body?.cancel()
-          return
-        }
-        if (response.status === 415 || response.status === 403) {
-          await response.body?.cancel()
-          abort.abort()
-          c.networkAbort = null
-          await startBrowserVideo()
-          return
-        }
-        if (!response.ok)
-          throw new Error(
-            (await response.json().catch(() => null))?.error ??
-              "The local stream relay could not reach this camera."
-          )
-        if (!response.body)
-          throw new Error("The camera relay returned an empty stream.")
-
-        const boundary = getMjpegBoundary(
-          response.headers.get("content-type") ?? ""
+        const firstBitmap = await createImageBitmap(
+          jpegBlob(networkSource.firstFrame)
         )
-        if (!boundary)
-          throw new Error("The camera returned an invalid MJPEG stream.")
-        const frames = readMjpegFrames(response.body, boundary, abort.signal)
-        const first = await frames.next()
-        if (first.done)
-          throw new Error("The camera stream contains no JPEG frame.")
-        const firstBitmap = await createImageBitmap(jpegBlob(first.value))
         if (generation !== c.sourceEpoch) {
           firstBitmap.close()
+          await networkSource.frames.return(undefined)
           return
         }
         c.mjpegFrame = firstBitmap
         c.mjpegSequence++
         c.lastMjpegSequence = -1
-        activate({ kind: "network", name: url.hostname }, null, {
+        activate({ kind: "network", name: networkSource.name }, null, {
           width: firstBitmap.width,
           height: firstBitmap.height,
         })
 
         void (async () => {
           try {
-            for await (const jpeg of frames) {
+            for await (const jpeg of networkSource.frames) {
               if (generation !== c.sourceEpoch) return
               const bitmap = await createImageBitmap(jpegBlob(jpeg))
               if (generation !== c.sourceEpoch) {
