@@ -1,5 +1,68 @@
 import { fitEyeCenter, minorAxisLine, outerEdgeDistance } from "./geometry"
 import type { Ellipse, EyeModel, Point } from "./types"
+
+const MINIMUM_SAMPLES = 30
+const REQUIRED_COVERAGE = 0.625
+const REQUIRED_DIRECTIONS = 5
+
+export type EyeModelLockStatus = {
+  ready: boolean
+  blocker: "waiting" | "samples" | "coverage" | "radius" | "fit" | "ready"
+  coveredDirections: number
+  requiredDirections: number
+  progress: number
+}
+
+export function getEyeModelLockStatus(
+  model: Pick<
+    EyeModel,
+    "samples" | "coverage" | "radius" | "residual" | "ready"
+  > | null,
+  width: number,
+  height: number
+): EyeModelLockStatus {
+  const minDimension = Math.min(width, height)
+  const coveredDirections = Math.round((model?.coverage ?? 0) * 8)
+  if (!model || minDimension <= 0) {
+    return {
+      ready: false,
+      blocker: "waiting",
+      coveredDirections,
+      requiredDirections: REQUIRED_DIRECTIONS,
+      progress: 0,
+    }
+  }
+
+  let blocker: EyeModelLockStatus["blocker"] = "ready"
+  if (!model.ready) {
+    if (model.samples < MINIMUM_SAMPLES) blocker = "samples"
+    else if (model.coverage < REQUIRED_COVERAGE) blocker = "coverage"
+    else if (
+      model.radius < minDimension * 0.08 ||
+      model.radius >= minDimension * 0.75
+    ) {
+      blocker = "radius"
+    } else if (model.residual >= Math.max(2, minDimension * 0.015)) {
+      blocker = "fit"
+    }
+  }
+
+  const readinessProgress = Math.min(
+    model.samples / MINIMUM_SAMPLES,
+    coveredDirections / REQUIRED_DIRECTIONS
+  )
+  return {
+    ready: blocker === "ready",
+    blocker,
+    coveredDirections,
+    requiredDirections: REQUIRED_DIRECTIONS,
+    progress:
+      blocker === "ready"
+        ? 100
+        : Math.min(99, Math.round(readinessProgress * 100)),
+  }
+}
+
 export class EyeModelEstimator {
   private observations: Ellipse[] = []
   private centers: Point[] = []
@@ -27,11 +90,8 @@ export class EyeModelEstimator {
     this.observations.push(e)
     if (this.observations.length > 100) this.observations.shift()
     const fit = fitEyeCenter(this.observations, width, height)
-    if (!fit) {
-      this.latest = null
-      this.centers = []
-      return null
-    }
+    // Keep the last usable fit while a noisy observation window cannot agree.
+    if (!fit) return this.latest
     this.centers.push(fit.center)
     if (this.centers.length > 30) this.centers.shift()
     const center: Point = [0, 1].map(
@@ -51,12 +111,18 @@ export class EyeModelEstimator {
       ...fit.inliers.map((item) => outerEdgeDistance(center, item))
     )
     const coverage = sectors.size / 8
-    const ready =
-      fit.inliers.length >= 30 &&
-      coverage >= 0.625 &&
-      radius >= Math.min(width, height) * 0.08 &&
-      radius < Math.min(width, height) * 0.75 &&
-      fit.residual < Math.max(2, Math.min(width, height) * 0.015)
+    const lockStatus = getEyeModelLockStatus(
+      {
+        samples: fit.inliers.length,
+        coverage,
+        radius,
+        residual: fit.residual,
+        ready: false,
+      },
+      width,
+      height
+    )
+    const ready = this.latest?.ready === true || lockStatus.ready
     this.latest = {
       center,
       radius,

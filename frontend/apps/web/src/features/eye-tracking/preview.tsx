@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -14,6 +15,8 @@ import {
   resizeRegion,
   type ResizeHandle,
 } from "./roi"
+import { fitPreviewCard, fitSquarePreview } from "./preview-layout"
+import { setCanvasDimensions } from "./canvas-sizing"
 
 const HANDLES: { handle: ResizeHandle; label: string; x: number; y: number }[] =
   [
@@ -61,6 +64,7 @@ export function EyePreview({
   onRegion,
   onCorner,
   onEditRegion,
+  onThresholdViewChange,
   showModel = false,
 }: {
   tracker: TrackerController
@@ -69,9 +73,11 @@ export function EyePreview({
   onRegion: (roi: Rect) => void
   onCorner: (p: Point) => void
   onEditRegion?: () => void
+  onThresholdViewChange?: (enabled: boolean) => void
   showModel?: boolean
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<RegionGesture | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
   const [redraw, setRedraw] = useState(false)
@@ -81,11 +87,156 @@ export function EyePreview({
   const displayRegion = selection ?? roi
 
   useEffect(() => {
+    if (view === "threshold") onThresholdViewChange?.(true)
+  }, [onThresholdViewChange, view])
+
+  useLayoutEffect(() => {
+    const preview = previewRef.current
+    const previewCard = preview?.closest<HTMLElement>(".eye-preview-card")
+    const workspace = previewCard?.parentElement
+    const stage = preview?.querySelector<HTMLElement>(".eye-preview-stage")
+    const emptyStage = preview?.querySelector<HTMLElement>(".eye-preview-empty")
+    const hasSource = !!tracker.source
+    if (
+      !preview ||
+      !previewCard ||
+      !workspace ||
+      (hasSource && !stage) ||
+      (!hasSource && !emptyStage)
+    )
+      return
+    const Observer = window.ResizeObserver
+    if (!Observer) return
+
+    const heading = preview.querySelector<HTMLElement>(".eye-preview-heading")
+    const toolbar = preview.querySelector<HTMLElement>(".eye-roi-toolbar")
+    const thresholdCard = workspace.querySelector<HTMLElement>(
+      ".eye-threshold-controls"
+    )
+    const details = workspace.querySelector<HTMLElement>(
+      ".eye-pipeline-details"
+    )
+    const resize = () => {
+      const workspaceStyle = getComputedStyle(workspace)
+      const cardStyle = getComputedStyle(previewCard)
+      const previewStyle = getComputedStyle(preview)
+      const rowGap = Number.parseFloat(workspaceStyle.rowGap) || 0
+      const columnGap = Number.parseFloat(workspaceStyle.columnGap) || 0
+      const workspacePaddingWidth =
+        (Number.parseFloat(workspaceStyle.paddingLeft) || 0) +
+        (Number.parseFloat(workspaceStyle.paddingRight) || 0)
+      const workspacePaddingHeight =
+        (Number.parseFloat(workspaceStyle.paddingTop) || 0) +
+        (Number.parseFloat(workspaceStyle.paddingBottom) || 0)
+      const cardBorderWidth =
+        (Number.parseFloat(cardStyle.borderLeftWidth) || 0) +
+        (Number.parseFloat(cardStyle.borderRightWidth) || 0)
+      const cardBorderHeight =
+        (Number.parseFloat(cardStyle.borderTopWidth) || 0) +
+        (Number.parseFloat(cardStyle.borderBottomWidth) || 0)
+      const previewBorderHeight =
+        (Number.parseFloat(previewStyle.borderTopWidth) || 0) +
+        (Number.parseFloat(previewStyle.borderBottomWidth) || 0)
+      const detailsStyle = details && getComputedStyle(details)
+      const detailsHeight =
+        details && !details.hidden
+          ? details.getBoundingClientRect().height +
+            (Number.parseFloat(detailsStyle?.marginTop ?? "0") || 0) +
+            (Number.parseFloat(detailsStyle?.marginBottom ?? "0") || 0)
+          : 0
+      const detailsInsideCard = !!details && previewCard.contains(details)
+      const thresholdBounds = thresholdCard?.getBoundingClientRect()
+      const previewBounds = previewCard.getBoundingClientRect()
+      const besideThreshold =
+        !!thresholdBounds &&
+        thresholdBounds.left < previewBounds.left &&
+        thresholdBounds.right <= previewBounds.left + 1
+      const availableHeight =
+        workspace.clientHeight -
+        workspacePaddingHeight -
+        (detailsInsideCard ? 0 : detailsHeight + (detailsHeight ? rowGap : 0)) -
+        (!besideThreshold && thresholdBounds
+          ? thresholdBounds.height + rowGap
+          : 0)
+      const maximumWidth =
+        workspace.clientWidth -
+        workspacePaddingWidth -
+        (besideThreshold ? (thresholdBounds?.width ?? 0) + columnGap : 0) -
+        cardBorderWidth
+      const maximumHeight = availableHeight - cardBorderHeight
+
+      if (!hasSource) {
+        previewCard.style.removeProperty("width")
+        previewCard.style.removeProperty("height")
+        preview.style.removeProperty("width")
+        preview.style.removeProperty("height")
+        const fitted = fitSquarePreview(
+          preview.clientWidth,
+          preview.clientHeight - (heading?.getBoundingClientRect().height ?? 0)
+        )
+        if (!fitted || !emptyStage) {
+          emptyStage?.style.removeProperty("width")
+          emptyStage?.style.removeProperty("height")
+          return
+        }
+        emptyStage.style.width = `${fitted.width}px`
+        emptyStage.style.height = `${fitted.height}px`
+        return
+      }
+
+      if (!stage) return
+      const chromeHeight =
+        (heading?.getBoundingClientRect().height ?? 0) +
+        (toolbar?.getBoundingClientRect().height ?? 0) +
+        previewBorderHeight
+      const fitted = fitPreviewCard(
+        dimensions.width,
+        dimensions.height,
+        maximumWidth,
+        maximumHeight,
+        chromeHeight,
+        detailsInsideCard ? detailsHeight : 0
+      )
+      if (!fitted) {
+        previewCard.style.removeProperty("width")
+        previewCard.style.removeProperty("height")
+        preview.style.removeProperty("width")
+        preview.style.removeProperty("height")
+        stage.style.removeProperty("width")
+        stage.style.removeProperty("height")
+        return
+      }
+      previewCard.style.width = `${fitted.card.width + cardBorderWidth}px`
+      previewCard.style.height = `${fitted.card.height + cardBorderHeight}px`
+      preview.style.width = `${fitted.preview.width}px`
+      preview.style.height = `${fitted.preview.height}px`
+      stage.style.width = `${fitted.image.width}px`
+      stage.style.height = `${fitted.image.height}px`
+    }
+    const observer = new Observer(resize)
+    observer.observe(workspace)
+    observer.observe(previewCard)
+    if (thresholdCard) observer.observe(thresholdCard)
+    if (details) observer.observe(details)
+    if (heading) observer.observe(heading)
+    if (toolbar) observer.observe(toolbar)
+    if (emptyStage) observer.observe(emptyStage)
+    observer.observe(preview)
+    resize()
+    return () => observer.disconnect()
+  }, [
+    dimensions.height,
+    dimensions.width,
+    selectRegion,
+    showModel,
+    tracker.source,
+  ])
+
+  useEffect(() => {
     const canvas = ref.current,
       source = tracker.sourceCanvas.current
     if (!canvas || !source) return
-    canvas.width = source.width
-    canvas.height = source.height
+    setCanvasDimensions(canvas, source.width, source.height)
     const ctx = canvas.getContext("2d")
     if (!ctx) return
     const colors = getComputedStyle(canvas)
@@ -94,7 +245,7 @@ export function EyePreview({
     if (view === "threshold") {
       ctx.fillStyle = "#111111"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
-      if (preview && frame) {
+      if (preview?.mask && frame) {
         const image = ctx.createImageData(frame.roi.width, frame.roi.height)
         for (let i = 0; i < preview.mask.length; i++) {
           const j = i * 4
@@ -299,7 +450,10 @@ export function EyePreview({
   }
 
   return (
-    <div className="eye-preview">
+    <div
+      className={`eye-preview ${tracker.source ? "has-source" : "is-empty"}`}
+      ref={previewRef}
+    >
       <div className="eye-preview-heading">
         <span>
           <span
@@ -316,7 +470,10 @@ export function EyePreview({
             >
               <button
                 aria-pressed={view === "image"}
-                onClick={() => setView("image")}
+                onClick={() => {
+                  setView("image")
+                  onThresholdViewChange?.(false)
+                }}
               >
                 Image
               </button>
@@ -355,61 +512,68 @@ export function EyePreview({
             </div>
           )}
           <div
-            className="eye-preview-image"
-            style={{ maxWidth: dimensions.width }}
-            onPointerMove={(event) => {
-              const next = nextRegion(event)
-              if (next) setSelection(next)
+            className="eye-preview-stage"
+            style={{
+              aspectRatio: dimensions.width / dimensions.height,
             }}
-            onPointerUp={finishGesture}
-            onPointerCancel={cancelGesture}
-            onLostPointerCapture={cancelGesture}
           >
-            <canvas
-              ref={ref}
-              width={dimensions.width}
-              height={dimensions.height}
-              aria-label={
-                selectRegion
-                  ? "Eye region editor. Arrow keys move; Shift and arrows resize; Alt uses 10 pixel steps."
-                  : "Eye camera preview"
-              }
-              tabIndex={selectRegion ? 0 : undefined}
-              className={
-                selectRegion
-                  ? redraw
-                    ? "selectable"
-                    : "movable"
-                  : selectCorners
-                    ? "selectable"
-                    : ""
-              }
-              onPointerDown={(event) => beginGesture(event)}
-              onKeyDown={(event) => editWithKeyboard(event)}
-            />
-            {selectRegion && !redraw && (
-              <div
-                className="eye-roi-overlay"
-                style={{
-                  left: `${(displayRegion.x / dimensions.width) * 100}%`,
-                  top: `${(displayRegion.y / dimensions.height) * 100}%`,
-                  width: `${(displayRegion.width / dimensions.width) * 100}%`,
-                  height: `${(displayRegion.height / dimensions.height) * 100}%`,
-                }}
-              >
-                {HANDLES.map(({ handle, label, x, y }) => (
-                  <button
-                    key={handle}
-                    className={`eye-roi-handle ${handle}`}
-                    aria-label={`Resize ROI ${label}`}
-                    title={`Resize ${label}; arrow keys adjust`}
-                    style={{ left: `${x}%`, top: `${y}%` }}
-                    onPointerDown={(event) => beginGesture(event, handle)}
-                    onKeyDown={(event) => editWithKeyboard(event, handle)}
-                  />
-                ))}
-              </div>
-            )}
+            <div
+              className="eye-preview-image"
+              style={{ maxWidth: dimensions.width }}
+              onPointerMove={(event) => {
+                const next = nextRegion(event)
+                if (next) setSelection(next)
+              }}
+              onPointerUp={finishGesture}
+              onPointerCancel={cancelGesture}
+              onLostPointerCapture={cancelGesture}
+            >
+              <canvas
+                ref={ref}
+                width={dimensions.width}
+                height={dimensions.height}
+                aria-label={
+                  selectRegion
+                    ? "Eye region editor. Arrow keys move; Shift and arrows resize; Alt uses 10 pixel steps."
+                    : "Eye camera preview"
+                }
+                tabIndex={selectRegion ? 0 : undefined}
+                className={
+                  selectRegion
+                    ? redraw
+                      ? "selectable"
+                      : "movable"
+                    : selectCorners
+                      ? "selectable"
+                      : ""
+                }
+                onPointerDown={(event) => beginGesture(event)}
+                onKeyDown={(event) => editWithKeyboard(event)}
+              />
+              {selectRegion && !redraw && (
+                <div
+                  className="eye-roi-overlay"
+                  style={{
+                    left: `${(displayRegion.x / dimensions.width) * 100}%`,
+                    top: `${(displayRegion.y / dimensions.height) * 100}%`,
+                    width: `${(displayRegion.width / dimensions.width) * 100}%`,
+                    height: `${(displayRegion.height / dimensions.height) * 100}%`,
+                  }}
+                >
+                  {HANDLES.map(({ handle, label, x, y }) => (
+                    <button
+                      key={handle}
+                      className={`eye-roi-handle ${handle}`}
+                      aria-label={`Resize ROI ${label}`}
+                      title={`Resize ${label}; arrow keys adjust`}
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                      onPointerDown={(event) => beginGesture(event, handle)}
+                      onKeyDown={(event) => editWithKeyboard(event, handle)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </>
       ) : (
@@ -418,30 +582,9 @@ export function EyePreview({
             <Camera size={30} strokeWidth={1.2} />
           </div>
           <h2>Connect an eye camera</h2>
-          <p>Or open a video or sample.</p>
-          <span className="eye-viewfinder-corner tl" />
-          <span className="eye-viewfinder-corner tr" />
-          <span className="eye-viewfinder-corner bl" />
-          <span className="eye-viewfinder-corner br" />
+          <p>Select a camera source to begin.</p>
         </div>
       )}
-      <div className="eye-preview-footer">
-        <span>
-          {selectRegion
-            ? `${displayRegion.width} × ${displayRegion.height} px · ${displayRegion.x}, ${displayRegion.y}`
-            : selectCorners
-              ? "Select both eye corners"
-              : (frame?.detection.reason ??
-                (view === "threshold"
-                  ? "Waiting for threshold image"
-                  : "Local processing"))}
-        </span>
-        <span>
-          {frame
-            ? `${frame.width} × ${frame.height} · ${Math.round(frame.processingMs)} ms`
-            : "—"}
-        </span>
-      </div>
     </div>
   )
 }
@@ -458,8 +601,7 @@ function MaskPreview({
   useEffect(() => {
     const c = ref.current
     if (!c) return
-    c.width = width
-    c.height = height
+    setCanvasDimensions(c, width, height)
     const ctx = c.getContext("2d")
     if (!ctx) return
     const image = ctx.createImageData(width, height)
@@ -488,7 +630,7 @@ export function PipelinePreviews({ frame }: { frame: TrackingFrame | null }) {
           className={`eye-thumbnail ${frame?.detection.selected === i ? "selected" : ""}`}
         >
           <div className="eye-thumbnail-image">
-            {"mask" in p ? (
+            {"mask" in p && p.mask ? (
               <MaskPreview
                 mask={p.mask}
                 width={frame!.roi.width}

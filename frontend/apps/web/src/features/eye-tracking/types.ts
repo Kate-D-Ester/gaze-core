@@ -24,7 +24,7 @@ export type EyeModel = {
 export type ThresholdPreview = {
   label: string
   threshold: number
-  mask: Uint8Array
+  mask?: Uint8Array
   score: number
 }
 export type Detection = {

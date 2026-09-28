@@ -1,6 +1,6 @@
 # Eye tracking V2
 
-Open `/v2` for the six-step workspace. It runs locally without the backend or sign-in. The dashboard and test page also link to it. Existing authenticated routes and the original tracker remain available.
+Open `/v2` for the five-step workspace. It runs locally without the backend or sign-in. The dashboard and test page also link to it. Existing authenticated routes and the original tracker remain available.
 
 ## Run
 
@@ -12,20 +12,18 @@ bun install --frozen-lockfile
 bun run dev --host 127.0.0.1 --port 4012
 ```
 
-Visit `http://127.0.0.1:4012/v2`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye, such as the near-eye camera in the tutorial. A normal webcam may not resolve the pupil well enough. Local video and a clearly labeled synthetic sample are also supported. Frames are processed in a Web Worker and are not uploaded.
+Visit `http://127.0.0.1:4012/v2`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye. A normal webcam may not resolve the pupil well enough. USB cameras and network streams are supported; frames are processed in a Web Worker and are not uploaded.
 
 ## Use the pipeline
 
-1. **Camera:** select a camera, open an eye video, or try the synthetic sample.
-2. **Eye region:** use **Edit ROI** to move the box, resize its eight handles, or **Redraw** it. Arrow keys move the region; Shift + arrows resize it and Alt uses 10-pixel steps. Numeric coordinates are applied together. Keep the entire pupil movement inside the region, then confirm that one pupil is visible. This is a manual region selection, not face or eye classification.
-3. **Pupil:** inspect the mint outline while looking around. Switch the main preview between **Image** and **Threshold**. Threshold controls stay visible above the preview at every step, including before connecting a source. Dragging the slider updates the segmentation immediately; numeric entries apply on Enter or blur. Changing a threshold after model setup returns to the pupil check and clears the dependent model/calibration. In Tracker 2, **Auto** derives three cutoffs from image intensities; its slider adjusts their bias. **Manual** applies one absolute grayscale cutoff (0–255), with an exact numeric entry. The threshold view shows the mask used by the detector; the pupil should be one isolated white region. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye.
-4. **Eye model:** in Tracker 1, select the two eye corners. In Tracker 2, slowly look in several directions until the blue sphere is stable and the model can be locked. Camera geometry is available under the disclosure.
-5. **Calibrate:** keep the head and camera still and look at each of nine targets. Each target requires settled, fresh, stable gaze samples.
-6. **Live gaze:** open the gaze view, validate against five other targets, or export the current result as JSON. Validation reports root-mean-square distance in browser CSS pixels. It is not an angular-accuracy measurement.
+1. **Camera:** choose a USB camera or enter a network stream URL. Camera names are listed when available and may appear after permission is granted. Permission is requested only when you start the preview.
+2. **Eye region:** use **Edit ROI** to move the box, resize its eight handles, or **Redraw** it. Arrow keys move the region; Shift + arrows resize it and Alt uses 10-pixel steps. Numeric coordinates are applied together. Keep the full pupil movement inside the region, then continue; no confirmation checkbox is required. This is a manual region selection, not face or eye classification.
+3. **Eye model:** inspect the pupil outline and threshold preview while looking around; threshold controls remain available above the preview. Dragging the slider updates segmentation immediately; numeric entries apply on Enter or blur. In Tracker 2, **Auto** derives three cutoffs from image intensities; its slider adjusts their bias. **Manual** applies one absolute grayscale cutoff (0–255), with an exact numeric entry. The threshold view shows the mask used by the detector; the pupil should be one isolated white region. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye. In Tracker 1, select the two eye corners. In Tracker 2, look in several directions until the blue sphere is stable, then lock it. Camera geometry is available under the disclosure.
+4. **Calibrate:** keep the head and camera still and look at each of nine targets. Each target requires settled, fresh, stable gaze samples.
+5. **Live gaze:** open the gaze view, validate against five other targets, or export the current result as JSON. Validation reports root-mean-square distance in browser CSS pixels. It is not an angular-accuracy measurement.
 
 Changing the source, format, crop, threshold, corners or camera geometry resets dependent estimates. Resizing the window invalidates screen calibration. Rebuild and recalibrate after moving the eye camera. Lost or stale pupils produce no current gaze instead of retaining the previous point. Nothing is persisted across page reloads.
 
-The synthetic sample drives a generated eye through the same detector, model and calibration code. During target capture it follows the target automatically. Its output is always labeled simulated and is useful for verifying the pipeline, not for measuring real-camera accuracy.
 
 ## What the two formats do
 
@@ -34,10 +32,10 @@ The synthetic sample drives a generated eye through the same detector, model and
 **Eye Tracker 2** implements the sequence from Jason Orlosky's [The Hidden Math Behind 3D Eye Tracking](https://www.youtube.com/watch?v=Gh8LS9erugE) and [MIT-licensed reference implementation](https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker):
 
 - Locate a dark, spatially uniform patch with a sparse mean/variance search and calculate an Otsu intensity split.
-- Search the entire selected ROI. Auto cutoffs combine patch intensity plus 5, 15 and 25 with 55%, 80% and 100% of the Otsu split, plus a user bias. Manual mode applies one absolute cutoff. Extract all candidate contours and fit ellipses with OpenCV. Masks are not dilated, preserving pupil size.
+- Search the entire selected ROI. Auto cutoffs combine patch intensity plus 5, 15 and 25 with 55%, 80% and 100% of the Otsu split, plus a user bias. Manual mode applies one absolute cutoff. Apply a small, ROI-scaled elliptical morphological opening before contour extraction to suppress thin lashes and narrow bridges; the threshold preview shows this filtered mask. The opening does not expand pupil boundaries.
 - Refine the contour using three-point inward bisectors, refit and score contour-to-ellipse agreement. For weak fits, deterministic stratified fitting trials recover the outer rim around limited reflection notches. Recovery requires support across angular sectors, at least 55% of contour points near the rim, and a filled-area ratio between 0.75 and 1.15. Rank candidates using local contrast, interior intensity consistency and proximity to the previous pupil. Reject uniform frames, clipped contours and implausible shapes. The primitive is OpenCV’s [least-squares fitEllipse](https://docs.opencv.org/4.x/d3/dc0/group__imgproc__shape.html); the recovery checks are additions here.
 - Retain the previous threshold band when scores are nearly equal (0.03 margin), and keep that preview band during loss instead of jumping back to the middle mask. Auto still recalculates cutoffs for each frame; Manual fixes one absolute cutoff.
-- Confirm abrupt relocations across two frames and use confidence hysteresis for an established track. A previous observation guides recovery for at most 250 ms; missing measurements never produce stale gaze.
+- Prefer candidates continuous with the previous pupil, confirm abrupt relocations across two frames and use confidence hysteresis for an established track. A previous observation guides recovery for at most 750 ms; missing measurements never produce stale gaze.
 - Intersect the minor-axis lines of diverse pupil ellipses. Use deterministic consensus and weighted least squares to reject outliers and unstable parallel lines. Average recent center estimates and use the observed outer pupil extent to estimate the projected sphere radius.
 - Unproject each pupil center through a pinhole camera and intersect that ray with the sphere. Normalize the sphere-center-to-intersection vector to obtain gaze.
 
@@ -47,7 +45,7 @@ The source snapshot (with normalized line endings and trailing whitespace) and o
 
 Image coordinates have x to the right and y down. Camera coordinates have +z away from the camera. Ellipse `major` and `minor` are **semiaxes in pixels**, and `angle` is the major-axis angle in **radians**. OpenCV's full diameters and degree angles are converted once at the detector boundary. Crop-local positions are translated to full-frame coordinates before fitting the eye model.
 
-For major-axis angle θ, the minor-axis direction is `(-sin θ, cos θ)`. Its perpendicular unit normal n defines a line residual `n · (c − p)`. The center minimizes the confidence-weighted sum of squared residuals. Nearly circular pupils are excluded because their orientation is indeterminate. A ready model needs at least 30 inliers across five of eight angular sectors; obsolete support cannot leave a model ready indefinitely.
+For major-axis angle θ, the minor-axis direction is `(-sin θ, cos θ)`. Its perpendicular unit normal n defines a line residual `n · (c − p)`. The center minimizes the confidence-weighted sum of squared residuals. Nearly circular pupils are excluded because their orientation is indeterminate. A model becomes ready after at least 30 inliers span five of eight angular sectors. Once ready, it is retained through transient failed fits; **Rebuild model** or a relevant setting change starts a fresh fit.
 
 For two contour-neighbor vectors a and b, the inward bisector is `a/|a| + b/|b|`. Its dot product with the vector toward the contour center is normalized by both lengths before comparison with `cos(60°) = 0.5`. The reference compared an unnormalized dot product with a cosine, which makes the decision depend on pixel scale; this implementation corrects that dimensional inconsistency.
 
@@ -61,14 +59,14 @@ Screen features are `(gx/−gz, gy/−gz)`. An affine map fits normalized browse
 
 The defaults of 45° vertical field of view and 12 mm eye radius are **assumptions**, not measured camera or subject parameters. Enter the actual camera field of view when known. The radius mostly sets metric scale; it cannot turn this model into a calibrated eye-anatomy measurement.
 
-The tutorial's minor-axis convergence and outer-extent sphere fit are approximate eye models. They do not compensate for corneal refraction, lens distortion, pupil-size changes, eyelid occlusion or head/camera motion. Screen calibration is empirical and only valid for the current pose and viewport. A dark object can resemble a pupil, which is why the visible eye-region and contour checks are required. Real footage and camera-specific validation are needed before making accuracy claims.
+The tutorial's minor-axis convergence and outer-extent sphere fit are approximate eye models. They do not compensate for corneal refraction, lens distortion, pupil-size changes, eyelid occlusion or head/camera motion. Screen calibration is empirical and only valid for the current pose and viewport. A dark object can resemble a pupil, which is why careful eye-region framing and geometric fit checks matter. Real footage and camera-specific validation are needed before making accuracy claims.
 
 ## Troubleshooting threshold and pupil loss
 
 - **Auto bias is not a fixed cutoff.** The UI shows the actual cutoff of the displayed mask. Auto recomputes from each frame and may select another mask when it has a better pupil candidate. Switch to **Manual** to hold the current cutoff, then fine-tune it until the pupil is one white region against a dark surround.
 - A fixed cutoff does not fix the incoming camera intensities. If available, lock camera exposure/gain in the camera's own controls, focus the pupil rim, and keep illumination steady. The app crops the ROI after capture; it does not lock camera exposure. Bright reflections inside the pupil remain inside the ROI. Exposure control capabilities vary by device; see the [MediaStream Image Capture specification](https://w3c.github.io/mediacapture-image/).
 - A solid mint outline is accepted. A dashed sand outline is a current, unaccepted candidate; it contributes neither eye-model observations nor gaze. Weak candidates report a short reason rather than silently disappearing. The blue sphere is an estimated eye model and is only shown from the Eye model step onward.
-- Keep the pupil's full movement and some surrounding iris inside the ROI. Avoid cutting through the pupil or raising the cutoff until the iris merges into it. Small enclosed glints are tolerated; large edge-connected reflections or blur can still leave insufficient rim information.
+- Keep the pupil's full movement and some surrounding iris inside the ROI. Avoid cutting through the pupil or raising the cutoff until the iris merges into it. Thin lash strands are filtered from the threshold mask; broad dark eyelid shadows can remain and still resemble the pupil. Small enclosed glints are tolerated; large edge-connected reflections or blur can still leave insufficient rim information.
 
 The September 27 screenshot investigation reproduced a weak fit (about 74%) on the cleaner threshold mask. Rim recovery raised its geometric support to about 84%, above the unchanged 82% acquisition gate. One image-view crop also recovered; the most distorted crop still had no reliable automatic detection. These are screenshot-derived static checks, not measured gaze accuracy or proof of video stability. User image data stays out of version control.
 

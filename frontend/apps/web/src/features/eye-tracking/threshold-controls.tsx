@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type CSSProperties } from "react"
 import type { FrameSettings } from "./types"
 import type { TrackerController } from "./use-tracker"
 
@@ -13,21 +13,27 @@ export function ThresholdControls({
   const spatial = settings.format === "spatial"
   const manual = !spatial || settings.thresholdMode === "manual"
   const [draft, setDraft] = useState<number | null>(null)
-  const minimum = manual ? 0 : -50,
-    maximum = manual ? 255 : 80
+  const minimum = manual ? 0 : -50
+  const maximum = manual ? 255 : 80
+  const value = draft ?? settings.threshold
+  const progress = ((value - minimum) / (maximum - minimum)) * 100
+  const selected = frame?.detection.previews[frame.detection.selected]
   const commit = () => {
     if (draft !== null && draft !== settings.threshold)
       update({ threshold: Math.max(minimum, Math.min(maximum, draft)) })
     setDraft(null)
   }
-  const selected = frame?.detection.previews[frame.detection.selected]
+
   return (
     <section
       className="eye-threshold-controls"
       aria-label="Threshold adjustment"
     >
       <div className="eye-threshold-heading">
-        <strong>Threshold</strong>
+        <div className="eye-threshold-title">
+          <strong>Threshold</strong>
+          <span>{manual ? "Pupil cutoff" : "Adaptive"}</span>
+        </div>
         {spatial && (
           <div className="eye-threshold-modes" aria-label="Threshold mode">
             <button
@@ -56,39 +62,49 @@ export function ThresholdControls({
           </div>
         )}
       </div>
-      <label className="eye-field">
-        {manual ? "Dark-pupil cutoff" : "Auto threshold bias"}
-        <span className="eye-range">
-          <input
-            type="range"
-            aria-label={manual ? "Pupil threshold" : "Auto threshold bias"}
-            min={minimum}
-            max={maximum}
-            value={draft ?? settings.threshold}
-            onInput={(e) => {
-              setDraft(null)
-              update({ threshold: Number(e.currentTarget.value) })
-            }}
-          />
-          <input
-            className="eye-threshold-value"
-            type="number"
-            aria-label="Threshold value"
-            min={minimum}
-            max={maximum}
-            value={draft ?? settings.threshold}
-            onChange={(e) => setDraft(Number(e.target.value))}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commit()
-            }}
-          />
-        </span>
-      </label>
+      <div className="eye-threshold-control-row">
+        <label
+          className="eye-threshold-field-label"
+          htmlFor="eye-threshold-range"
+        >
+          {manual ? "Cutoff" : "Auto bias"}
+        </label>
+        <input
+          id="eye-threshold-range"
+          className="eye-threshold-slider"
+          type="range"
+          aria-label={manual ? "Pupil threshold" : "Auto threshold bias"}
+          aria-valuetext={
+            manual ? `${value} dark-pupil cutoff` : `Automatic bias ${value}`
+          }
+          min={minimum}
+          max={maximum}
+          value={value}
+          style={{ "--threshold-progress": `${progress}%` } as CSSProperties}
+          onInput={(event) => {
+            setDraft(null)
+            update({ threshold: Number(event.currentTarget.value) })
+          }}
+        />
+        <input
+          className="eye-threshold-value"
+          type="number"
+          aria-label="Threshold value"
+          min={minimum}
+          max={maximum}
+          value={value}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value)
+            setDraft(Number.isFinite(next) ? next : 0)
+          }}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit()
+          }}
+        />
+      </div>
       <p className="eye-threshold-levels">
-        {manual
-          ? `Fixed cutoff ${settings.threshold} · 0 dark / 255 light${spatial ? "" : " · equalized image"}`
-          : `Using ${selected?.threshold ?? "—"} · Auto updates every frame. Manual holds this cutoff.`}
+        {manual ? "0 dark · 255 light" : "Auto adapts each frame"}
       </p>
     </section>
   )

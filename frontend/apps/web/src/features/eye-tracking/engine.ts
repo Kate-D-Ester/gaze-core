@@ -4,7 +4,7 @@ import {
   equalize,
   toGray,
 } from "../../../../../packages/ui/src/lib/gaze-core/image"
-import { detectSpatialPupil } from "./detection"
+import { detectSpatialPupil, isContinuousPupil } from "./detection"
 import { EyeModelEstimator } from "./eye-model"
 import {
   cameraIntrinsics,
@@ -20,6 +20,8 @@ import type {
   Gaze,
   TrackingFrame,
 } from "./types"
+
+const pupilMemoryMs = 750
 
 export class TrackingEngine {
   private readonly model = new EyeModelEstimator()
@@ -46,7 +48,9 @@ export class TrackingEngine {
     height: number,
     settings: FrameSettings,
     id: number,
-    timestamp: number
+    timestamp: number,
+    includePreviewMasks = true,
+    evaluateAllThresholds = true
   ): TrackingFrame {
     const start = performance.now(),
       roi = settings.roi
@@ -92,7 +96,7 @@ export class TrackingEngine {
       model: EyeModel | null = null,
       gaze: Gaze | null = null
     if (settings.format === "spatial") {
-      if (timestamp - this.seenAt > 250) {
+      if (timestamp - this.seenAt > pupilMemoryMs) {
         this.previous = null
         this.pending = null
       }
@@ -106,6 +110,8 @@ export class TrackingEngine {
           thresholdMode: settings.thresholdMode,
           previous: this.previous,
           previousSelected: this.previousSelected,
+          includePreviewMasks,
+          evaluateAllThresholds,
         }
       )
       this.previousSelected =
@@ -239,24 +245,13 @@ export class TrackingEngine {
         detection.reason = "Reacquiring pupil"
       return
     }
-    const compatible = (a: Ellipse, b: Ellipse) => {
-      const distance = Math.hypot(
-        a.center[0] - b.center[0],
-        a.center[1] - b.center[1]
-      )
-      return (
-        distance <= Math.max(b.major * 2, Math.min(width, height) * 0.18) &&
-        a.major / b.major >= 0.6 &&
-        a.major / b.major <= 1.6 &&
-        a.minor / b.minor >= 0.45 &&
-        a.minor / b.minor <= 2.2
-      )
-    }
-    const continuous = this.previous && compatible(candidate, this.previous)
+    const continuous =
+      this.previous &&
+      isContinuousPupil(candidate, this.previous, width, height)
     const confirmed =
       this.pending &&
       timestamp - this.pending.time <= 150 &&
-      compatible(candidate, this.pending.ellipse)
+      isContinuousPupil(candidate, this.pending.ellipse, width, height)
     const accepted = continuous
       ? candidate.confidence >= 0.72
       : candidate.confidence >= 0.82 && (!this.previous || confirmed)

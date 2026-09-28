@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { getBackendBaseUrl } from "@/lib/backend-base-url"
+import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
+import { shouldIncludePreviewMasks } from "./preview-mask-policy"
 import { drawSample } from "./sample"
 import type { FrameSettings, Point, TrackingFrame } from "./types"
 import type { WorkerRequest } from "./tracker.worker"
@@ -13,7 +16,14 @@ export const DEFAULT_SETTINGS: FrameSettings = {
   corners: null,
   locked: false,
 }
-type Source = { kind: "camera" | "video" | "sample"; name: string }
+type Source = { kind: "camera" | "network" | "video" | "sample"; name: string }
+
+function jpegBlob(bytes: Uint8Array) {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return new Blob([buffer], { type: "image/jpeg" })
+}
+
 export function useTracker() {
   const [settings, setSettings] = useState<FrameSettings>(DEFAULT_SETTINGS)
   const [dimensions, setDimensions] = useState({ width: 640, height: 480 })
@@ -29,14 +39,20 @@ export function useTracker() {
     settings: DEFAULT_SETTINGS,
     source: null as Source | null,
     video: null as HTMLVideoElement | null,
+    mjpegFrame: null as ImageBitmap | null,
+    mjpegSequence: 0,
+    lastMjpegSequence: -1,
+    networkAbort: null as AbortController | null,
     stream: null as MediaStream | null,
     url: "",
     generation: 0,
     sourceEpoch: 0,
     sequence: 0,
     inflight: false,
+    inflightGeneration: -1,
     worker: null as Worker | null,
     ready: false,
+    previewMasksEnabled: false,
     sampleTarget: null as Point | null,
     blink: false,
     lastVideoTime: -1,
@@ -45,13 +61,39 @@ export function useTracker() {
     latest.current = null
     setFrame(null)
   }, [])
+  const refreshDevices = useCallback(async () => {
+    const mediaDevices = navigator.mediaDevices
+    if (!mediaDevices?.enumerateDevices) return
+    try {
+      const list = await mediaDevices.enumerateDevices()
+      setDevices(list.filter((device) => device.kind === "videoinput"))
+    } catch {
+      // Camera enumeration can be unavailable until the browser grants access.
+    }
+  }, [])
+  useEffect(() => {
+    const mediaDevices = navigator.mediaDevices
+    void refreshDevices()
+    if (!mediaDevices?.addEventListener) return
+    const handleDeviceChange = () => void refreshDevices()
+    mediaDevices.addEventListener("devicechange", handleDeviceChange)
+    return () =>
+      mediaDevices.removeEventListener("devicechange", handleDeviceChange)
+  }, [refreshDevices])
   const stop = useCallback(() => {
     const c = control.current
     c.generation++
     c.sourceEpoch++
     c.inflight = false
+    c.inflightGeneration = -1
     c.stream?.getTracks().forEach((track) => track.stop())
     c.stream = null
+    c.networkAbort?.abort()
+    c.networkAbort = null
+    c.mjpegFrame?.close()
+    c.mjpegFrame = null
+    c.mjpegSequence = 0
+    c.lastMjpegSequence = -1
     if (c.video) {
       c.video.pause()
       c.video.srcObject = null
@@ -85,6 +127,7 @@ export function useTracker() {
       if (invalidate) {
         c.generation++
         c.inflight = false
+        c.inflightGeneration = -1
         clearFrame()
       }
       setSettings(c.settings)
@@ -92,17 +135,26 @@ export function useTracker() {
     [clearFrame]
   )
   const activate = useCallback(
-    (next: Source, video: HTMLVideoElement | null) => {
+    (
+      next: Source,
+      video: HTMLVideoElement | null,
+      frameSize?: { width: number; height: number }
+    ) => {
       const c = control.current
-      const scale = video
-        ? Math.min(1280 / video.videoWidth, 960 / video.videoHeight, 1)
-        : 1
-      const width = video
-          ? Math.max(2, Math.round(video.videoWidth * scale))
-          : 640,
-        height = video
-          ? Math.max(2, Math.round(video.videoHeight * scale))
-          : 480
+      const inputWidth = video?.videoWidth ?? frameSize?.width ?? 640
+      const inputHeight = video?.videoHeight ?? frameSize?.height ?? 480
+      const scale =
+        video || frameSize
+          ? Math.min(1280 / inputWidth, 960 / inputHeight, 1)
+          : 1
+      const width =
+          video || frameSize
+            ? Math.max(2, Math.round(inputWidth * scale))
+            : 640,
+        height =
+          video || frameSize
+            ? Math.max(2, Math.round(inputHeight * scale))
+            : 480
       c.settings = {
         ...c.settings,
         roi: { x: 0, y: 0, width, height },
@@ -172,16 +224,153 @@ export function useTracker() {
           },
           { once: true }
         )
-        navigator.mediaDevices
-          .enumerateDevices()
-          .then((list) =>
-            setDevices(list.filter((d) => d.kind === "videoinput"))
-          )
-          .catch(() => {})
+        void refreshDevices()
       } catch (cause) {
         if (generation === c.sourceEpoch) {
           stop()
           setError(cameraError(cause))
+        }
+      }
+    },
+    [stop, activate, refreshDevices]
+  )
+  const startNetworkStream = useCallback(
+    async (input: string) => {
+      stop()
+      setBusy(true)
+      setError("")
+      const c = control.current,
+        generation = c.sourceEpoch
+      try {
+        const url = new URL(input.trim())
+        if (url.protocol !== "http:" && url.protocol !== "https:")
+          throw new Error("Use an HTTP or HTTPS network stream URL.")
+
+        const startBrowserVideo = async () => {
+          const video = document.createElement("video")
+          video.muted = true
+          video.playsInline = true
+          video.crossOrigin = "anonymous"
+          video.src = url.href
+          c.video = video
+          try {
+            await video.play()
+            await waitForDimensions(video)
+          } catch {
+            throw new Error(
+              "This source is not browser-playable. MJPEG cameras need the local GazeCore stream relay."
+            )
+          }
+          if (generation !== c.sourceEpoch) return
+          activate({ kind: "network", name: url.hostname }, video)
+          video.addEventListener(
+            "error",
+            () => {
+              if (c.video === video) {
+                stop()
+                setError(
+                  "This network source is not a browser-playable video or MJPEG stream. Check the camera stream URL."
+                )
+              }
+            },
+            { once: true }
+          )
+        }
+
+        const apiBase =
+          typeof import.meta.env !== "undefined" && import.meta.env.DEV
+            ? ""
+            : getBackendBaseUrl()
+        const relayUrl = `${apiBase}/api/camera/mjpeg?url=${encodeURIComponent(url.href)}`
+        const abort = new AbortController()
+        c.networkAbort = abort
+        let response: Response
+        try {
+          response = await fetch(relayUrl, { signal: abort.signal })
+        } catch {
+          abort.abort()
+          c.networkAbort = null
+          await startBrowserVideo()
+          return
+        }
+        if (generation !== c.sourceEpoch) {
+          await response.body?.cancel()
+          return
+        }
+        if (response.status === 415 || response.status === 403) {
+          await response.body?.cancel()
+          abort.abort()
+          c.networkAbort = null
+          await startBrowserVideo()
+          return
+        }
+        if (!response.ok)
+          throw new Error(
+            (await response.json().catch(() => null))?.error ??
+              "The local stream relay could not reach this camera."
+          )
+        if (!response.body)
+          throw new Error("The camera relay returned an empty stream.")
+
+        const boundary = getMjpegBoundary(
+          response.headers.get("content-type") ?? ""
+        )
+        if (!boundary)
+          throw new Error("The camera returned an invalid MJPEG stream.")
+        const frames = readMjpegFrames(response.body, boundary, abort.signal)
+        const first = await frames.next()
+        if (first.done)
+          throw new Error("The camera stream contains no JPEG frame.")
+        const firstBitmap = await createImageBitmap(jpegBlob(first.value))
+        if (generation !== c.sourceEpoch) {
+          firstBitmap.close()
+          return
+        }
+        c.mjpegFrame = firstBitmap
+        c.mjpegSequence++
+        c.lastMjpegSequence = -1
+        activate({ kind: "network", name: url.hostname }, null, {
+          width: firstBitmap.width,
+          height: firstBitmap.height,
+        })
+
+        void (async () => {
+          try {
+            for await (const jpeg of frames) {
+              if (generation !== c.sourceEpoch) return
+              const bitmap = await createImageBitmap(jpegBlob(jpeg))
+              if (generation !== c.sourceEpoch) {
+                bitmap.close()
+                return
+              }
+              const previous = c.mjpegFrame
+              c.mjpegFrame = bitmap
+              c.mjpegSequence++
+              previous?.close()
+            }
+            if (generation === c.sourceEpoch) {
+              stop()
+              setError("The camera stream ended. Reconnect it and try again.")
+            }
+          } catch (cause) {
+            if (generation === c.sourceEpoch && !abort.signal.aborted) {
+              stop()
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : "The camera stream stopped unexpectedly."
+              )
+            }
+          }
+        })()
+      } catch (cause) {
+        if (generation === c.sourceEpoch) {
+          stop()
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to load the network stream."
+          )
         }
       }
     },
@@ -227,6 +416,9 @@ export function useTracker() {
   const setSampleTarget = useCallback((point: Point | null) => {
     control.current.sampleTarget = point
   }, [])
+  const setPreviewMasksEnabled = useCallback((enabled: boolean) => {
+    control.current.previewMasksEnabled = enabled
+  }, [])
   const setBlink = useCallback((value: boolean) => {
     control.current.blink = value
   }, [])
@@ -253,9 +445,15 @@ export function useTracker() {
       if (
         message.generation !== undefined &&
         message.generation !== c.generation
-      )
+      ) {
+        if (message.generation === c.inflightGeneration) {
+          c.inflight = false
+          c.inflightGeneration = -1
+        }
         return
+      }
       c.inflight = false
+      c.inflightGeneration = -1
       if (message.type === "error") {
         fail(message.message)
         return
@@ -274,15 +472,56 @@ export function useTracker() {
               0,
               0
             )
-        latest.current = message.frame
-        setFrame(message.frame)
+        if (!c.previewMasksEnabled) {
+          previewMasks = []
+          previewMaskGeneration = message.generation
+        } else if (previewMaskGeneration !== message.generation) {
+          previewMaskGeneration = message.generation
+          previewMasks = []
+        }
+        const previews = message.frame.detection.previews.map(
+          (
+            preview: TrackingFrame["detection"]["previews"][number],
+            index: number
+          ) => {
+            if (!c.previewMasksEnabled) {
+              if (!preview.mask) return preview
+              return {
+                label: preview.label,
+                threshold: preview.threshold,
+                score: preview.score,
+              }
+            }
+            if (preview.mask) previewMasks[index] = preview.mask
+            const mask = preview.mask ?? previewMasks[index]
+            return mask && !preview.mask ? { ...preview, mask } : preview
+          }
+        )
+        const frame = {
+          ...message.frame,
+          detection: { ...message.frame.detection, previews },
+        } as TrackingFrame
+        latest.current = frame
+        setFrame(frame)
       }
     }
-    worker.onerror = () =>
-      fail("The vision engine stopped. Reload the page to restart it.")
+    worker.onerror = (event: ErrorEvent) => {
+      event.preventDefault()
+      fail(
+        event.message
+          ? `The vision engine stopped: ${event.message}`
+          : "The vision engine stopped unexpectedly. Restart the camera and try again."
+      )
+    }
+    worker.onmessageerror = () =>
+      fail("The vision engine returned data the page could not read.")
     const captureCanvas = document.createElement("canvas")
     let raf = 0,
-      last = 0
+      last = 0,
+      lastPreviewMaskFrame = -Infinity,
+      previewMaskRequestGeneration = -1,
+      previewMaskGeneration = -1,
+      previewMasks: (Uint8Array | undefined)[] = []
     const loop = (time: number) => {
       raf = requestAnimationFrame(loop)
       if (!c.source || !c.ready || c.inflight || time - last < 1000 / 24) return
@@ -297,7 +536,15 @@ export function useTracker() {
       if (!ctx) return
       if (c.source.kind === "sample")
         drawSample(ctx, time, c.sampleTarget, c.blink)
-      else {
+      else if (c.mjpegFrame) {
+        if (c.lastMjpegSequence === c.mjpegSequence) {
+          if (latest.current && time - latest.current.timestamp > 700)
+            clearFrame()
+          return
+        }
+        c.lastMjpegSequence = c.mjpegSequence
+        ctx.drawImage(c.mjpegFrame, 0, 0, canvas.width, canvas.height)
+      } else {
         if (
           !c.video ||
           c.video.readyState < 2 ||
@@ -311,6 +558,18 @@ export function useTracker() {
         ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height)
       }
       last = time
+      if (previewMaskRequestGeneration !== c.generation) {
+        previewMaskRequestGeneration = c.generation
+        lastPreviewMaskFrame = -Infinity
+      }
+      // Segmentation runs every frame; the large visualization masks need only
+      // refresh five times per second.
+      const includePreviewMasks = shouldIncludePreviewMasks(
+        c.previewMasksEnabled,
+        time,
+        lastPreviewMaskFrame
+      )
+      if (includePreviewMasks) lastPreviewMaskFrame = time
       const request: WorkerRequest = {
         type: "frame",
         data: ctx.getImageData(0, 0, canvas.width, canvas.height).data,
@@ -320,8 +579,11 @@ export function useTracker() {
         id: ++c.sequence,
         timestamp: time,
         generation: c.generation,
+        includePreviewMasks,
+        evaluateAllThresholds: c.previewMasksEnabled,
       }
       c.inflight = true
+      c.inflightGeneration = c.generation
       worker.postMessage(request, [request.data.buffer])
     }
     raf = requestAnimationFrame(loop)
@@ -332,7 +594,11 @@ export function useTracker() {
       c.worker = null
       c.generation++
       c.sourceEpoch++
+      c.networkAbort?.abort()
+      c.networkAbort = null
       c.stream?.getTracks().forEach((t) => t.stop())
+      c.mjpegFrame?.close()
+      c.mjpegFrame = null
       c.video?.pause()
       if (c.video) c.video.srcObject = null
       if (c.url) URL.revokeObjectURL(c.url)
@@ -352,10 +618,12 @@ export function useTracker() {
     engineReady,
     devices,
     startCamera,
+    startNetworkStream,
     startVideo,
     startSample,
     stop,
     setSampleTarget,
+    setPreviewMasksEnabled,
     setBlink,
   }
 }

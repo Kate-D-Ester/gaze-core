@@ -74,7 +74,7 @@ test("classic engine returns no stale gaze after pupil loss and local/global coo
   ).toBeNull()
 })
 
-test("an unlocked model loses readiness when its supporting observations expire", () => {
+test("a ready eye model stays available through transient fit failures", () => {
   const estimator = new EyeModelEstimator()
   for (const e of observations()) estimator.observe(e, 320, 240)
   expect(estimator.getLatest()?.ready).toBe(true)
@@ -90,7 +90,7 @@ test("an unlocked model loses readiness when its supporting observations expire"
       320,
       240
     )
-  expect(estimator.getLatest()?.ready ?? false).toBe(false)
+  expect(estimator.getLatest()?.ready).toBe(true)
 })
 
 test("spatial association rejects one-frame jumps but reacquires sustained eye movement", () => {

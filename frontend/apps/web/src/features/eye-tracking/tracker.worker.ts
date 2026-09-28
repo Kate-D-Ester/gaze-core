@@ -12,6 +12,8 @@ export type WorkerRequest = {
   id: number
   timestamp: number
   generation: number
+  includePreviewMasks?: boolean
+  evaluateAllThresholds?: boolean
 }
 let engine: TrackingEngine | null = null
 let generation = -1
@@ -43,8 +45,20 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       request.height,
       request.settings,
       request.id,
-      request.timestamp
+      request.timestamp,
+      request.includePreviewMasks,
+      request.evaluateAllThresholds
     )
+    // Contour point clouds are used only inside the worker's pupil selection;
+    // the UI renders the fitted ellipse, so don't clone these large arrays.
+    frame.detection.contour.length = 0
+    frame.detection.refined.length = 0
+    const transferables: Transferable[] = [
+      request.data.buffer as ArrayBuffer,
+      ...frame.detection.previews.flatMap((preview) =>
+        preview.mask ? [preview.mask.buffer as ArrayBuffer] : []
+      ),
+    ]
     self.postMessage(
       {
         type: "frame",
@@ -52,7 +66,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         data: request.data,
         generation: request.generation,
       },
-      [request.data.buffer as ArrayBuffer]
+      transferables
     )
   } catch (error) {
     self.postMessage({

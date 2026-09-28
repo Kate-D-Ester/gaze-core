@@ -1,4 +1,5 @@
-import { ArrowRight, ChevronDown, Upload, Play } from "lucide-react"
+import { useState } from "react"
+import { ArrowRight } from "lucide-react"
 import type { TrackerController } from "../use-tracker"
 
 export function SourceControls({
@@ -12,36 +13,76 @@ export function SourceControls({
   setDeviceId: (id: string) => void
   resetSource: () => void
 }) {
-  const { source } = tracker
+  const [kind, setKind] = useState<"usb" | "network">("usb")
+  const [streamUrl, setStreamUrl] = useState("")
+  const cameras = tracker.devices.filter((device) => device.deviceId)
+
+  function startPreview() {
+    resetSource()
+    if (kind === "usb") void tracker.startCamera(deviceId)
+    else void tracker.startNetworkStream(streamUrl)
+  }
+
   return (
     <>
-      <label className="eye-field">
-        Camera
-        <select
-          value={deviceId}
-          onChange={(event) => setDeviceId(event.target.value)}
+      <div className="eye-source-type" role="group" aria-label="Camera type">
+        <button
+          className="eye-button secondary"
+          aria-pressed={kind === "usb"}
+          onClick={() => setKind("usb")}
         >
-          <option value="">Default camera</option>
-          {tracker.devices.map((device) => (
-            <option key={device.deviceId} value={device.deviceId}>
-              {device.label || "Camera"}
-            </option>
-          ))}
-        </select>
-      </label>
+          USB Camera
+        </button>
+        <button
+          className="eye-button secondary"
+          aria-pressed={kind === "network"}
+          onClick={() => setKind("network")}
+        >
+          Network Stream
+        </button>
+      </div>
+
+      {kind === "usb" ? (
+        <label className="eye-field">
+          Camera
+          <select
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+          >
+            <option value="">Default camera</option>
+            {cameras.map((device, index) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label.trim() || `Camera ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <label className="eye-field">
+          Network stream URL
+          <input
+            type="url"
+            value={streamUrl}
+            onChange={(event) => setStreamUrl(event.target.value)}
+            placeholder="http://camera.local/stream.mp4"
+          />
+        </label>
+      )}
+
       <button
         className="eye-button primary"
-        disabled={tracker.busy || !tracker.engineReady}
-        onClick={() => {
-          resetSource()
-          void tracker.startCamera(deviceId)
-        }}
+        disabled={
+          tracker.busy ||
+          !tracker.engineReady ||
+          (kind === "network" && !streamUrl.trim())
+        }
+        onClick={startPreview}
       >
         {tracker.busy
           ? "Connecting…"
-          : source?.kind === "camera"
-            ? "Reconnect camera"
-            : "Connect camera"}
+          : tracker.source
+            ? "Reconnect"
+            : "Start preview"}
         <ArrowRight size={16} />
       </button>
       {tracker.busy && (
@@ -49,50 +90,6 @@ export function SourceControls({
           Cancel connection
         </button>
       )}
-      <div className="eye-divider">
-        <span>or</span>
-      </div>
-      <div className="eye-source-options">
-        <label className="eye-button secondary eye-upload">
-          <Upload size={15} />
-          Eye video
-          <input
-            type="file"
-            accept="video/*"
-            aria-label="Open eye video"
-            disabled={tracker.busy || !tracker.engineReady}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (file) {
-                resetSource()
-                void tracker.startVideo(file)
-              }
-              event.target.value = ""
-            }}
-          />
-        </label>
-        <button
-          className="eye-button secondary"
-          disabled={!tracker.engineReady}
-          onClick={() => {
-            resetSource()
-            tracker.startSample()
-          }}
-        >
-          <Play size={15} />
-          Try sample
-        </button>
-      </div>
-      <details className="eye-details">
-        <summary>
-          Camera tips
-          <ChevronDown size={14} />
-        </summary>
-        <p className="eye-small">
-          Use a close, sharp view of one eye. Tracker 2 works best with a
-          near-eye infrared camera.
-        </p>
-      </details>
     </>
   )
 }

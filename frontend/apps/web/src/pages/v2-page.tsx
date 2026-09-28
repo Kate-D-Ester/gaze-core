@@ -2,7 +2,6 @@ import { LiveControls } from "@/features/eye-tracking/steps/live-controls"
 import { CalibrationControls } from "@/features/eye-tracking/steps/calibration-controls"
 import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
 import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
-import { PupilControls } from "@/features/eye-tracking/steps/pupil-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
 import { useCallback, useEffect, useState } from "react"
@@ -10,15 +9,15 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  CircleHelp,
+  ChevronRight,
   Eye,
-  Square,
   X,
 } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
 import { EyePreview, PipelinePreviews } from "@/features/eye-tracking/preview"
 import { CalibrationOverlay } from "@/features/eye-tracking/calibration-overlay"
+import { getEyeModelLockStatus } from "@/features/eye-tracking/eye-model"
 import {
   fitCalibration,
   gazeFeature,
@@ -33,24 +32,10 @@ import type {
 } from "@/features/eye-tracking/types"
 import "./v2.css"
 
-const STEPS = [
-  "Camera",
-  "Eye region",
-  "Pupil",
-  "Eye model",
-  "Calibrate",
-  "Live gaze",
-]
+const STEPS = ["Camera", "Eye region", "Eye model", "Calibrate", "Live gaze"]
 const COPY = [
-  [
-    "Choose a source",
-    "Connect a camera, open an eye video, or try the sample.",
-  ],
+  ["Choose a source", "Choose a USB camera or network stream."],
   ["Frame one eye", "Keep the pupil’s full range of movement inside the box."],
-  [
-    "Check the pupil",
-    "The outline should follow the pupil as you look around.",
-  ],
   [
     "Build the eye model",
     "Look left, right, up and down, then around the edges.",
@@ -63,11 +48,12 @@ const COPY = [
 ]
 export function V2Page() {
   const tracker = useTracker(),
-    { settings, configure, source, frame } = tracker
+    { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
   const [step, setStep] = useState(0),
     [deviceId, setDeviceId] = useState(""),
-    [regionReady, setRegionReady] = useState(false),
-    [pupilReady, setPupilReady] = useState(false)
+    [regionStepComplete, setRegionStepComplete] = useState(false),
+    [pipelineOpen, setPipelineOpen] = useState(false),
+    [thresholdViewOpen, setThresholdViewOpen] = useState(false)
   const [corner, setCorner] = useState<Point | null>(null),
     [calibration, setCalibration] = useState<Calibration | null>(null),
     [validation, setValidation] = useState<number | null>(null)
@@ -76,7 +62,6 @@ export function V2Page() {
     ),
     [focus, setFocus] = useState(false),
     [notice, setNotice] = useState("")
-  const [eyeConfirmed, setEyeConfirmed] = useState(false)
   const clearCalibration = useCallback(() => {
     setCalibration(null)
     setValidation(null)
@@ -84,30 +69,31 @@ export function V2Page() {
     setFocus(false)
     setNotice("")
   }, [])
+  useEffect(() => {
+    setPreviewMasksEnabled(
+      !!source && (thresholdViewOpen || (pipelineOpen && step >= 2))
+    )
+  }, [pipelineOpen, setPreviewMasksEnabled, source, step, thresholdViewOpen])
   const update = useCallback(
     (next: Partial<FrameSettings>) => {
       configure(next)
       clearCalibration()
-      if (
-        "roi" in next ||
-        "threshold" in next ||
-        "thresholdMode" in next ||
-        "format" in next
-      )
-        setPupilReady(false)
     },
     [configure, clearCalibration]
   )
   const resetSource = () => {
     clearCalibration()
-    setRegionReady(false)
-    setPupilReady(false)
-    setEyeConfirmed(false)
+    setRegionStepComplete(false)
     setCorner(null)
   }
   const usable =
     !!frame?.detection.ellipse &&
     (settings.format === "classic" || frame.detection.tracking === "tracking")
+  const modelLockStatus = getEyeModelLockStatus(
+    frame?.model ?? null,
+    frame?.width ?? 0,
+    frame?.height ?? 0
+  )
   const feature = frame?.gaze ? gazeFeature(frame.gaze.direction) : null
   const screenPoint =
     calibration && feature ? mapGaze(calibration, feature) : null
@@ -115,8 +101,7 @@ export function V2Page() {
   const allowed = [
     true,
     !!source,
-    regionReady && eyeConfirmed && !!source,
-    pupilReady && !!source,
+    regionStepComplete && !!source,
     settings.locked && !!source,
     !!calibration && !!source,
   ]
@@ -140,7 +125,7 @@ export function V2Page() {
             )
           }, 0) / samples.length
         setValidation(Math.sqrt(mse))
-        setStep(5)
+        setStep(4)
         return
       }
       const fit = fitCalibration(samples)
@@ -153,7 +138,7 @@ export function V2Page() {
       }
       setCalibration(fit)
       setValidation(null)
-      setStep(5)
+      setStep(4)
       setNotice("Calibration saved for this session.")
     },
     [capture, calibration]
@@ -161,7 +146,7 @@ export function V2Page() {
   useEffect(() => {
     const resized = () => {
       if (!calibration && !capture && !focus) return
-      setStep((current) => Math.min(current, 4))
+      setStep((current) => Math.min(current, 3))
       setCalibration(null)
       setValidation(null)
       setCapture(null)
@@ -181,8 +166,7 @@ export function V2Page() {
       return
     update({ roi, corners: null })
     setStep(1)
-    setRegionReady(false)
-    setEyeConfirmed(false)
+    setRegionStepComplete(false)
     setCorner(null)
   }
   function chooseCorner(point: Point) {
@@ -223,7 +207,10 @@ export function V2Page() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return (
-    <main className="eye-app">
+    <main
+      className="eye-app"
+      style={{ colorScheme: "dark", backgroundColor: "#090909" }}
+    >
       <header className="eye-header">
         <Link to="/dashboard" className="eye-brand">
           <span className="eye-logo">
@@ -236,14 +223,6 @@ export function V2Page() {
             <span className="status-light on" />
             On-device processing
           </span>
-          <a
-            href="https://www.youtube.com/watch?v=Gh8LS9erugE"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Open the reference tutorial"
-          >
-            <CircleHelp size={19} />
-          </a>
         </div>
       </header>
       <div className="eye-title-row">
@@ -264,227 +243,169 @@ export function V2Page() {
                   corners: null,
                 })
                 setStep(0)
-                setRegionReady(false)
-                setEyeConfirmed(false)
+                setRegionStepComplete(false)
                 setCorner(null)
               }}
             >
               <span>Eye Tracker {i + 1}</span>
-              <small>{i === 0 ? "Corner model" : "3D model"}</small>
+              <small>{i === 0 ? "Manual tracker" : "Auto tracker"}</small>
             </button>
           ))}
         </div>
       </div>
-      <div className="eye-workspace">
-        <aside className="eye-sidebar">
-          <div className="eye-section-label">
-            YOUR PIPELINE <span>{Math.min(step + 1, 6)} / 6</span>
-          </div>
-          <nav aria-label="Setup steps">
-            {STEPS.map((name, i) => (
+      <nav className="eye-step-nav" aria-label="Setup steps">
+        <ol className="eye-breadcrumbs">
+          {STEPS.map((name, i) => (
+            <li key={name}>
               <button
-                key={name}
-                className={`eye-step ${i === step ? "active" : ""} ${i < step ? "done" : ""}`}
+                className={[
+                  "eye-step",
+                  i === step && "active",
+                  i < step && "done",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 aria-current={i === step ? "step" : undefined}
                 disabled={!allowed[i]}
                 onClick={() => go(i)}
               >
                 <span className="eye-step-number">
                   {i < step ? (
-                    <Check size={14} />
+                    <Check size={13} />
                   ) : (
                     String(i + 1).padStart(2, "0")
                   )}
                 </span>
-                <span>{name}</span>
-                {i === step && <span className="eye-step-dot" />}
+                <span className="eye-step-text">{name}</span>
               </button>
-            ))}
-          </nav>
-          <details className="eye-details eye-method-help">
-            <summary>
-              About this method
-              <CircleHelp size={13} />
-            </summary>
-            <p className="eye-small">
-              {settings.format === "spatial"
-                ? "Builds a 3D gaze ray from the pupil outline."
-                : "Uses eye corners to estimate gaze."}
-            </p>
-            <a
-              href="https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker"
-              target="_blank"
-              rel="noreferrer"
+              {i < STEPS.length - 1 && (
+                <ChevronRight
+                  className="eye-step-chevron"
+                  size={14}
+                  aria-hidden="true"
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
+      <div className="eye-workspace">
+        <section
+          className="eye-preview-column"
+          aria-label="Eye preview and tuning"
+        >
+          <ThresholdControls tracker={tracker} update={update} />
+          <div
+            className={`eye-preview-card ${source ? "has-source" : "is-empty"}`}
+          >
+            <EyePreview
+              tracker={tracker}
+              showModel={step >= 2}
+              selectRegion={step === 1}
+              selectCorners={
+                step === 2 && settings.format === "classic" && !settings.locked
+              }
+              onRegion={chooseRegion}
+              onCorner={chooseCorner}
+              onEditRegion={() => {
+                setStep(1)
+                setNotice("")
+              }}
+              onThresholdViewChange={setThresholdViewOpen}
+            />
+            <details
+              className="eye-details eye-pipeline-details"
+              hidden={!source || step < 2}
+              onToggle={(event) => setPipelineOpen(event.currentTarget.open)}
             >
-              Reference research ↗
-            </a>
-          </details>
-        </aside>
-        <section className="eye-main-column">
-          <div className="eye-stage-heading">
-            <div>
-              <span className="eye-eyebrow">
-                STEP {String(step + 1).padStart(2, "0")} /{" "}
-                {STEPS[step].toUpperCase()}
-              </span>
-              <h2>{COPY[step][0]}</h2>
-              <p>{COPY[step][1]}</p>
-            </div>
-            {source && (
-              <button
-                className="eye-icon-button"
-                onClick={() => {
-                  tracker.stop()
-                  resetSource()
-                  setStep(0)
-                }}
-                aria-label="Stop camera"
-              >
-                <Square size={16} />
-              </button>
-            )}
-          </div>
-          <ThresholdControls
-            tracker={tracker}
-            update={(next) => {
-              update(next)
-              if (step > 2) setStep(2)
-            }}
-          />
-          <EyePreview
-            tracker={tracker}
-            showModel={step >= 3}
-            selectRegion={step === 1}
-            selectCorners={
-              step === 3 && settings.format === "classic" && !settings.locked
-            }
-            onRegion={chooseRegion}
-            onCorner={chooseCorner}
-            onEditRegion={() => {
-              setStep(1)
-              setNotice("")
-            }}
-          />
-          <div className="eye-preview-caption">
-            <span>
-              <i className="legend-dot pupil" />
-              Pupil
-            </span>
-            <span>
-              <i className="legend-dot sphere" />
-              Eye sphere
-            </span>
-            <span>
-              <i className="legend-dot ray" />
-              Gaze ray
-            </span>
-            <span className="eye-caption-right">
-              {source?.kind === "sample"
-                ? "Synthetic sample · demo"
-                : (source?.name ?? "No source")}
-            </span>
-          </div>
-          {source && step >= 2 && (
-            <details className="eye-details eye-pipeline-details">
               <summary>
                 {settings.format === "spatial"
                   ? "Threshold comparison"
                   : "Pupil segmentation"}
                 <span>
                   {frame?.detection.ellipse
-                    ? `${Math.round(frame.detection.ellipse.confidence * 100)}% fit`
+                    ? Math.round(frame.detection.ellipse.confidence * 100) +
+                      "% fit"
                     : "No pupil"}
                 </span>
               </summary>
-              <PipelinePreviews frame={frame} />
+              {pipelineOpen && source && step >= 2 && (
+                <PipelinePreviews frame={frame} />
+              )}
             </details>
-          )}
-          {(tracker.error || notice) && (
-            <p
-              className={`eye-message ${tracker.error ? "error" : ""}`}
-              role={tracker.error ? "alert" : "status"}
-            >
-              {tracker.error || notice}
-            </p>
-          )}
-        </section>
-        <aside className="eye-controls">
-          <div className="eye-section-label">
-            {
-              [
-                "INPUT SOURCE",
-                "REGION SETUP",
-                "PUPIL CHECK",
-                "MODEL SETUP",
-                "SCREEN MAPPING",
-                "LIVE OUTPUT",
-              ][step]
-            }
-            <span>
-              {tracker.engineReady ? "Engine ready" : "Loading engine…"}
-            </span>
           </div>
-          {step === 0 && (
-            <SourceControls
-              tracker={tracker}
-              deviceId={deviceId}
-              setDeviceId={setDeviceId}
-              resetSource={resetSource}
-            />
-          )}
-          {step === 1 && (
-            <RegionControls
-              tracker={tracker}
-              eyeConfirmed={eyeConfirmed}
-              onConfirm={(value) => {
-                setEyeConfirmed(value)
-                setRegionReady(value)
-              }}
-              chooseRegion={chooseRegion}
-            />
-          )}
-          {step === 2 && <PupilControls tracker={tracker} usable={usable} />}
-          {step === 3 && (
-            <ModelControls
-              tracker={tracker}
-              corner={corner}
-              update={update}
-              setNotice={setNotice}
-            />
-          )}
-          {step === 4 && (
-            <CalibrationControls
-              usable={usable}
-              locked={settings.locked}
-              onStart={() => {
-                setNotice("")
-                setCapture("calibration")
-              }}
-            />
-          )}
-          {step === 5 && (
-            <LiveControls
-              tracker={tracker}
-              calibration={calibration}
-              screenPoint={screenPoint}
-              validation={validation}
-              usable={usable}
-              onFocus={() => setFocus(true)}
-              onValidate={() => setCapture("validation")}
-              onRecalibrate={() => {
-                clearCalibration()
-                setStep(4)
-              }}
-              onExport={exportResult}
-            />
-          )}
+        </section>
+        <aside className="eye-controls" aria-labelledby="eye-step-title">
+          <div className="eye-controls-heading">
+            <div>
+              <span className="eye-eyebrow">
+                STEP {String(step + 1).padStart(2, "0")} /{" "}
+                {STEPS[step].toUpperCase()}
+              </span>
+              <h2 id="eye-step-title">{COPY[step][0]}</h2>
+              <p>{COPY[step][1]}</p>
+            </div>
+          </div>
+          <div className="eye-controls-body">
+            {(tracker.error || notice) && (
+              <p
+                className={tracker.error ? "eye-message error" : "eye-message"}
+                role={tracker.error ? "alert" : "status"}
+              >
+                {tracker.error || notice}
+              </p>
+            )}
+            {step === 0 && (
+              <SourceControls
+                tracker={tracker}
+                deviceId={deviceId}
+                setDeviceId={setDeviceId}
+                resetSource={resetSource}
+              />
+            )}
+            {step === 1 && (
+              <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
+            )}
+            {step === 2 && (
+              <ModelControls
+                tracker={tracker}
+                corner={corner}
+                update={update}
+                setNotice={setNotice}
+              />
+            )}
+            {step === 3 && (
+              <CalibrationControls
+                usable={usable}
+                locked={settings.locked}
+                onStart={() => {
+                  setNotice("")
+                  setCapture("calibration")
+                }}
+              />
+            )}
+            {step === 4 && (
+              <LiveControls
+                tracker={tracker}
+                calibration={calibration}
+                screenPoint={screenPoint}
+                validation={validation}
+                usable={usable}
+                onFocus={() => setFocus(true)}
+                onValidate={() => setCapture("validation")}
+                onRecalibrate={() => {
+                  clearCalibration()
+                  setStep(3)
+                }}
+                onExport={exportResult}
+              />
+            )}
+          </div>
         </aside>
       </div>
-      <footer className="eye-bottom-bar">
-        <span>
-          {settings.format === "spatial" ? "Eye Tracker 2" : "Eye Tracker 1"}{" "}
-          <i /> {STEPS[step]}
-        </span>
+      <footer
+        className={`eye-bottom-bar ${step === 2 ? "has-model-status" : ""}`}
+      >
         <div>
           {step > 0 && (
             <button
@@ -495,25 +416,44 @@ export function V2Page() {
               Back
             </button>
           )}
-          {step < 4 && (
+          {step === 2 && (
+            <span
+              className="eye-model-lock-status"
+              id="eye-model-lock-status"
+              role="status"
+              aria-live="polite"
+            >
+              {modelLockStatus.blocker === "waiting" && "Waiting for pupil"}
+              {modelLockStatus.blocker === "samples" &&
+                `Stable samples ${frame?.model?.samples ?? 0}/30`}
+              {modelLockStatus.blocker === "coverage" &&
+                `Coverage ${modelLockStatus.coveredDirections}/8 · needs ${modelLockStatus.requiredDirections}`}
+              {modelLockStatus.blocker === "radius" &&
+                "Look farther from center"}
+              {modelLockStatus.blocker === "fit" && "Keep gaze steady"}
+              {modelLockStatus.blocker === "ready" && "Model ready"}
+            </span>
+          )}
+          {step < 3 && (
             <button
               className="eye-button primary"
               disabled={
                 step === 0
                   ? !source
-                  : step === 1
-                    ? !(regionReady && eyeConfirmed)
-                    : step === 2
-                      ? !usable
-                      : !(frame?.model?.ready && usable)
+                  : step === 2
+                    ? !modelLockStatus.ready
+                    : false
+              }
+              aria-describedby={
+                step === 2 ? "eye-model-lock-status" : undefined
               }
               onClick={() => {
-                if (step === 2) setPupilReady(true)
-                if (step === 3) configure({ locked: true }, false)
+                if (step === 1) setRegionStepComplete(true)
+                if (step === 2) configure({ locked: true }, false)
                 setStep((s) => s + 1)
               }}
             >
-              {step === 3 ? "Lock model" : "Continue"}
+              {step === 2 ? "Lock model" : "Continue"}
               <ArrowRight size={16} />
             </button>
           )}

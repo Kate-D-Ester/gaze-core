@@ -96,6 +96,24 @@ function validEllipse(e: Ellipse, width: number, height: number): boolean {
     e.center[1] < height - e.major * 0.2
   )
 }
+export function isContinuousPupil(
+  candidate: Ellipse,
+  previous: Ellipse,
+  width: number,
+  height: number
+): boolean {
+  const distance = Math.hypot(
+    candidate.center[0] - previous.center[0],
+    candidate.center[1] - previous.center[1]
+  )
+  return (
+    distance <= Math.max(previous.major * 2, Math.min(width, height) * 0.18) &&
+    candidate.major / previous.major >= 0.6 &&
+    candidate.major / previous.major <= 1.6 &&
+    candidate.minor / previous.minor >= 0.45 &&
+    candidate.minor / previous.minor <= 2.2
+  )
+}
 /** Fit remaining rim arcs without treating a reflection's inward notch as pupil boundary. */
 function recoverPupilRim(
   cv: CV,
@@ -258,6 +276,8 @@ export type PupilDetectionOptions = {
   thresholdMode?: "auto" | "manual"
   previous?: Ellipse | null
   previousSelected?: number
+  includePreviewMasks?: boolean
+  evaluateAllThresholds?: boolean
 }
 export function detectSpatialPupil(
   cv: CV,
@@ -285,18 +305,34 @@ export function detectSpatialPupil(
   const thresholds =
     options.thresholdMode === "manual"
       ? [Math.round(Math.max(0, Math.min(255, thresholdOffset)))]
-      : [5, 15, 25].map((delta, index) =>
-          Math.round(
-            Math.max(
-              0,
-              Math.min(
-                245,
-                Math.max(patch.value + delta, otsu * [0.55, 0.8, 1][index]) +
-                  thresholdOffset
-              )
-            )
-          )
-        )
+      : [5, 15, 25].map((delta, index) => {
+          const threshold =
+            Math.max(patch.value + delta, otsu * [0.55, 0.8, 1][index]) +
+            thresholdOffset
+          return Math.round(Math.max(0, Math.min(245, threshold)))
+        })
+  const labels =
+    options.thresholdMode === "manual"
+      ? ["Manual"]
+      : ["Strict", "Balanced", "Relaxed"]
+  result.previews = thresholds.map((threshold, index) => ({
+    label: labels[index],
+    threshold,
+    score: 0,
+  }))
+  const canUseTrackingFastPath =
+    options.evaluateAllThresholds === false &&
+    options.previous !== null &&
+    options.previous !== undefined &&
+    options.previousSelected !== undefined &&
+    options.previousSelected >= 0 &&
+    options.previousSelected < thresholds.length &&
+    thresholds.length > 1
+  const passOrder = thresholds.map((_, index) => index)
+  if (canUseTrackingFastPath) {
+    passOrder.splice(options.previousSelected!, 1)
+    passOrder.unshift(options.previousSelected!)
+  }
   const owned: { delete(): void }[] = []
   const own = <T extends { delete(): void }>(value: T): T => {
     owned.push(value)
@@ -304,28 +340,42 @@ export function detectSpatialPupil(
   }
   try {
     const scale = Math.min(width, height) / 480
-    let best = -Infinity
-    let irregular = false
-    for (const [index, threshold] of thresholds.entries()) {
-      // Segment the ENTIRE user-selected ROI. No moving window around a dark lash.
-      const data = Uint8Array.from(gray, (value) =>
-        value <= threshold ? 255 : 0
+    // Opening removes narrow lash strands and thin bridges while preserving a
+    // pupil-sized dark region. Keep it small relative to the camera crop.
+    const kernelSize = Math.min(7, Math.max(3, Math.round(scale * 6) | 1))
+    const kernel = own(
+      cv.getStructuringElement(
+        cv.MORPH_ELLIPSE,
+        new cv.Size(kernelSize, kernelSize)
       )
-      result.previews.push({
-        label:
-          options.thresholdMode === "manual"
-            ? "Manual"
-            : ["Strict", "Balanced", "Relaxed"][index],
-        threshold,
-        mask: data,
-        score: 0,
-      })
+    )
+    let best = -Infinity
+    let bestContinuous = -Infinity
+    type Candidate = {
+      score: number
+      index: number
+      points: Point[]
+      refined: Point[]
+      ellipse: Ellipse
+    }
+    let bestCandidate: Candidate | null = null
+    let bestContinuousCandidate: Candidate | null = null
+    let irregular = false
+    for (const index of passOrder) {
+      const threshold = thresholds[index]
+      // Segment the full ROI, then remove thin lash-shaped structures before
+      // contour search. The preview shows this same filtered mask.
       const mask = own(new cv.Mat(height, width, cv.CV_8UC1))
-      mask.data.set(data)
+      for (let i = 0; i < gray.length; i++)
+        mask.data[i] = gray[i] <= threshold ? 255 : 0
+      const filtered = own(new cv.Mat())
+      cv.morphologyEx(mask, filtered, cv.MORPH_OPEN, kernel)
+      if (options.includePreviewMasks !== false)
+        result.previews[index].mask = Uint8Array.from(filtered.data)
       const contours = own(new cv.MatVector()),
         hierarchy = own(new cv.Mat())
       cv.findContours(
-        mask,
+        filtered,
         contours,
         hierarchy,
         cv.RETR_EXTERNAL,
@@ -420,15 +470,36 @@ export function detectSpatialPupil(
         }
         // Only switch threshold bands for a meaningful improvement in candidate quality.
         if (index === options.previousSelected) score += 0.03
-        if (score <= best) continue
-        best = score
-        result.selected = index
-        result.contour = points
-        result.refined = refined
-        result.ellipse = fitted
-        result.reason =
-          fitted.confidence >= 0.82 ? "Pupil found" : "Pupil fit is weak"
+        const candidate = { score, index, points, refined, ellipse: fitted }
+        if (score > best) {
+          best = score
+          bestCandidate = candidate
+        }
+        const continuous =
+          !options.previous ||
+          isContinuousPupil(fitted, options.previous, width, height)
+        if (continuous && score > bestContinuous) {
+          bestContinuous = score
+          bestContinuousCandidate = candidate
+        }
       }
+      if (
+        canUseTrackingFastPath &&
+        bestContinuousCandidate?.index === options.previousSelected &&
+        bestContinuousCandidate.ellipse.confidence >= 0.82
+      )
+        break
+    }
+    // Prefer a candidate consistent with the last pupil. If none is nearby,
+    // return the best alternative so the engine can confirm a real saccade.
+    const winner = bestContinuousCandidate ?? bestCandidate
+    if (winner) {
+      result.selected = winner.index
+      result.contour = winner.points
+      result.refined = winner.refined
+      result.ellipse = winner.ellipse
+      result.reason =
+        winner.ellipse.confidence >= 0.82 ? "Pupil found" : "Pupil fit is weak"
     }
     if (result.selected < 0 && result.previews.length) {
       const previous = options.previousSelected

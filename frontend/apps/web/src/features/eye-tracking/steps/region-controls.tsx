@@ -6,13 +6,9 @@ import { clampRegion, MIN_REGION_SIZE } from "../roi"
 
 export function RegionControls({
   tracker,
-  eyeConfirmed,
-  onConfirm,
   chooseRegion,
 }: {
   tracker: TrackerController
-  eyeConfirmed: boolean
-  onConfirm: (value: boolean) => void
   chooseRegion: (roi: Rect) => void
 }) {
   const roi = tracker.settings.roi
@@ -114,14 +110,6 @@ export function RegionControls({
           Apply coordinates
         </button>
       </form>
-      <label className="eye-check">
-        <input
-          type="checkbox"
-          checked={eyeConfirmed}
-          onChange={(event) => onConfirm(event.target.checked)}
-        />
-        One pupil is clearly visible
-      </label>
       <details className="eye-details">
         <summary>
           Editing tips

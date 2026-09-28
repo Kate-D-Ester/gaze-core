@@ -37,6 +37,70 @@ test("real OpenCV fits an unequal rotated ellipse and preserves threshold previe
   expect(Math.abs(Math.sin(result.ellipse!.angle - 0.55))).toBeLessThan(0.08)
   expect(result.ellipse!.confidence).toBeGreaterThan(0.85)
 })
+test("preview masks can be skipped without changing pupil detection", () => {
+  const data = frame()
+  const withMasks = detectSpatialPupil(cv, data, 320, 240, 0)
+  const withoutMasks = detectSpatialPupil(cv, data, 320, 240, 0, {
+    includePreviewMasks: false,
+  })
+  expect(withoutMasks.ellipse).toEqual(withMasks.ellipse)
+  expect(withoutMasks.selected).toBe(withMasks.selected)
+  expect(withoutMasks.previews.map((preview) => preview.threshold)).toEqual(
+    withMasks.previews.map((preview) => preview.threshold)
+  )
+  expect(withMasks.previews.every((preview) => !!preview.mask)).toBe(true)
+  expect(withoutMasks.previews.every((preview) => !preview.mask)).toBe(true)
+})
+test("steady pupil tracking reuses the last threshold when the full comparison is closed", () => {
+  const previous = {
+    center: [158, 117] as Point,
+    major: 36,
+    minor: 23,
+    angle: 0.55,
+    confidence: 0.99,
+  }
+  const countContours = () => {
+    let calls = 0
+    const instrumented = new Proxy(cv, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target)
+        if (property === "findContours")
+          return (...args: unknown[]) => {
+            calls++
+            return value.apply(target, args)
+          }
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    return { cv: instrumented, calls: () => calls }
+  }
+  const complete = countContours()
+  const fast = countContours()
+  const fullResult = detectSpatialPupil(complete.cv, frame(), 320, 240, 0, {
+    previous,
+    previousSelected: 1,
+    includePreviewMasks: false,
+    evaluateAllThresholds: true,
+  })
+  const fastResult = detectSpatialPupil(fast.cv, frame(), 320, 240, 0, {
+    previous,
+    previousSelected: 1,
+    includePreviewMasks: false,
+    evaluateAllThresholds: false,
+  })
+
+  expect(complete.calls()).toBe(3)
+  expect(fast.calls()).toBe(1)
+  expect(fastResult.selected).toBe(fullResult.selected)
+  expect(fastResult.ellipse?.center[0]).toBeCloseTo(
+    fullResult.ellipse!.center[0],
+    1
+  )
+  expect(fastResult.ellipse?.center[1]).toBeCloseTo(
+    fullResult.ellipse!.center[1],
+    1
+  )
+})
 test("a small specular highlight does not displace the pupil center", () => {
   const result = detectSpatialPupil(cv, frame(0.55, true), 320, 240, 0)
   expect(result.ellipse).not.toBeNull()

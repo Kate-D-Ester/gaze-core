@@ -7,6 +7,12 @@ import {
 } from "../../apps/web/node_modules/react-dom/client"
 import { EyePreview } from "../../apps/web/src/features/eye-tracking/preview"
 import {
+  fitPreviewCard,
+  fitPreviewFrame,
+  fitPreviewStage,
+  fitSquarePreview,
+} from "../../apps/web/src/features/eye-tracking/preview-layout"
+import {
   useTracker,
   type TrackerController,
 } from "../../apps/web/src/features/eye-tracking/use-tracker"
@@ -17,11 +23,14 @@ if (typeof document === "undefined") GlobalRegistrator.register()
 let root: Root,
   host: HTMLDivElement,
   tracker: TrackerController,
-  committed: Rect[]
-function Harness() {
+  committed: Rect[],
+  thresholdViewChanges: boolean[]
+function Harness({ width, height }: { width?: number; height?: number } = {}) {
   tracker = useTracker()
+  const previewTracker =
+    width && height ? { ...tracker, dimensions: { width, height } } : tracker
   return createElement(EyePreview, {
-    tracker,
+    tracker: previewTracker,
     selectRegion: true,
     selectCorners: false,
     onRegion: (roi: Rect) => {
@@ -29,10 +38,13 @@ function Harness() {
       tracker.configure({ roi })
     },
     onCorner: () => {},
+    onThresholdViewChange: (enabled: boolean) =>
+      thresholdViewChanges.push(enabled),
   })
 }
 beforeEach(async () => {
   committed = []
+  thresholdViewChanges = []
   ;(globalThis as any).Worker = class {
     postMessage() {}
     terminate() {}
@@ -71,6 +83,65 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount())
   host.remove()
+})
+test("threshold view requests masks until the image view is selected again", async () => {
+  const buttons = Array.from(
+    host.querySelectorAll<HTMLButtonElement>(".eye-preview-switch button")
+  )
+  const thresholdButton = buttons.find(
+    (button) => button.textContent === "Threshold"
+  )!
+  const imageButton = buttons.find((button) => button.textContent === "Image")!
+
+  await act(async () => thresholdButton.click())
+  await act(async () => imageButton.click())
+
+  expect(thresholdViewChanges).toEqual([true, false])
+})
+test("preview frame follows the active camera aspect ratio", async () => {
+  const stage = host.querySelector(".eye-preview-stage") as HTMLDivElement
+  expect(Number.parseFloat(stage.style.aspectRatio)).toBeCloseTo(4 / 3, 10)
+  await act(async () => {
+    root.render(createElement(Harness, { width: 1280, height: 720 }))
+  })
+  expect(Number.parseFloat(stage.style.aspectRatio)).toBeCloseTo(16 / 9, 10)
+})
+test("preview sizing preserves camera ratio while fitting available space", () => {
+  for (const [width, height] of [
+    [640, 480],
+    [1280, 720],
+    [720, 720],
+  ]) {
+    const fitted = fitPreviewFrame(width, height, 800, 400)!
+    expect(fitted.width).toBeLessThanOrEqual(800)
+    expect(fitted.height).toBeLessThanOrEqual(400)
+    expect(fitted.width / fitted.height).toBeCloseTo(width / height, 10)
+  }
+  expect(fitPreviewFrame(0, 480, 800, 400)).toBeNull()
+})
+test("empty preview card stays square inside the available frame", () => {
+  expect(fitSquarePreview(900, 360)).toEqual({ width: 360, height: 360 })
+  expect(fitSquarePreview(320, 500)).toEqual({ width: 320, height: 320 })
+  expect(fitSquarePreview(0, 500)).toBeNull()
+})
+test("empty viewfinder stays square independently of threshold controls", () => {
+  const stage = fitPreviewStage(null, null, 900, 360, 88)!
+  expect(stage.width).toBe(stage.height)
+  expect(stage.image.height).toBe(stage.height - 88)
+})
+test("camera preview stage retains the native ratio below fixed controls", () => {
+  const stage = fitPreviewStage(1280, 720, 800, 500, 96)!
+  expect(stage.image.width / stage.image.height).toBeCloseTo(16 / 9, 10)
+  expect(stage.height).toBe(stage.image.height + 96)
+})
+test("camera ratio changes the fitted image without shrinking the card", () => {
+  const wide = fitPreviewCard(1280, 720, 600, 320, 48, 64)!
+  const classic = fitPreviewCard(640, 480, 600, 320, 48, 64)!
+  expect(wide.card).toEqual({ width: 600, height: 320 })
+  expect(classic.card).toEqual(wide.card)
+  expect(wide.preview).toEqual({ width: 600, height: 256 })
+  expect(wide.image.width / wide.image.height).toBeCloseTo(16 / 9, 10)
+  expect(classic.image.width / classic.image.height).toBeCloseTo(4 / 3, 10)
 })
 async function pointer(target: Element, type: string, x: number, y: number) {
   await act(async () => {

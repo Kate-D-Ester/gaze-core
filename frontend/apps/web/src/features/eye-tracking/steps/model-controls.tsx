@@ -1,5 +1,6 @@
 import { ChevronDown, RotateCcw } from "lucide-react"
 import { SpherePreview } from "../preview"
+import { getEyeModelLockStatus } from "../eye-model"
 import type { FrameSettings, Point } from "../types"
 import type { TrackerController } from "../use-tracker"
 
@@ -15,6 +16,11 @@ export function ModelControls({
   setNotice: (message: string) => void
 }) {
   const { settings, frame } = tracker
+  const lockStatus = getEyeModelLockStatus(
+    frame?.model ?? null,
+    frame?.width ?? 0,
+    frame?.height ?? 0
+  )
   return (
     <>
       <SpherePreview frame={frame} />
@@ -72,17 +78,22 @@ export function ModelControls({
       ) : (
         <>
           <h3>
-            {frame?.model?.ready ? "Ready to lock." : "Look around slowly."}
+            {lockStatus.ready
+              ? "Ready to lock."
+              : "Look around the full range."}
           </h3>
           <p className="eye-muted">
-            Look toward each edge. Lock when the sphere is stable.
+            Move your gaze toward each edge and corner.
           </p>
-          <div className="eye-progress-track">
-            <i
-              style={{
-                width: `${Math.min(100, ((frame?.model?.samples ?? 0) / 30) * 100)}%`,
-              }}
-            />
+          <div
+            className="eye-progress-track"
+            role="progressbar"
+            aria-label="Eye model readiness"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={lockStatus.progress}
+          >
+            <i style={{ width: `${lockStatus.progress}%` }} />
           </div>
         </>
       )}

@@ -6,6 +6,7 @@ import { gazeMqttBridge } from "./lib/gaze-mqtt"
 import { gazeTestRoutes } from "./routes/gaze-test"
 import { gazeRoutes } from "./routes/gaze"
 import { userRoutes } from "./routes/user"
+import { cameraMjpegRoutes } from "./routes/camera-mjpeg"
 
 /**
  * GazeCore Backend - Main Server
@@ -119,6 +120,7 @@ const app = new Elysia()
     group
       .use(userRoutes)
       .use(gazeTestRoutes)
+      .use(cameraMjpegRoutes)
       .use(gazeRoutes),
   )
   .listen(port)
