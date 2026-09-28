@@ -21,7 +21,7 @@ Make `/v2` the single eye-tracking experience and keep all camera-frame processi
 ## Route and Product Scope
 
 - Keep `/v2` as the only eye-tracking route. Remove the `/test`, `/v1/eye-tracker`, and `/v2/eye-tracker` route entries and their legacy page components.
-- Change dashboard tracker navigation to a single action for `/v2`. Keep dashboard authentication and API-key management.
+- Change dashboard tracker navigation to one “Try it out” action for `/v2`; change the dashboard header’s “V2 progress” link to “Try it out” while keeping it pointed at `/v2`. Keep dashboard authentication and API-key management.
 - Preserve the active V2 source choices. USB capture stays on `getUserMedia`; network video and MJPEG are read directly by browser APIs. Surface a clear error when browser CORS or media support prevents reading a stream.
 - Treat the user's phrase “normal eye tracking websocket” as the existing `/v2` website experience; no eye-tracking WebSocket will remain.
 
