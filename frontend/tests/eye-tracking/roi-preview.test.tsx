@@ -5,7 +5,7 @@ import {
   createRoot,
   type Root,
 } from "../../apps/web/node_modules/react-dom/client"
-import { EyePreview } from "../../apps/web/src/features/eye-tracking/preview"
+import { EyePreview } from "../../apps/web/src/features/eye-tracking/components/eye-preview"
 import {
   fitPreviewCard,
   fitPreviewFrame,

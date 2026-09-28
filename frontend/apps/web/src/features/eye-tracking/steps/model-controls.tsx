@@ -1,5 +1,5 @@
 import { ChevronDown, RotateCcw } from "lucide-react"
-import { SpherePreview } from "../preview"
+import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
 import type { FrameSettings, Point } from "../types"
 import type { TrackerController } from "../use-tracker"

@@ -5,17 +5,13 @@ import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
 import { useCallback, useEffect, useState } from "react"
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  ChevronRight,
-  Eye,
-  X,
-} from "lucide-react"
+import { ArrowLeft, ArrowRight, Eye, X } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
-import { EyePreview, PipelinePreviews } from "@/features/eye-tracking/preview"
+import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
+import { PipelinePreviews } from "@/features/eye-tracking/components/pipeline-previews"
+import { V2StepNavigation } from "@/features/eye-tracking/components/v2-step-navigation"
+import { V2StepPanel } from "@/features/eye-tracking/components/v2-step-panel"
 import { CalibrationOverlay } from "@/features/eye-tracking/calibration-overlay"
 import { getEyeModelLockStatus } from "@/features/eye-tracking/eye-model"
 import {
@@ -30,10 +26,17 @@ import type {
   Point,
   Rect,
 } from "@/features/eye-tracking/types"
+import type { V2StepCopy, V2StepName } from "./v2-page.types"
 import "./v2.css"
 
-const STEPS = ["Camera", "Eye region", "Eye model", "Calibrate", "Live gaze"]
-const COPY = [
+const STEPS: readonly V2StepName[] = [
+  "Camera",
+  "Eye region",
+  "Eye model",
+  "Calibrate",
+  "Live gaze",
+]
+const COPY: readonly V2StepCopy[] = [
   ["Choose a source", "Choose a USB camera or network stream."],
   ["Frame one eye", "Keep the pupil’s full range of movement inside the box."],
   [
@@ -253,42 +256,23 @@ export function V2Page() {
           ))}
         </div>
       </div>
-      <nav className="eye-step-nav" aria-label="Setup steps">
-        <ol className="eye-breadcrumbs">
-          {STEPS.map((name, i) => (
-            <li key={name}>
-              <button
-                className={[
-                  "eye-step",
-                  i === step && "active",
-                  i < step && "done",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                aria-current={i === step ? "step" : undefined}
-                disabled={!allowed[i]}
-                onClick={() => go(i)}
-              >
-                <span className="eye-step-number">
-                  {i < step ? (
-                    <Check size={13} />
-                  ) : (
-                    String(i + 1).padStart(2, "0")
-                  )}
-                </span>
-                <span className="eye-step-text">{name}</span>
-              </button>
-              {i < STEPS.length - 1 && (
-                <ChevronRight
-                  className="eye-step-chevron"
-                  size={14}
-                  aria-hidden="true"
-                />
-              )}
-            </li>
-          ))}
-        </ol>
-      </nav>
+      <V2StepNavigation
+        steps={STEPS}
+        activeStep={step}
+        completedSteps={
+          new Set(
+            allowed.flatMap((canSelect, index) =>
+              canSelect && index < step ? [index] : []
+            )
+          )
+        }
+        availableSteps={
+          new Set(
+            allowed.flatMap((canSelect, index) => (canSelect ? [index] : []))
+          )
+        }
+        onSelectStep={go}
+      />
       <div className="eye-workspace">
         <section
           className="eye-preview-column"
@@ -335,73 +319,60 @@ export function V2Page() {
             </details>
           </div>
         </section>
-        <aside className="eye-controls" aria-labelledby="eye-step-title">
-          <div className="eye-controls-heading">
-            <div>
-              <span className="eye-eyebrow">
-                STEP {String(step + 1).padStart(2, "0")} /{" "}
-                {STEPS[step].toUpperCase()}
-              </span>
-              <h2 id="eye-step-title">{COPY[step][0]}</h2>
-              <p>{COPY[step][1]}</p>
-            </div>
-          </div>
-          <div className="eye-controls-body">
-            {(tracker.error || notice) && (
-              <p
-                className={tracker.error ? "eye-message error" : "eye-message"}
-                role={tracker.error ? "alert" : "status"}
-              >
-                {tracker.error || notice}
-              </p>
-            )}
-            {step === 0 && (
-              <SourceControls
-                tracker={tracker}
-                deviceId={deviceId}
-                setDeviceId={setDeviceId}
-                resetSource={resetSource}
-              />
-            )}
-            {step === 1 && (
-              <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
-            )}
-            {step === 2 && (
-              <ModelControls
-                tracker={tracker}
-                corner={corner}
-                update={update}
-                setNotice={setNotice}
-              />
-            )}
-            {step === 3 && (
-              <CalibrationControls
-                usable={usable}
-                locked={settings.locked}
-                onStart={() => {
-                  setNotice("")
-                  setCapture("calibration")
-                }}
-              />
-            )}
-            {step === 4 && (
-              <LiveControls
-                tracker={tracker}
-                calibration={calibration}
-                screenPoint={screenPoint}
-                validation={validation}
-                usable={usable}
-                onFocus={() => setFocus(true)}
-                onValidate={() => setCapture("validation")}
-                onRecalibrate={() => {
-                  clearCalibration()
-                  setStep(3)
-                }}
-                onExport={exportResult}
-              />
-            )}
-          </div>
-        </aside>
+        <V2StepPanel
+          stepNumber={step + 1}
+          stepName={STEPS[step]}
+          title={COPY[step][0]}
+          description={COPY[step][1]}
+          error={tracker.error}
+          message={notice}
+        >
+          {step === 0 && (
+            <SourceControls
+              tracker={tracker}
+              deviceId={deviceId}
+              setDeviceId={setDeviceId}
+              resetSource={resetSource}
+            />
+          )}
+          {step === 1 && (
+            <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
+          )}
+          {step === 2 && (
+            <ModelControls
+              tracker={tracker}
+              corner={corner}
+              update={update}
+              setNotice={setNotice}
+            />
+          )}
+          {step === 3 && (
+            <CalibrationControls
+              usable={usable}
+              locked={settings.locked}
+              onStart={() => {
+                setNotice("")
+                setCapture("calibration")
+              }}
+            />
+          )}
+          {step === 4 && (
+            <LiveControls
+              tracker={tracker}
+              calibration={calibration}
+              screenPoint={screenPoint}
+              validation={validation}
+              usable={usable}
+              onFocus={() => setFocus(true)}
+              onValidate={() => setCapture("validation")}
+              onRecalibrate={() => {
+                clearCalibration()
+                setStep(3)
+              }}
+              onExport={exportResult}
+            />
+          )}
+        </V2StepPanel>
       </div>
       <footer
         className={`eye-bottom-bar ${step === 2 ? "has-model-status" : ""}`}

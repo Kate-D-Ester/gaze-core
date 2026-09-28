@@ -6,35 +6,32 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react"
-import { Camera, Crop, ScanEye } from "lucide-react"
-import type { TrackerController } from "./use-tracker"
-import type { Ellipse, Point, Rect, TrackingFrame } from "./types"
+import { Camera, Crop } from "lucide-react"
+import type { Ellipse, Point, Rect } from "../types"
 import {
   moveRegion,
   regionFromPoints,
   resizeRegion,
   type ResizeHandle,
-} from "./roi"
-import { fitPreviewCard, fitSquarePreview } from "./preview-layout"
-import { setCanvasDimensions } from "./canvas-sizing"
+} from "../roi"
+import { fitPreviewCard, fitSquarePreview } from "../preview-layout"
+import { setCanvasDimensions } from "../canvas-sizing"
+import type {
+  EyePreviewHandleDefinition,
+  EyePreviewProps,
+  RegionGesture,
+} from "./eye-preview.types"
 
-const HANDLES: { handle: ResizeHandle; label: string; x: number; y: number }[] =
-  [
-    { handle: "nw", label: "top left", x: 0, y: 0 },
-    { handle: "n", label: "top", x: 50, y: 0 },
-    { handle: "ne", label: "top right", x: 100, y: 0 },
-    { handle: "e", label: "right", x: 100, y: 50 },
-    { handle: "se", label: "bottom right", x: 100, y: 100 },
-    { handle: "s", label: "bottom", x: 50, y: 100 },
-    { handle: "sw", label: "bottom left", x: 0, y: 100 },
-    { handle: "w", label: "left", x: 0, y: 50 },
-  ]
-type RegionGesture = {
-  pointerId: number
-  start: Point
-  region: Rect
-  mode: "draw" | "move" | ResizeHandle
-}
+const HANDLES: EyePreviewHandleDefinition[] = [
+  { handle: "nw", label: "top left", x: 0, y: 0 },
+  { handle: "n", label: "top", x: 50, y: 0 },
+  { handle: "ne", label: "top right", x: 100, y: 0 },
+  { handle: "e", label: "right", x: 100, y: 50 },
+  { handle: "se", label: "bottom right", x: 100, y: 100 },
+  { handle: "s", label: "bottom", x: 50, y: 100 },
+  { handle: "sw", label: "bottom left", x: 0, y: 100 },
+  { handle: "w", label: "left", x: 0, y: 50 },
+]
 
 function drawEllipse(
   ctx: CanvasRenderingContext2D,
@@ -66,16 +63,7 @@ export function EyePreview({
   onEditRegion,
   onThresholdViewChange,
   showModel = false,
-}: {
-  tracker: TrackerController
-  selectRegion: boolean
-  selectCorners: boolean
-  onRegion: (roi: Rect) => void
-  onCorner: (p: Point) => void
-  onEditRegion?: () => void
-  onThresholdViewChange?: (enabled: boolean) => void
-  showModel?: boolean
-}) {
+}: EyePreviewProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<RegionGesture | null>(null)
@@ -585,133 +573,6 @@ export function EyePreview({
           <p>Select a camera source to begin.</p>
         </div>
       )}
-    </div>
-  )
-}
-function MaskPreview({
-  mask,
-  width,
-  height,
-}: {
-  mask: Uint8Array
-  width: number
-  height: number
-}) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    setCanvasDimensions(c, width, height)
-    const ctx = c.getContext("2d")
-    if (!ctx) return
-    const image = ctx.createImageData(width, height)
-    for (let i = 0; i < mask.length; i++) {
-      const j = i * 4
-      image.data[j] = image.data[j + 1] = image.data[j + 2] = mask[i]
-      image.data[j + 3] = 255
-    }
-    ctx.putImageData(image, 0, 0)
-  }, [mask, width, height])
-  return <canvas ref={ref} />
-}
-export function PipelinePreviews({ frame }: { frame: TrackingFrame | null }) {
-  return (
-    <div className="eye-thumbnails">
-      {(frame?.detection.previews.length
-        ? frame.detection.previews
-        : [
-            { label: "Strict", threshold: 0 },
-            { label: "Balanced", threshold: 0 },
-            { label: "Relaxed", threshold: 0 },
-          ]
-      ).map((p, i) => (
-        <div
-          key={p.label}
-          className={`eye-thumbnail ${frame?.detection.selected === i ? "selected" : ""}`}
-        >
-          <div className="eye-thumbnail-image">
-            {"mask" in p && p.mask ? (
-              <MaskPreview
-                mask={p.mask}
-                width={frame!.roi.width}
-                height={frame!.roi.height}
-              />
-            ) : (
-              <ScanEye size={22} strokeWidth={1} />
-            )}
-          </div>
-          <div>
-            <span>{p.label}</span>
-            <span>
-              {"score" in p
-                ? `${Math.round(p.score * 100)}% fit`
-                : "Awaiting frame"}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-export function SpherePreview({ frame }: { frame: TrackingFrame | null }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const ctx = ref.current?.getContext("2d")
-    if (!ctx) return
-    const colors = getComputedStyle(ref.current!)
-    ctx.clearRect(0, 0, 280, 220)
-    ctx.strokeStyle = colors.getPropertyValue("--line")
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(140, 105, 74, 0, Math.PI * 2)
-    ctx.stroke()
-    for (const r of [24, 50]) {
-      ctx.beginPath()
-      ctx.ellipse(140, 105, r, 74, 0, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.ellipse(140, 105, 74, r, 0, 0, Math.PI * 2)
-      ctx.stroke()
-    }
-    const gaze = frame?.gaze?.direction
-    if (gaze) {
-      ctx.strokeStyle = colors.color
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      ctx.moveTo(140, 105)
-      ctx.lineTo(140 + gaze[0] * 115, 105 + gaze[1] * 115)
-      ctx.stroke()
-      ctx.fillStyle = colors.color
-      ctx.beginPath()
-      ctx.arc(140 + gaze[0] * 74, 105 + gaze[1] * 74, 6, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }, [frame])
-  return (
-    <div className="eye-sphere">
-      <div className="eye-section-label">
-        EYE MODEL <span>{frame?.model?.ready ? "Fitted" : "Collecting"}</span>
-      </div>
-      <canvas
-        width={280}
-        height={220}
-        ref={ref}
-        aria-label="Projected spherical eye model and gaze direction"
-      />
-      <div className="eye-sphere-metrics">
-        <span>
-          {frame?.model?.samples ?? 0}
-          <small>observations</small>
-        </span>
-        <span>
-          {Math.round((frame?.model?.coverage ?? 0) * 100)}%
-          <small>coverage</small>
-        </span>
-        <span>
-          {frame?.model ? frame.model.residual.toFixed(1) : "—"}
-          <small>fit error · px</small>
-        </span>
-      </div>
     </div>
   )
 }
