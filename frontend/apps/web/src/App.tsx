@@ -6,13 +6,19 @@ import { useAuthSession } from "@/hooks/use-auth-session"
 import { AuthPage } from "@/pages/auth-page"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { V2Page } from "@/pages/v2-page"
-import { TestPage } from "@/pages/test-page"
-import { V2EyeTrackerPage } from "@/pages/v2-eye-tracker-page"
 import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
   const location = useLocation()
-  return location.pathname === "/v2" ? <V2Page /> : <AccountApp />
+  if (location.pathname === "/trial") {
+    return <V2Page />
+  }
+
+  if (location.pathname === "/v2") {
+    return <Navigate to="/trial" replace />
+  }
+
+  return <AccountApp />
 }
 
 function AccountApp() {
@@ -117,9 +123,6 @@ function AccountApp() {
         }
       />
       <Route path="/verify-email" element={<VerifyEmailPage onVerified={() => void loadSession()} />} />
-      <Route path="/test" element={<Navigate to="/v1/eye-tracker" replace />} />
-      <Route path="/v1/eye-tracker" element={<TestPage />} />
-      <Route path="/v2/eye-tracker" element={<V2EyeTrackerPage />} />
       <Route
         path="/dashboard"
         element={

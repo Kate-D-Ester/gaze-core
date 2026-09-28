@@ -7,12 +7,34 @@ const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
 const { MemoryRouter } =
   await import("../../apps/web/node_modules/react-router-dom")
+const { useLocation } =
+  await import("../../apps/web/node_modules/react-router-dom")
 const { ThemeProvider } =
   await import("../../apps/web/src/components/theme-provider")
 const { V2Page } = await import("../../apps/web/src/pages/v2-page")
+const { App } = await import("../../apps/web/src/App")
+const { DashboardPage } =
+  await import("../../apps/web/src/pages/dashboard-page")
 
 const host = document.createElement("div")
 let root: ReturnType<typeof createRoot>
+
+function CurrentPath() {
+  const location = useLocation()
+  return createElement("output", { "data-testid": "current-path" }, location.pathname)
+}
+
+function renderAppAtPath(path: string) {
+  root = createRoot(host)
+  root.render(
+    createElement(
+      MemoryRouter,
+      { initialEntries: [path] },
+      createElement(App),
+      createElement(CurrentPath)
+    )
+  )
+}
 afterEach(async () => {
   if (root) await act(async () => root.unmount())
   host.remove()
@@ -108,4 +130,74 @@ test("threshold and preview render as separate sibling cards", async () => {
   expect(thresholdCard.contains(previewCard)).toBe(false)
   expect(host.querySelectorAll(".eye-step-chevron")).toHaveLength(4)
   expect(host.querySelectorAll(".eye-viewfinder-corner")).toHaveLength(0)
+})
+
+test("the public tracker opens at /trial and redirects /v2 links there", async () => {
+  ;(globalThis as any).Worker = class {
+    postMessage() {}
+    terminate() {}
+  }
+  globalThis.requestAnimationFrame = () => 1
+  globalThis.cancelAnimationFrame = () => {}
+  document.body.append(host)
+
+  await act(async () => renderAppAtPath("/trial"))
+  expect(host.querySelector(".eye-app")).not.toBeNull()
+  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
+    "/trial"
+  )
+
+  await act(async () => root.unmount())
+  host.replaceChildren()
+  await act(async () => renderAppAtPath("/v2"))
+  expect(host.querySelector(".eye-app")).not.toBeNull()
+  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
+    "/trial"
+  )
+})
+
+test("dashboard offers one Try it out action to the public tracker", async () => {
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/dashboard"] },
+        createElement(
+          DashboardPage,
+          {
+            session: { user: { id: "user-1", email: "kate@example.com" } },
+            busy: false,
+            loadingKeys: false,
+            apiKeys: [],
+            newKeyName: "",
+            createdApiKey: "",
+            message: "",
+            error: "",
+            onSignOut() {},
+            onNewKeyNameChange() {},
+            onCreateKey() {},
+            onCopyCreatedKey() {},
+            onRegenerateKey() {},
+            onDeleteKey() {},
+          }
+        ),
+        createElement(CurrentPath)
+      )
+    )
+  })
+
+  const tryItOutLinks = Array.from(host.querySelectorAll("a"), (link) => link)
+    .filter((link) => link.textContent?.trim() === "Try it out")
+  const tryItOutButtons = Array.from(host.querySelectorAll("button"))
+    .filter((button) => button.textContent?.trim() === "Try it out")
+  expect(tryItOutLinks).toHaveLength(1)
+  expect(tryItOutLinks[0]?.getAttribute("href")).toBe("/trial")
+  expect(tryItOutButtons).toHaveLength(1)
+
+  await act(async () => tryItOutButtons[0]?.click())
+  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
+    "/trial"
+  )
 })

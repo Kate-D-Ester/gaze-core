@@ -47,15 +47,14 @@ export function DashboardPage({
         <section className="rounded-xl border bg-card p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-foreground">Eye Tracker Routes</h2>
+              <h2 className="text-base font-semibold text-foreground">Eye tracking</h2>
               <p className="text-sm text-muted-foreground">
-                Launch the existing tracker or the new sparse-sampling tracker from here.
+                Try the browser-based eye-tracking experience.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => navigate("/v1/eye-tracker")}>V1 EyeTracker</Button>
-              <Button variant="outline" onClick={() => navigate("/v2/eye-tracker")}>V2 EyeTracker</Button>
+              <Button onClick={() => navigate("/trial")}>Try it out</Button>
             </div>
           </div>
         </section>

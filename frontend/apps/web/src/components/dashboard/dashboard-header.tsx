@@ -20,7 +20,7 @@ export function DashboardHeader({
           Signed in as {session?.user?.email}
         </p>
       </div>
-      <a href="/v2" className="text-sm underline">V2 progress</a>
+      <a href="/trial" className="text-sm underline">Try it out</a>
       <Button variant="outline" disabled={busy} onClick={onSignOut}>
         Sign Out
       </Button>
