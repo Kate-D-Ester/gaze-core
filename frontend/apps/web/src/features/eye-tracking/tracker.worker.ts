@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope
 import { TrackingEngine } from "./engine"
-import { loadOpenCv } from "./opencv.types"
+import { loadOpenCv } from "./opencv"
 import type { WorkerRequest } from "./tracker.worker.types"
 let engine: TrackingEngine | null = null
 let generation = -1

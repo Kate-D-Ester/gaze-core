@@ -16,3 +16,11 @@ export type PupilDetectionOptions = {
   includePreviewMasks?: boolean
   evaluateAllThresholds?: boolean
 }
+
+export type PupilCandidate = {
+  score: number
+  index: number
+  points: Point[]
+  refined: Point[]
+  ellipse: Ellipse
+}

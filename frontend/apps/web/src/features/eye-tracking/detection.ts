@@ -4,6 +4,7 @@ import type { Detection, Ellipse, Point } from "./eye-tracking.types"
 import type {
   CvOwnedObject,
   DarkestPatch,
+  PupilCandidate,
   PupilDetectionOptions,
 } from "./detection.types"
 import { finite } from "./geometry"
@@ -349,15 +350,8 @@ export function detectSpatialPupil(
     )
     let best = -Infinity
     let bestContinuous = -Infinity
-    type Candidate = {
-      score: number
-      index: number
-      points: Point[]
-      refined: Point[]
-      ellipse: Ellipse
-    }
-    let bestCandidate: Candidate | null = null
-    let bestContinuousCandidate: Candidate | null = null
+    let bestCandidate: PupilCandidate | null = null
+    let bestContinuousCandidate: PupilCandidate | null = null
     let irregular = false
     for (const index of passOrder) {
       const threshold = thresholds[index]
@@ -483,7 +477,8 @@ export function detectSpatialPupil(
       }
       if (
         canUseTrackingFastPath &&
-        bestContinuousCandidate?.index === options.previousSelected &&
+        bestContinuousCandidate &&
+        bestContinuousCandidate.index === options.previousSelected &&
         bestContinuousCandidate.ellipse.confidence >= 0.82
       )
         break

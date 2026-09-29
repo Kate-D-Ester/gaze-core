@@ -5,7 +5,7 @@ import {
   VALIDATION_TARGETS,
   gazeFeature,
 } from "./calibration"
-import type { Point } from "./eye-tracking.types"
+import type { CalibrationSample, Point } from "./eye-tracking.types"
 import type { CalibrationOverlayProps } from "./calibration-overlay.types"
 
 export function CalibrationOverlay({

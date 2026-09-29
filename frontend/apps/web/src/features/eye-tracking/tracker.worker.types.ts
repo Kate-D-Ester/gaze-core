@@ -2,7 +2,7 @@ import type { FrameSettings, TrackingFrame } from "./eye-tracking.types"
 
 export type WorkerRequest = {
   type: "frame"
-  data: Uint8ClampedArray
+  data: Uint8ClampedArray<ArrayBuffer>
   width: number
   height: number
   settings: FrameSettings
@@ -19,6 +19,6 @@ export type WorkerResponse =
   | {
       type: "frame"
       frame: TrackingFrame
-      data: Uint8ClampedArray
+      data: Uint8ClampedArray<ArrayBuffer>
       generation: number
     }
