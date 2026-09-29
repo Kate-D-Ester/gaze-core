@@ -2,15 +2,15 @@
 
 ## Goal
 
-Make `/v2` the single eye-tracking experience and keep all camera-frame processing in the browser. Remove the legacy test widgets and tracking backend while preserving Better Auth, API-key management, and their database storage. Restructure the active V2 frontend so each module has a clear responsibility and is straightforward to read.
+Make `/trial` the single eye-tracking experience and keep all camera-frame processing in the browser. `/v2` redirects to `/trial` for existing links. Remove the legacy test widgets and tracking backend while preserving Better Auth, API-key management, and their database storage. Restructure the active V2 frontend so each module has a clear responsibility and is straightforward to read.
 
 ## Current State
 
-- `/v2` renders `V2Page`, whose processing runs in the frontend worker. USB camera capture and tracking are local, but network MJPEG input currently depends on a relay in both `use-tracker.ts` and the Vite server configuration.
-- `/test` redirects to `/v1/eye-tracker`; that page and `/v2/eye-tracker` use legacy shared widgets, session issuance, gaze WebSockets, or the backend camera relay.
-- The backend contains Better Auth and API-key configuration alongside test UUID, gaze token, gaze WebSocket, MQTT, user-profile, and MJPEG relay routes.
-- The auth database schema currently contains Better Auth tables plus the API-key table. No separate eye-tracking data table is present.
-- The old widgets contain very large `index.ts` hooks. The active V2 implementation is already separated into feature files, but its page, tracking hook, and preview renderer carry multiple responsibilities and should be split at clear UI/source boundaries.
+- `/trial` renders the active tracker and `/v2` redirects there. USB and network frames are acquired in the browser and processed in a local Web Worker.
+- The legacy test and tracker pages, shared tracker widgets, gaze sockets, and camera relay are removed from active code.
+- The backend provides Better Auth, API-key management, CORS, email verification, health, and auth API documentation. Tracking does not require it.
+- PostgreSQL retains Better Auth tables and the API-key table; no eye-tracking data is stored.
+- The active tracker page, preview, source lifecycle, and worker are split into focused modules. Module types live in sibling `.types.ts` files and nested ternaries are rejected by lint.
 
 ## Approaches Considered
 
@@ -20,8 +20,8 @@ Make `/v2` the single eye-tracking experience and keep all camera-frame processi
 
 ## Route and Product Scope
 
-- Keep `/v2` as the only eye-tracking route. Remove the `/test`, `/v1/eye-tracker`, and `/v2/eye-tracker` route entries and their legacy page components.
-- Change dashboard tracker navigation to one “Try it out” action for `/v2`; change the dashboard header’s “V2 progress” link to “Try it out” while keeping it pointed at `/v2`. Keep dashboard authentication and API-key management.
+- Keep `/trial` as the only eye-tracking experience. Redirect `/v2` to `/trial` for existing links, and remove the `/test`, `/v1/eye-tracker`, and `/v2/eye-tracker` route entries and their legacy page components.
+- Change dashboard tracker navigation to one “Try it out” action for `/trial`; change the dashboard header’s “V2 progress” link to “Try it out” while keeping it pointed at `/trial`. Keep dashboard authentication and API-key management.
 - Preserve the active V2 source choices. USB capture stays on `getUserMedia`; network video and MJPEG are read directly by browser APIs. Surface a clear error when browser CORS or media support prevents reading a stream.
 - Treat the user's phrase “normal eye tracking websocket” as the existing `/v2` website experience; no eye-tracking WebSocket will remain.
 
@@ -45,10 +45,10 @@ Make `/v2` the single eye-tracking experience and keep all camera-frame processi
 
 ## Documentation and Verification
 
-- Update active README and eye-tracking documentation to describe `/v2` as browser-only and explain the CORS requirement for network sources.
+- Update active README and eye-tracking documentation to describe `/trial` as browser-only and explain the CORS requirement for network sources.
 - Keep historical research and implementation-plan documents as history; remove stale route references from active setup documentation.
 - Remove tests that exist only for deleted widgets and backend tracking services. Keep tests for the active V2 algorithms, tracking lifecycle, auth, and API keys.
-- Verify frontend unit tests, typecheck, lint, and production build. Verify backend tests, typecheck, and build. Search active source for removed routes, gaze WebSockets, MQTT, and camera-relay references. Confirm the V2 hook does not call auth/backend APIs, while auth and API-key flows remain wired.
+- Verify frontend unit tests, typecheck, lint, and production build. Verify backend tests, typecheck, and build. Search active source for removed routes, gaze WebSockets, MQTT, and camera-relay references. Confirm the tracker hook does not call auth/backend APIs, while auth and API-key flows remain wired.
 
 ## Non-Goals
 

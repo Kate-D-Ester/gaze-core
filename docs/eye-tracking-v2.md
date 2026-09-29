@@ -1,24 +1,24 @@
 # Eye tracking V2
 
-Open `/v2` for the five-step workspace. It runs locally without the backend or sign-in. The dashboard and test page also link to it. Existing authenticated routes and the original tracker remain available.
+Open `/trial` for the five-step eye-tracking workspace. Camera capture, pupil detection, eye-model fitting, calibration, and gaze estimation run in the browser and do not require sign-in or the backend. `/v2` redirects to `/trial` for existing links. The separate backend remains for account authentication and API-key management.
 
 ## Run
 
-From this checkout:
+From the repository root:
 
 ```sh
 cd frontend
 bun install --frozen-lockfile
-bun run dev --host 127.0.0.1 --port 4012
+bun run dev
 ```
 
-Visit `http://127.0.0.1:4012/v2`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye. A normal webcam may not resolve the pupil well enough. USB cameras and network streams are supported; frames are processed in a Web Worker and are not uploaded.
+Visit `http://localhost:4001/trial`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye. A normal webcam may not resolve the pupil well enough. USB cameras and network streams are supported; frames are processed in a Web Worker and are not uploaded. Network streams must be reachable by the browser and allow cross-origin access (CORS); the tracker does not use a server relay.
 
 ## Use the pipeline
 
 1. **Camera:** choose a USB camera or enter a network stream URL. Camera names are listed when available and may appear after permission is granted. Permission is requested only when you start the preview.
 2. **Eye region:** use **Edit ROI** to move the box, resize its eight handles, or **Redraw** it. Arrow keys move the region; Shift + arrows resize it and Alt uses 10-pixel steps. Numeric coordinates are applied together. Keep the full pupil movement inside the region, then continue; no confirmation checkbox is required. This is a manual region selection, not face or eye classification.
-3. **Eye model:** inspect the pupil outline and threshold preview while looking around; threshold controls remain available above the preview. Dragging the slider updates segmentation immediately; numeric entries apply on Enter or blur. In Tracker 2, **Auto** derives three cutoffs from image intensities; its slider adjusts their bias. **Manual** applies one absolute grayscale cutoff (0–255), with an exact numeric entry. The threshold view shows the mask used by the detector; the pupil should be one isolated white region. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye. In Tracker 1, select the two eye corners. In Tracker 2, look in several directions until the blue sphere is stable, then lock it. Camera geometry is available under the disclosure.
+3. **Eye model:** inspect the pupil outline and threshold preview while looking around; threshold controls remain available above the preview. Dragging the slider updates segmentation immediately; numeric entries apply on Enter or blur. **Auto tracker** derives three cutoffs from image intensities; its slider adjusts their bias. **Manual tracker** applies one absolute grayscale cutoff (0–255), with an exact numeric entry. The threshold view shows the mask used by the detector; the pupil should be one isolated white region. A contour-fit score measures agreement with an ellipse, not the probability that the object is an eye. In Manual tracker, select the two eye corners. In Auto tracker, look in several directions until the blue sphere is stable, then lock it. Camera geometry is available under the disclosure.
 4. **Calibrate:** keep the head and camera still and look at each of nine targets. Each target requires settled, fresh, stable gaze samples.
 5. **Live gaze:** open the gaze view, validate against five other targets, or export the current result as JSON. Validation reports root-mean-square distance in browser CSS pixels. It is not an angular-accuracy measurement.
 
@@ -74,13 +74,12 @@ The September 27 screenshot investigation reproduced a weak fit (about 74%) on t
 
 ```sh
 cd frontend
-bun run test
+bun test
 bun run typecheck
+bun run lint
 bun run build
-cd apps/web
-bunx eslint src/features/eye-tracking src/pages/v2-page.tsx
 ```
 
-The suite covers analytic rays and spheres, rotated ellipse axes, robust center fitting, calibration rank rejection and known mappings, genuine OpenCV detection on synthetic grayscale images, loss of pupils, stale model support, source cancellation and source startup while settings change. Detection regressions cover pupils across the ROI despite a darker eyelash, a larger dark distractor, an enclosing iris, absolute thresholds, abrupt false jumps, recovery and mild partial occlusion. ROI tests cover bounds, handles, movement, redraw and commit-on-release behavior. The production browser walkthrough covers both formats, calibration, validation and responsive layouts.
+The suite covers analytic rays and spheres, rotated ellipse axes, robust center fitting, calibration rank rejection and known mappings, OpenCV detection on synthetic grayscale images, pupil loss, stale model support, source cancellation, and source startup while settings change. Detection regressions cover pupils across the ROI despite a darker eyelash, a larger dark distractor, an enclosing iris, absolute thresholds, abrupt false jumps, recovery, and mild partial occlusion. ROI tests cover bounds, handles, movement, redraw, and commit-on-release behavior.
 
-The repository-wide lint command also checks pre-existing components that currently fail lint (`PreviewCanvasPanel`, the shared button component and the authentication page). The new V2 modules pass their scoped lint check. The OpenCV worker adds approximately 10.8 MB before transfer compression; its first load takes longer than the UI. Vite's `fs`, `path` and `crypto` externalization notices originate from unused Node branches in the OpenCV distribution.
+The OpenCV worker adds approximately 10.8 MB before transfer compression, so its first load can take longer than the UI. Vite's `fs`, `path`, and `crypto` externalization notices originate from unused Node branches in the OpenCV distribution.

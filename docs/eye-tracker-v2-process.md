@@ -1,27 +1,19 @@
-# Eye Tracker V2 Process
+# Eye tracking process
 
-This note tracks the transcript-driven V2 eye-tracker sequence we are implementing.
+The `/trial` experience runs all camera processing in the browser. USB camera capture uses `getUserMedia`; network video and MJPEG streams are read directly by browser APIs. Frames go from the source video to a local Web Worker for detection and are not sent to the backend.
 
-## Transcript Steps
+## User workflow
 
-1. Start from a raw near-eye camera frame and select an ROI around the eye.
-2. Use sparse sampling to find the darkest stable pupil seed.
-3. Use binary thresholding from that seed to determine the pupil contour.
-4. Refine contour points so the remaining contour behaves like an inward-facing ellipse.
-5. Fit a pupil ellipse to the refined contour.
-6. Use multiple pupil ellipses to estimate the 2D eye center.
-7. Use the 2D eye center and pupil center to build the 3D gaze ray.
+1. **Camera:** choose a USB camera or network stream and start its preview.
+2. **Eye region:** move or resize the region of interest around one eye.
+3. **Eye model:** adjust automatic or manual thresholding. Manual tracker uses selected eye corners; Auto tracker builds and locks a 3D sphere model from pupil observations.
+4. **Calibrate:** collect stable gaze samples at nine screen targets.
+5. **Live gaze:** view the estimated point and validate against additional targets.
 
-## Current Implementation
+## Processing boundary
 
-- `/v2/eye-tracker` keeps the existing source and ROI flow.
-- USB camera setup checks browser camera exposure capabilities and can request auto/manual exposure when supported.
-- Sparse sampling samples the ROI in 5 x 5 blocks and proposes multiple candidate regions.
-- Candidate contours are scored by contour confidence, seed confidence, distance from the previous pupil, and edge penalties.
-- The tracker keeps moving continuously; low-confidence candidates update cautiously instead of freezing the point.
-- The pupil contour step uses a binary threshold search around the sparse-sampling seed.
-- The selected contour reports threshold, pupil pixel count, contour point count, center, confidence, and mask preview.
+- USB and network source handling, thresholding, pupil detection, model fitting, calibration, and gaze estimation stay on the client.
+- Network streams must be reachable from the browser and permit cross-origin reads (CORS). There is no camera relay or eye-tracking API on the backend.
+- The backend remains for authentication, email verification, health, and API-key management.
 
-## Reference
-
-- Original concept reference: https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker
+For camera placement, detector behavior, mathematical conventions, limitations, and checks, see [Eye tracking V2](eye-tracking-v2.md).
