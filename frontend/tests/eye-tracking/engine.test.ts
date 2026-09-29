@@ -74,6 +74,53 @@ test("classic engine returns no stale gaze after pupil loss and local/global coo
   ).toBeNull()
 })
 
+test("manual tracker fits an oblong pupil with the shared ellipse detector", () => {
+  engine.reset()
+  const width = 320
+  const height = 240
+  const angle = 0.4
+  const cosine = Math.cos(angle)
+  const sine = Math.sin(angle)
+  const rgba = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const dx = x - 160
+      const dy = y - 120
+      const majorAxis = dx * cosine + dy * sine
+      const minorAxis = -dx * sine + dy * cosine
+      const isInsidePupil =
+        majorAxis ** 2 / 40 ** 2 + minorAxis ** 2 / 22 ** 2 <= 1
+      const value = isInsidePupil ? 20 : 180
+      const pixel = (y * width + x) * 4
+      rgba[pixel] = value
+      rgba[pixel + 1] = value
+      rgba[pixel + 2] = value
+      rgba[pixel + 3] = 255
+    }
+  }
+
+  const settings: FrameSettings = {
+    format: "classic",
+    roi: { x: 0, y: 0, width, height },
+    threshold: 70,
+    thresholdMode: "manual",
+    fov: 45,
+    radiusMm: 12,
+    corners: [
+      [100, 120],
+      [220, 120],
+    ],
+    locked: false,
+  }
+  const result = engine.process(rgba, width, height, settings, 1, 100)
+  const ellipse = result.detection.ellipse
+
+  expect(ellipse).not.toBeNull()
+  expect(ellipse!.major).toBeGreaterThan(ellipse!.minor * 1.3)
+  expect(ellipse!.major).toBeCloseTo(40, 0)
+  expect(ellipse!.minor).toBeCloseTo(22, 0)
+})
+
 test("a ready eye model stays available through transient fit failures", () => {
   const estimator = new EyeModelEstimator()
   for (const e of observations()) estimator.observe(e, 320, 240)

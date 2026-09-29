@@ -78,17 +78,19 @@ test("opens MJPEG directly from its network URL", async () => {
   expect(remainingFrames).toEqual(["JPEG2"])
 })
 
-test("reports a helpful error when browser CORS blocks the network source", async () => {
+test("explains network, CORS, and default ESP32 stream port failures", async () => {
   globalThis.fetch = async () => {
     throw new TypeError("Failed to fetch")
   }
 
   await expect(
     openNetworkSource(
-      "http://camera.example/stream",
+      "http://esp32.local/stream",
       new AbortController().signal
     )
-  ).rejects.toThrow(/CORS|browser access/i)
+  ).rejects.toThrow(
+    /could not reach or read.*same network.*esp32\.local:81\/stream.*Access-Control-Allow-Origin/is
+  )
 })
 
 test("rejects non-HTTP network source URLs before fetching", async () => {
@@ -170,7 +172,7 @@ test("reports when the browser cannot decode a network video", async () => {
       "https://camera.example/eye.mp4",
       new AbortController().signal
     )
-  ).rejects.toThrow(/not browser-playable/i)
+  ).rejects.toThrow(/could not play.*reachable.*CORS/i)
 })
 
 test("aborting an MJPEG source releases the pending response reader", async () => {

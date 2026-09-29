@@ -5,13 +5,19 @@ import type { ResizeHandle } from "../roi.types"
 export type EyePreviewProps = {
   tracker: TrackerController
   selectRegion: boolean
-  selectCorners: boolean
+  cornerMode: ManualCornerMode | null
+  pendingCorner: Point | null
   onRegion: (roi: Rect) => void
   onCorner: (point: Point) => void
+  onCornerModeChange: (mode: ManualCornerMode) => void
+  onMoveCorners: (corners: [Point, Point]) => void
+  onMovePendingCorner: (point: Point) => void
   onEditRegion?: () => void
   onThresholdViewChange?: (enabled: boolean) => void
   showModel?: boolean
 }
+
+export type ManualCornerMode = "create" | "edit"
 
 export type RegionGesture = {
   pointerId: number
@@ -19,6 +25,26 @@ export type RegionGesture = {
   region: Rect
   mode: "draw" | "move" | ResizeHandle
 }
+
+export type ManualCornerGesture =
+  | { pointerId: number; target: "pending"; start: Point }
+  | {
+      pointerId: number
+      target: "point"
+      index: number
+      start: Point
+      corners: [Point, Point]
+    }
+  | {
+      pointerId: number
+      target: "model"
+      start: Point
+      corners: [Point, Point]
+    }
+
+export type ManualCornerSelection =
+  | { target: "pending"; point: Point }
+  | { target: "model"; corners: [Point, Point] }
 
 export type EyePreviewHandleDefinition = {
   handle: ResizeHandle

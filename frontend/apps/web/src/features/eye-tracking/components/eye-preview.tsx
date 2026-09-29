@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react"
-import { Camera, Crop } from "lucide-react"
+import { Camera, Crop, Pencil, Plus } from "lucide-react"
 import type { Ellipse, Point, Rect } from "../eye-tracking.types"
 import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
@@ -15,6 +15,8 @@ import { setCanvasDimensions } from "../canvas-sizing"
 import type {
   EyePreviewHandleDefinition,
   EyePreviewProps,
+  ManualCornerGesture,
+  ManualCornerSelection,
   RegionGesture,
 } from "./eye-preview.types"
 
@@ -50,12 +52,72 @@ function drawEllipse(
   ctx.stroke()
 }
 
+function moveCornerPair(
+  corners: [Point, Point],
+  delta: Point,
+  width: number,
+  height: number
+): [Point, Point] {
+  const minX = Math.min(corners[0][0], corners[1][0])
+  const maxX = Math.max(corners[0][0], corners[1][0])
+  const minY = Math.min(corners[0][1], corners[1][1])
+  const maxY = Math.max(corners[0][1], corners[1][1])
+  const dx = Math.max(-minX, Math.min(width - maxX, delta[0]))
+  const dy = Math.max(-minY, Math.min(height - maxY, delta[1]))
+
+  return [
+    [corners[0][0] + dx, corners[0][1] + dy],
+    [corners[1][0] + dx, corners[1][1] + dy],
+  ]
+}
+
+function resizeCornerPair(
+  corners: [Point, Point],
+  index: number,
+  point: Point,
+  width: number,
+  height: number
+): [Point, Point] {
+  const center: Point = [
+    (corners[0][0] + corners[1][0]) / 2,
+    (corners[0][1] + corners[1][1]) / 2,
+  ]
+  const direction = index === 0 ? -1 : 1
+  const dx = (point[0] - center[0]) * direction
+  const dy = (point[1] - center[1]) * direction
+  const requestedRadius = Math.hypot(dx, dy)
+  if (requestedRadius === 0) return corners
+
+  const unit: Point = [dx / requestedRadius, dy / requestedRadius]
+  let maximumRadius = Number.POSITIVE_INFINITY
+  if (unit[0] > 0) {
+    maximumRadius = Math.min(maximumRadius, (width - center[0]) / unit[0])
+  } else if (unit[0] < 0) {
+    maximumRadius = Math.min(maximumRadius, -center[0] / unit[0])
+  }
+  if (unit[1] > 0) {
+    maximumRadius = Math.min(maximumRadius, (height - center[1]) / unit[1])
+  } else if (unit[1] < 0) {
+    maximumRadius = Math.min(maximumRadius, -center[1] / unit[1])
+  }
+
+  const radius = Math.min(requestedRadius, maximumRadius)
+  return [
+    [center[0] - unit[0] * radius, center[1] - unit[1] * radius],
+    [center[0] + unit[0] * radius, center[1] + unit[1] * radius],
+  ]
+}
+
 export function EyePreview({
   tracker,
   selectRegion,
-  selectCorners,
+  cornerMode,
+  pendingCorner,
   onRegion,
   onCorner,
+  onCornerModeChange,
+  onMoveCorners,
+  onMovePendingCorner,
   onEditRegion,
   onThresholdViewChange,
   showModel = false,
@@ -63,7 +125,10 @@ export function EyePreview({
   const ref = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<RegionGesture | null>(null)
+  const cornerGesture = useRef<ManualCornerGesture | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
+  const [cornerSelection, setCornerSelection] =
+    useState<ManualCornerSelection | null>(null)
   const [redraw, setRedraw] = useState(false)
   const [view, setView] = useState<"image" | "threshold">("image")
   const { frame, dimensions } = tracker
@@ -73,8 +138,21 @@ export function EyePreview({
 
   if (selectRegion) {
     previewClassName = redraw ? "selectable" : "movable"
-  } else if (selectCorners) {
+  } else if (cornerMode === "create") {
     previewClassName = "selectable"
+  }
+  let previewLabel = "Eye camera preview"
+  if (selectRegion) {
+    previewLabel =
+      "Eye region editor. Arrow keys move; Shift and arrows resize; Alt uses 10 pixel steps."
+  } else if (cornerMode === "create" && pendingCorner) {
+    previewLabel =
+      "Eye camera preview. Drag the first corner if needed, then select the other corner."
+  } else if (cornerMode === "edit" && tracker.settings.corners) {
+    previewLabel =
+      "Eye camera preview. Drag a plus endpoint to resize the eye model, or drag inside its circle to move it."
+  } else if (cornerMode === "create") {
+    previewLabel = "Eye camera preview. Click to place the first eye corner."
   }
 
   useEffect(() => {
@@ -142,10 +220,14 @@ export function EyePreview({
         !!thresholdBounds &&
         thresholdBounds.left < previewBounds.left &&
         thresholdBounds.right <= previewBounds.left + 1
+      let externalDetailsHeight = 0
+      if (!detailsInsideCard && detailsHeight > 0) {
+        externalDetailsHeight = detailsHeight + rowGap
+      }
       const availableHeight =
         workspace.clientHeight -
         workspacePaddingHeight -
-        (detailsInsideCard ? 0 : detailsHeight + (detailsHeight ? rowGap : 0)) -
+        externalDetailsHeight -
         (!besideThreshold && thresholdBounds
           ? thresholdBounds.height + rowGap
           : 0)
@@ -310,24 +392,28 @@ export function EyePreview({
         ctx.stroke()
       }
     }
-    for (const p of tracker.settings.corners ?? []) {
-      ctx.fillStyle = colors.getPropertyValue("--eye-ray")
-      ctx.beginPath()
-      ctx.arc(...p, 5, 0, Math.PI * 2)
-      ctx.fill()
+    if (cornerMode !== "edit") {
+      for (const p of tracker.settings.corners ?? []) {
+        ctx.fillStyle = colors.getPropertyValue("--eye-ray")
+        ctx.beginPath()
+        ctx.arc(...p, 5, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
   }, [
     frame,
     tracker.sourceCanvas,
     tracker.settings.corners,
+    pendingCorner,
     roi,
     selection,
+    cornerMode,
     selectRegion,
     showModel,
     view,
   ])
 
-  function point(event: PointerEvent<HTMLElement>): Point {
+  function point<T extends Element>(event: PointerEvent<T>): Point {
     const canvas = ref.current!
     const box = canvas.getBoundingClientRect()
     return [
@@ -351,13 +437,19 @@ export function EyePreview({
       ),
     ]
   }
+  function getCornerStyle(position: Point) {
+    return {
+      left: `${(position[0] / dimensions.width) * 100}%`,
+      top: `${(position[1] / dimensions.height) * 100}%`,
+    }
+  }
   function beginGesture(
     event: PointerEvent<HTMLElement>,
     handle?: ResizeHandle
   ) {
     if (event.button !== 0 || gesture.current) return
     const p = point(event)
-    if (selectCorners && !selectRegion) {
+    if (cornerMode === "create" && !selectRegion) {
       onCorner(p)
       return
     }
@@ -376,6 +468,179 @@ export function EyePreview({
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     event.currentTarget.focus()
+  }
+  function beginCornerGesture(
+    event: PointerEvent<Element>,
+    index: number | null
+  ) {
+    if (event.button !== 0 || cornerGesture.current || gesture.current) return
+    const savedCorner =
+      index === null ? pendingCorner : tracker.settings.corners?.[index]
+    if (!savedCorner) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (index === null) {
+      cornerGesture.current = {
+        pointerId: event.pointerId,
+        target: "pending",
+        start: savedCorner,
+      }
+      setCornerSelection({ target: "pending", point: savedCorner })
+    } else {
+      const corners = tracker.settings.corners
+      if (!corners) return
+      cornerGesture.current = {
+        pointerId: event.pointerId,
+        target: "point",
+        index,
+        start: savedCorner,
+        corners: [[...corners[0]], [...corners[1]]],
+      }
+      setCornerSelection({
+        target: "model",
+        corners: [[...corners[0]], [...corners[1]]],
+      })
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function beginModelGesture(event: PointerEvent<SVGCircleElement>) {
+    const corners = tracker.settings.corners
+    if (event.button !== 0 || !corners || cornerGesture.current) return
+    event.preventDefault()
+    cornerGesture.current = {
+      pointerId: event.pointerId,
+      target: "model",
+      start: point(event),
+      corners: [[...corners[0]], [...corners[1]]],
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function moveCornerGesture(event: PointerEvent<HTMLElement>) {
+    const current = cornerGesture.current
+    if (!current || current.pointerId !== event.pointerId) return false
+    const next = point(event)
+    if (current.target === "model") {
+      const delta: Point = [
+        next[0] - current.start[0],
+        next[1] - current.start[1],
+      ]
+      setCornerSelection({
+        target: "model",
+        corners: moveCornerPair(
+          current.corners,
+          delta,
+          dimensions.width,
+          dimensions.height
+        ),
+      })
+    } else if (current.target === "pending") {
+      setCornerSelection({ target: "pending", point: next })
+    } else {
+      setCornerSelection({
+        target: "model",
+        corners: resizeCornerPair(
+          current.corners,
+          current.index,
+          next,
+          dimensions.width,
+          dimensions.height
+        ),
+      })
+    }
+    return true
+  }
+  function finishCornerGesture(event: PointerEvent<HTMLElement>) {
+    const current = cornerGesture.current
+    if (!current || current.pointerId !== event.pointerId) return false
+    const next = point(event)
+    const moved =
+      Math.hypot(next[0] - current.start[0], next[1] - current.start[1]) >= 2
+    cornerGesture.current = null
+    setCornerSelection(null)
+    if (moved) {
+      if (current.target === "pending") {
+        onMovePendingCorner(next)
+      } else if (current.target === "point") {
+        onMoveCorners(
+          resizeCornerPair(
+            current.corners,
+            current.index,
+            next,
+            dimensions.width,
+            dimensions.height
+          )
+        )
+      } else {
+        const delta: Point = [
+          next[0] - current.start[0],
+          next[1] - current.start[1],
+        ]
+        onMoveCorners(
+          moveCornerPair(
+            current.corners,
+            delta,
+            dimensions.width,
+            dimensions.height
+          )
+        )
+      }
+    }
+    return true
+  }
+  function moveCornerWithKeyboard(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number | null
+  ) {
+    const direction: Record<string, Point> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }
+    const delta = direction[event.key]
+    const current =
+      index === null ? pendingCorner : tracker.settings.corners?.[index]
+    if (!delta || !current) return
+    event.preventDefault()
+    const amount = event.altKey ? 10 : 1
+    const next: Point = [
+      Math.max(0, Math.min(dimensions.width, current[0] + delta[0] * amount)),
+      Math.max(0, Math.min(dimensions.height, current[1] + delta[1] * amount)),
+    ]
+    if (index === null) {
+      onMovePendingCorner(next)
+    } else if (tracker.settings.corners) {
+      onMoveCorners(
+        resizeCornerPair(
+          tracker.settings.corners,
+          index,
+          next,
+          dimensions.width,
+          dimensions.height
+        )
+      )
+    }
+  }
+  function moveModelWithKeyboard(event: KeyboardEvent<SVGCircleElement>) {
+    const direction: Record<string, Point> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }
+    const delta = direction[event.key]
+    const corners = tracker.settings.corners
+    if (!delta || !corners) return
+    event.preventDefault()
+    const amount = event.altKey ? 10 : 1
+    onMoveCorners(
+      moveCornerPair(
+        corners,
+        [delta[0] * amount, delta[1] * amount],
+        dimensions.width,
+        dimensions.height
+      )
+    )
   }
   function nextRegion(event: PointerEvent<HTMLElement>) {
     const current = gesture.current
@@ -399,9 +664,12 @@ export function EyePreview({
   }
   function cancelGesture() {
     gesture.current = null
+    cornerGesture.current = null
     setSelection(null)
+    setCornerSelection(null)
   }
   function finishGesture(event: PointerEvent<HTMLElement>) {
+    if (finishCornerGesture(event)) return
     const current = gesture.current,
       next = nextRegion(event)
     if (!current || !next) return
@@ -440,6 +708,33 @@ export function EyePreview({
     )
   }
 
+  const visiblePendingCorner =
+    cornerSelection?.target === "pending"
+      ? cornerSelection.point
+      : pendingCorner
+  const savedCorners = tracker.settings.corners
+  let visibleCorners = savedCorners
+  if (savedCorners) {
+    visibleCorners = [0, 1].map((index) => {
+      if (cornerSelection?.target === "model") {
+        return cornerSelection.corners[index]
+      }
+      return savedCorners[index]
+    }) as [Point, Point]
+  }
+  const modelCenter: Point | null = visibleCorners
+    ? [
+        (visibleCorners[0][0] + visibleCorners[1][0]) / 2,
+        (visibleCorners[0][1] + visibleCorners[1][1]) / 2,
+      ]
+    : null
+  const modelRadius = visibleCorners
+    ? Math.hypot(
+        visibleCorners[1][0] - visibleCorners[0][0],
+        visibleCorners[1][1] - visibleCorners[0][1]
+      ) / 2
+    : 0
+
   return (
     <div
       className={`eye-preview ${tracker.source ? "has-source" : "is-empty"}`}
@@ -461,6 +756,7 @@ export function EyePreview({
             >
               <button
                 aria-pressed={view === "image"}
+                data-tooltip="Show camera image"
                 onClick={() => {
                   setView("image")
                   onThresholdViewChange?.(false)
@@ -470,13 +766,42 @@ export function EyePreview({
               </button>
               <button
                 aria-pressed={view === "threshold"}
+                data-tooltip="Show threshold view"
                 onClick={() => setView("threshold")}
               >
                 Threshold
               </button>
             </div>
+            {cornerMode && (
+              <div
+                className="eye-corner-mode-switch"
+                role="group"
+                aria-label="Manual eye model mode"
+              >
+                <button
+                  type="button"
+                  aria-label="Create eye model"
+                  data-tooltip="Create eye model"
+                  aria-pressed={cornerMode === "create"}
+                  onClick={() => onCornerModeChange("create")}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Edit eye model"
+                  data-tooltip="Edit eye model"
+                  aria-pressed={cornerMode === "edit"}
+                  disabled={!tracker.settings.corners}
+                  onClick={() => onCornerModeChange("edit")}
+                >
+                  <Pencil size={13} aria-hidden="true" />
+                </button>
+              </div>
+            )}
             <button
               className={`eye-roi-edit ${selectRegion ? "active" : ""}`}
+              data-tooltip="Edit eye region"
               aria-pressed={selectRegion}
               onClick={() => {
                 setRedraw(false)
@@ -512,6 +837,7 @@ export function EyePreview({
               className="eye-preview-image"
               style={{ maxWidth: dimensions.width }}
               onPointerMove={(event) => {
+                if (moveCornerGesture(event)) return
                 const next = nextRegion(event)
                 if (next) setSelection(next)
               }}
@@ -523,16 +849,78 @@ export function EyePreview({
                 ref={ref}
                 width={dimensions.width}
                 height={dimensions.height}
-                aria-label={
-                  selectRegion
-                    ? "Eye region editor. Arrow keys move; Shift and arrows resize; Alt uses 10 pixel steps."
-                    : "Eye camera preview"
+                aria-label={previewLabel}
+                tabIndex={
+                  selectRegion || cornerMode === "create" ? 0 : undefined
                 }
-                tabIndex={selectRegion ? 0 : undefined}
                 className={previewClassName}
                 onPointerDown={(event) => beginGesture(event)}
                 onKeyDown={(event) => editWithKeyboard(event)}
               />
+              {cornerMode && (
+                <div className="eye-manual-corner-layer">
+                  {cornerMode === "edit" && modelCenter && (
+                    <svg
+                      className="eye-manual-model-overlay"
+                      viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
+                      aria-label="Manual eye model position controls"
+                    >
+                      <circle
+                        className="eye-manual-model-line"
+                        cx={modelCenter[0]}
+                        cy={modelCenter[1]}
+                        r={modelRadius}
+                      />
+                      <circle
+                        className="eye-manual-model-move-target"
+                        cx={modelCenter[0]}
+                        cy={modelCenter[1]}
+                        r={modelRadius}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Move eye model"
+                        onPointerDown={beginModelGesture}
+                        onKeyDown={moveModelWithKeyboard}
+                      />
+                    </svg>
+                  )}
+                  {cornerMode === "create" && visiblePendingCorner && (
+                    <button
+                      type="button"
+                      className="eye-manual-corner-handle pending"
+                      aria-label="Move first eye corner"
+                      title="Drag to reposition the first corner"
+                      style={getCornerStyle(visiblePendingCorner)}
+                      onPointerDown={(event) => beginCornerGesture(event, null)}
+                      onKeyDown={(event) => moveCornerWithKeyboard(event, null)}
+                    >
+                      <Plus size={12} aria-hidden="true" />
+                    </button>
+                  )}
+                  {cornerMode === "edit" &&
+                    !pendingCorner &&
+                    visibleCorners?.map((corner, index) => {
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          className="eye-manual-corner-handle"
+                          aria-label={`Move eye corner ${index + 1}`}
+                          title={`Drag to reposition eye corner ${index + 1}`}
+                          style={getCornerStyle(corner)}
+                          onPointerDown={(event) =>
+                            beginCornerGesture(event, index)
+                          }
+                          onKeyDown={(event) =>
+                            moveCornerWithKeyboard(event, index)
+                          }
+                        >
+                          <Plus size={12} aria-hidden="true" />
+                        </button>
+                      )
+                    })}
+                </div>
+              )}
               {selectRegion && !redraw && (
                 <div
                   className="eye-roi-overlay"

@@ -32,6 +32,7 @@ function Harness() {
   return null
 }
 beforeEach(async () => {
+  localStorage.clear()
   stopped = 0
   terminatedWorkers = 0
   workers = []
@@ -173,6 +174,124 @@ test("source dimensions survive ROI invalidation before a new frame arrives", as
   )
   expect((controller as any).dimensions).toEqual({ width: 640, height: 360 })
   expect(controller.frame).toBeNull()
+})
+
+test("tracker restores ROI, manual corners, and threshold preferences after remount", async () => {
+  await act(async () =>
+    controller.configure({
+      roi: { x: 64, y: 48, width: 320, height: 240 },
+      corners: [
+        [120, 150],
+        [480, 310],
+      ],
+      threshold: 137,
+      thresholdMode: "manual",
+    })
+  )
+  await act(async () => root?.unmount())
+  root = null
+
+  await act(async () => {
+    root = createRoot(host)
+    root.render(createElement(Harness))
+  })
+
+  expect(controller.settings.roi).toEqual({
+    x: 64,
+    y: 48,
+    width: 320,
+    height: 240,
+  })
+  expect(controller.settings.corners).toEqual([
+    [120, 150],
+    [480, 310],
+  ])
+  expect(controller.settings.threshold).toBe(137)
+  expect(controller.settings.thresholdMode).toBe("manual")
+})
+
+test("tracker keeps separate saved settings for each tracker format", async () => {
+  await act(async () =>
+    controller.configure({
+      roi: { x: 40, y: 30, width: 400, height: 300 },
+      threshold: -18,
+      thresholdMode: "auto",
+    })
+  )
+  await act(async () => controller.configure({ format: "classic" }))
+  await act(async () =>
+    controller.configure({
+      corners: [
+        [110, 120],
+        [510, 340],
+      ],
+      threshold: 122,
+    })
+  )
+
+  await act(async () => controller.configure({ format: "spatial" }))
+
+  expect(controller.settings.roi).toEqual({
+    x: 40,
+    y: 30,
+    width: 400,
+    height: 300,
+  })
+  expect(controller.settings.threshold).toBe(-18)
+  expect(controller.settings.thresholdMode).toBe("auto")
+  await act(async () => controller.configure({ format: "classic" }))
+  expect(controller.settings.threshold).toBe(122)
+  expect(controller.settings.corners).toEqual([
+    [110, 120],
+    [510, 340],
+  ])
+})
+
+test("saved camera coordinates scale to the active camera dimensions", async () => {
+  await act(async () =>
+    controller.configure({
+      roi: { x: 64, y: 48, width: 320, height: 240 },
+      corners: [
+        [100, 100],
+        [500, 300],
+      ],
+    })
+  )
+  await act(async () => root?.unmount())
+  root = null
+  Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+    configurable: true,
+    get: () => 1280,
+  })
+  Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+    configurable: true,
+    get: () => 720,
+  })
+  await act(async () => {
+    root = createRoot(host)
+    root.render(createElement(Harness))
+  })
+
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("")
+  })
+  await act(async () => resolveCamera(stream()))
+  await act(async () => {
+    resolvePlay()
+    await pending!
+  })
+
+  expect(controller.settings.roi).toEqual({
+    x: 128,
+    y: 72,
+    width: 640,
+    height: 360,
+  })
+  expect(controller.settings.corners).toEqual([
+    [200, 150],
+    [1000, 450],
+  ])
 })
 
 test("high-resolution camera frames retain eye detail before ROI cropping", async () => {

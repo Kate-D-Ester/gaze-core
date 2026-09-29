@@ -1,4 +1,5 @@
-import { ChevronDown, RotateCcw } from "lucide-react"
+import { ChevronDown, RotateCcw, X } from "lucide-react"
+import { useState } from "react"
 import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
 import type { Point } from "../eye-tracking.types"
@@ -11,23 +12,70 @@ export function ModelControls({
   setNotice,
 }: ModelControlsProps) {
   const { settings, frame } = tracker
+  const [showCornerInstructions, setShowCornerInstructions] = useState(true)
   const lockStatus = getEyeModelLockStatus(
     frame?.model ?? null,
     frame?.width ?? 0,
-    frame?.height ?? 0
+    frame?.height ?? 0,
+    frame?.roi.width ?? 0,
+    frame?.roi.height ?? 0
   )
+  let modelHeading = "Look around the full range."
+  let modelGuidance = "Move your gaze toward each edge and corner."
+  if (lockStatus.blocker === "coverage") {
+    const directionsRemaining = Math.max(
+      0,
+      lockStatus.requiredDirections - lockStatus.coveredDirections
+    )
+    let directionLabel = "directions"
+    if (directionsRemaining === 1) directionLabel = "direction"
+    modelHeading = "Explore a few directions."
+    modelGuidance = `Keep your head still. Move your pupil into ${directionsRemaining} more distinct ${directionLabel} in the camera preview.`
+  } else if (lockStatus.ready) {
+    modelHeading = "Ready to lock."
+    modelGuidance = "The eye model has a stable fit across enough movement."
+  }
+  let cornerHeading = "Create the eye model."
+  let cornerDescription = "Choose Create, then click both eye corners."
+  if (corner) {
+    cornerHeading = "Choose the opposite eye corner."
+    cornerDescription = "The first point is marked. Click the opposite corner."
+  } else if (settings.corners) {
+    cornerHeading = "Eye model points saved."
+    cornerDescription =
+      "Choose Edit to move or resize the model. Choose Create to replace both points."
+  }
   return (
     <>
       <SpherePreview frame={frame} />
       {settings.format === "classic" ? (
         <>
-          <h3>
-            {corner
-              ? "Now select the other corner."
-              : "Select the two eye corners."}
-          </h3>
-          <p className="eye-muted">
-            Click the inner and outer corners in the preview.
+          {showCornerInstructions && (
+            <aside
+              className="eye-corner-instructions"
+              aria-label="Manual eye corner instructions"
+              role="note"
+            >
+              <div>
+                <strong>Create or edit the eye model</strong>
+                <p>
+                  Choose Create and click the inner, then outer eye corner. Edit
+                  lets you drag a + endpoint to resize the circle, or drag
+                  inside it to move the model.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss corner instructions"
+                onClick={() => setShowCornerInstructions(false)}
+              >
+                <X size={14} />
+              </button>
+            </aside>
+          )}
+          <h3>{cornerHeading}</h3>
+          <p className="eye-muted" role="status" aria-live="polite">
+            {cornerDescription}
           </p>
           <div className="eye-number-grid">
             {[0, 1].map((i) => (
@@ -72,14 +120,8 @@ export function ModelControls({
         </>
       ) : (
         <>
-          <h3>
-            {lockStatus.ready
-              ? "Ready to lock."
-              : "Look around the full range."}
-          </h3>
-          <p className="eye-muted">
-            Move your gaze toward each edge and corner.
-          </p>
+          <h3>{modelHeading}</h3>
+          <p className="eye-muted">{modelGuidance}</p>
           <div
             className="eye-progress-track"
             role="progressbar"

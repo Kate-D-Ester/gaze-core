@@ -358,6 +358,8 @@
   align-self: stretch;
 }
 .eye-preview-heading {
+  position: relative;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -652,6 +654,52 @@
   color: var(--foreground);
   background: color-mix(in srgb, #f5c4c8 12%, var(--card));
   border-color: color-mix(in srgb, #f5c4c8 45%, var(--border));
+}
+.eye-corner-instructions {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 11px 38px 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--card));
+}
+.eye-corner-instructions strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+}
+.eye-corner-instructions p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.eye-corner-instructions > button {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.eye-corner-instructions > button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.eye-corner-instructions > button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 .eye-sample-banner {
   display: flex;
@@ -1006,6 +1054,71 @@
   max-height: none;
   margin-inline: auto;
 }
+.eye-manual-corner-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 2;
+}
+.eye-manual-model-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+.eye-manual-model-line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--primary) 68%, transparent);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+  pointer-events: none;
+}
+.eye-manual-model-move-target {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  cursor: move;
+  pointer-events: all;
+  touch-action: none;
+}
+.eye-manual-model-move-target:focus-visible {
+  stroke: color-mix(in srgb, var(--primary) 26%, transparent);
+  outline: none;
+}
+.eye-manual-corner-handle {
+  position: absolute;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #ff2d2d;
+  box-shadow: none;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.95))
+    drop-shadow(0 0 3px rgba(255, 45, 45, 0.75));
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+.eye-manual-corner-handle:hover {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.95))
+    drop-shadow(0 0 5px rgba(255, 45, 45, 0.9));
+}
+.eye-manual-corner-handle:active {
+  cursor: grabbing;
+}
+.eye-manual-corner-handle:focus-visible {
+  outline: 2px solid var(--eye-sphere);
+  outline-offset: 3px;
+}
 .eye-preview-image > canvas.movable {
   cursor: move;
 }
@@ -1052,6 +1165,64 @@
   color: var(--eye-sphere);
   border-color: var(--eye-sphere);
   background: color-mix(in srgb, var(--eye-sphere) 12%, var(--eye-preview));
+}
+.eye-corner-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--eye-preview-line);
+  border-radius: 5px;
+}
+.eye-preview-tools .eye-corner-mode-switch button {
+  position: relative;
+  display: grid;
+  width: 27px;
+  height: 25px;
+  place-items: center;
+  padding: 0;
+  border-radius: 3px;
+}
+.eye-preview-tools button[data-tooltip] {
+  position: relative;
+}
+.eye-preview-tools button[data-tooltip]::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 10;
+  padding: 5px 7px;
+  border: 1px solid var(--eye-preview-line);
+  border-radius: 4px;
+  background: var(--eye-preview);
+  color: var(--eye-preview-text);
+  content: attr(data-tooltip);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.eye-preview-tools button[data-tooltip]:hover::after,
+.eye-preview-tools button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+.eye-preview-tools .eye-corner-mode-switch button[aria-pressed="true"] {
+  color: var(--eye-sphere);
+  background: color-mix(in srgb, var(--eye-sphere) 12%, var(--eye-preview));
+}
+.eye-preview-tools .eye-corner-mode-switch button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .eye-preview button:focus-visible {
   outline: 2px solid var(--eye-sphere);

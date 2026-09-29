@@ -443,22 +443,27 @@ export function detectSpatialPupil(
           fitted.confidence *
           (0.65 + 0.35 * Math.min(1, contrast / 100)) *
           homogeneity
-        if (options.previous) {
-          const previous = options.previous
+        const referenceCenter = options.previous?.center ?? options.expectedCenter
+        if (referenceCenter) {
           const distance = Math.hypot(
-            fitted.center[0] - previous.center[0],
-            fitted.center[1] - previous.center[1]
+            fitted.center[0] - referenceCenter[0],
+            fitted.center[1] - referenceCenter[1]
           )
+          const referenceSize = options.previous?.major
+          const expectedDistance = referenceSize
+            ? Math.max(referenceSize * 2, Math.min(width, height) * 0.1)
+            : Math.max(1, Math.min(width, height) * 0.18)
           const position = Math.exp(
-            -0.5 *
-              (distance /
-                Math.max(previous.major * 2, Math.min(width, height) * 0.1)) **
-                2
+            -0.5 * (distance / expectedDistance) ** 2
           )
-          const size = Math.exp(
-            -2 * Math.abs(Math.log(fitted.major / previous.major))
-          )
-          score *= 0.35 + 0.65 * position * size
+          if (referenceSize) {
+            const size = Math.exp(
+              -2 * Math.abs(Math.log(fitted.major / referenceSize))
+            )
+            score *= 0.35 + 0.65 * position * size
+          } else {
+            score *= 0.5 + 0.5 * position
+          }
         }
         // Only switch threshold bands for a meaningful improvement in candidate quality.
         if (index === options.previousSelected) score += 0.03

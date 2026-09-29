@@ -1,9 +1,5 @@
-import { detectPupil } from "../../../../../packages/ui/src/lib/gaze-core/detection"
 import { gazeVector3D } from "../../../../../packages/ui/src/lib/gaze-core/geometry"
-import {
-  equalize,
-  toGray,
-} from "../../../../../packages/ui/src/lib/gaze-core/image"
+import { toGray } from "../../../../../packages/ui/src/lib/gaze-core/image"
 import { detectSpatialPupil, isContinuousPupil } from "./detection"
 import { EyeModelEstimator } from "./eye-model"
 import {
@@ -96,11 +92,11 @@ export class TrackingEngine {
     let detection: Detection,
       model: EyeModel | null = null,
       gaze: Gaze | null = null
+    if (timestamp - this.seenAt > pupilMemoryMs) {
+      this.previous = null
+      this.pending = null
+    }
     if (settings.format === "spatial") {
-      if (timestamp - this.seenAt > pupilMemoryMs) {
-        this.previous = null
-        this.pending = null
-      }
       detection = detectSpatialPupil(
         this.cv,
         gray,
@@ -124,7 +120,9 @@ export class TrackingEngine {
         model = this.model.observe(
           { ...e, center: [e.center[0] + roi.x, e.center[1] + roi.y] },
           width,
-          height
+          height,
+          roi.width,
+          roi.height
         )
       const k = cameraIntrinsics(width, height, settings.fov)
       if (e && detection.tracking === "tracking" && model?.ready && k) {
@@ -155,47 +153,25 @@ export class TrackingEngine {
             corners[0][1] - corners[1][1]
           ) / 2
         : roi.width / 3
-      const raw = detectPupil(
-        equalize(gray),
+      detection = detectSpatialPupil(
+        this.cv,
+        gray,
         roi.width,
         roi.height,
-        [center[0] - roi.x, center[1] - roi.y],
-        5,
-        settings.threshold
+        settings.threshold,
+        {
+          thresholdMode: "manual",
+          expectedCenter: [center[0] - roi.x, center[1] - roi.y],
+          previous: this.previous,
+          previousSelected: this.previousSelected,
+          includePreviewMasks,
+          evaluateAllThresholds,
+        }
       )
-      let min = 255,
-        max = 0
-      for (const v of gray) {
-        min = Math.min(min, v)
-        max = Math.max(max, v)
-      }
-      const valid =
-        max - min >= 18 && raw.score >= 0.35 && raw.pupilEllipse !== null
-      const e = valid ? raw.pupilEllipse : null
-      detection = {
-        ellipse: e
-          ? {
-              center: e.center,
-              major: e.axes[0],
-              minor: e.axes[1],
-              angle: e.angle,
-              confidence: raw.score,
-            }
-          : null,
-        seed: raw.pupilCenter,
-        contour: [],
-        refined: [],
-        previews: [
-          {
-            label: "Threshold",
-            threshold: settings.threshold,
-            mask: raw.thresholdPreview,
-            score: raw.score,
-          },
-        ],
-        selected: 0,
-        reason: valid ? "Pupil found" : "Pupil not found",
-      }
+      this.previousSelected =
+        detection.selected >= 0 ? detection.selected : undefined
+      this.associate(detection, timestamp, roi.width, roi.height)
+      const e = detection.ellipse
       if (corners && radius > 4) {
         model = {
           center,
@@ -205,7 +181,7 @@ export class TrackingEngine {
           coverage: 1,
           ready: true,
         }
-        if (e) {
+        if (e && detection.tracking === "tracking") {
           const v = gazeVector3D(
             e.center,
             [center[0] - roi.x, center[1] - roi.y],

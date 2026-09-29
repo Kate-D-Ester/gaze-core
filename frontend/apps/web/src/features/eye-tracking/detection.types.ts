@@ -11,6 +11,7 @@ export type CvOwnedObject = {
 
 export type PupilDetectionOptions = {
   thresholdMode?: "auto" | "manual"
+  expectedCenter?: Point
   previous?: Ellipse | null
   previousSelected?: number
   includePreviewMasks?: boolean

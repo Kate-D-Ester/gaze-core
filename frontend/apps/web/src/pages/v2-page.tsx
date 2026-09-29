@@ -9,6 +9,7 @@ import { ArrowLeft, ArrowRight, Eye, X } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
 import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
+import type { ManualCornerMode } from "@/features/eye-tracking/components/eye-preview.types"
 import { PipelinePreviews } from "@/features/eye-tracking/components/pipeline-previews"
 import { V2StepNavigation } from "@/features/eye-tracking/components/v2-step-navigation"
 import { V2StepPanel } from "@/features/eye-tracking/components/v2-step-panel"
@@ -58,6 +59,9 @@ export function V2Page() {
     [pipelineOpen, setPipelineOpen] = useState(false),
     [thresholdViewOpen, setThresholdViewOpen] = useState(false)
   const [corner, setCorner] = useState<Point | null>(null),
+    [manualCornerMode, setManualCornerMode] = useState<ManualCornerMode | null>(
+      null
+    ),
     [calibration, setCalibration] = useState<Calibration | null>(null),
     [validation, setValidation] = useState<number | null>(null)
   const [capture, setCapture] = useState<"calibration" | "validation" | null>(
@@ -65,6 +69,14 @@ export function V2Page() {
     ),
     [focus, setFocus] = useState(false),
     [notice, setNotice] = useState("")
+  let activeCornerMode: ManualCornerMode | null = null
+  if (step === 2 && settings.format === "classic" && !settings.locked) {
+    activeCornerMode = manualCornerMode
+    if (activeCornerMode === null) {
+      if (settings.corners) activeCornerMode = "edit"
+      else activeCornerMode = "create"
+    }
+  }
   const clearCalibration = useCallback(() => {
     setCalibration(null)
     setValidation(null)
@@ -88,6 +100,7 @@ export function V2Page() {
     clearCalibration()
     setRegionStepComplete(false)
     setCorner(null)
+    setManualCornerMode(null)
   }
   const usable =
     !!frame?.detection.ellipse &&
@@ -95,7 +108,9 @@ export function V2Page() {
   const modelLockStatus = getEyeModelLockStatus(
     frame?.model ?? null,
     frame?.width ?? 0,
-    frame?.height ?? 0
+    frame?.height ?? 0,
+    frame?.roi.width ?? 0,
+    frame?.roi.height ?? 0
   )
   const feature = frame?.gaze ? gazeFeature(frame.gaze.direction) : null
   const screenPoint =
@@ -115,10 +130,15 @@ export function V2Page() {
     continueDisabled = !modelLockStatus.ready
   }
   let focusTitle = "Gaze outside this view"
+  let stepDescription = COPY[step][1]
   if (!screenPoint) {
     focusTitle = "Pupil lost"
   } else if (onscreen) {
     focusTitle = "Look around."
+  }
+  if (step === 2 && settings.format === "classic") {
+    stepDescription =
+      "Create two eye-corner points, then use Edit to adjust their spacing."
   }
   const go = (index: number) => {
     if (allowed[index]) {
@@ -183,10 +203,12 @@ export function V2Page() {
     setStep(1)
     setRegionStepComplete(false)
     setCorner(null)
+    setManualCornerMode(null)
   }
   function chooseCorner(point: Point) {
     if (!corner) {
       setCorner(point)
+      setNotice("")
       return
     }
     if (Math.hypot(point[0] - corner[0], point[1] - corner[1]) < 12) {
@@ -195,6 +217,16 @@ export function V2Page() {
     }
     update({ corners: [corner, point] })
     setCorner(null)
+    setManualCornerMode("edit")
+  }
+  function changeManualCornerMode(mode: ManualCornerMode) {
+    if (mode === "edit" && !settings.corners) return
+    setCorner(null)
+    setNotice("")
+    setManualCornerMode(mode)
+  }
+  function moveCorners(corners: [Point, Point]) {
+    update({ corners })
   }
   function exportResult() {
     if (!frame) return
@@ -251,15 +283,11 @@ export function V2Page() {
               aria-pressed={settings.format === format}
               onClick={() => {
                 if (format === settings.format) return
-                update({
-                  format,
-                  threshold: format === "classic" ? 50 : 0,
-                  thresholdMode: format === "classic" ? "manual" : "auto",
-                  corners: null,
-                })
+                update({ format })
                 setStep(0)
                 setRegionStepComplete(false)
                 setCorner(null)
+                setManualCornerMode(null)
               }}
             >
               <span>Eye Tracker {i + 1}</span>
@@ -298,11 +326,13 @@ export function V2Page() {
               tracker={tracker}
               showModel={step >= 2}
               selectRegion={step === 1}
-              selectCorners={
-                step === 2 && settings.format === "classic" && !settings.locked
-              }
+              cornerMode={activeCornerMode}
+              pendingCorner={corner}
               onRegion={chooseRegion}
               onCorner={chooseCorner}
+              onCornerModeChange={changeManualCornerMode}
+              onMoveCorners={moveCorners}
+              onMovePendingCorner={setCorner}
               onEditRegion={() => {
                 setStep(1)
                 setNotice("")
@@ -335,7 +365,7 @@ export function V2Page() {
           stepNumber={step + 1}
           stepName={STEPS[step]}
           title={COPY[step][0]}
-          description={COPY[step][1]}
+          description={stepDescription}
           error={tracker.error}
           message={notice}
         >

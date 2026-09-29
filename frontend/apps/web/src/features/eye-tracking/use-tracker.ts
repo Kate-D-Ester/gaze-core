@@ -6,6 +6,11 @@ import {
   getVideoErrorMessage,
   waitForVideoDimensions,
 } from "./video-source"
+import {
+  readTrackerPreferences,
+  resizeTrackerSettings,
+  saveTrackerPreferences,
+} from "./tracker-preferences"
 import type {
   FrameDimensions,
   FrameSettings,
@@ -28,6 +33,22 @@ export const DEFAULT_SETTINGS: FrameSettings = {
   corners: null,
   locked: false,
 }
+const DEFAULT_DIMENSIONS: FrameDimensions = { width: 640, height: 480 }
+
+function defaultSettingsFor(
+  format: FrameSettings["format"],
+  dimensions: FrameDimensions
+): FrameSettings {
+  const classic = format === "classic"
+  return {
+    ...DEFAULT_SETTINGS,
+    format,
+    roi: { x: 0, y: 0, ...dimensions },
+    threshold: classic ? 50 : 0,
+    thresholdMode: classic ? "manual" : "auto",
+  }
+}
+
 function jpegBlob(bytes: Uint8Array) {
   const buffer = new ArrayBuffer(bytes.byteLength)
   new Uint8Array(buffer).set(bytes)
@@ -35,18 +56,36 @@ function jpegBlob(bytes: Uint8Array) {
 }
 
 export function useTracker(): TrackerController {
-  const [settings, setSettings] = useState<FrameSettings>(DEFAULT_SETTINGS)
-  const [dimensions, setDimensions] = useState({ width: 640, height: 480 })
+  const [preferences] = useState(readTrackerPreferences)
+  const preferencesRef = useRef(preferences)
+  const activeFormat = "spatial"
+  const savedSettings = preferences[activeFormat]
+  const initialDimensions = savedSettings?.frameDimensions ?? DEFAULT_DIMENSIONS
+  const [settings, setSettings] = useState<FrameSettings>(() =>
+    savedSettings
+      ? { ...savedSettings.settings, locked: false }
+      : defaultSettingsFor(activeFormat, initialDimensions)
+  )
+  const [dimensions, setDimensions] =
+    useState<FrameDimensions>(initialDimensions)
+  const dimensionsRef = useRef(dimensions)
   const [frame, setFrame] = useState<TrackingFrame | null>(null)
   const [source, setSource] = useState<TrackerSource | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [engineReady, setEngineReady] = useState(false)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  useEffect(() => {
+    preferencesRef.current = saveTrackerPreferences(
+      preferencesRef.current,
+      settings,
+      dimensions
+    )
+  }, [dimensions, settings])
   const sourceCanvas = useRef<HTMLCanvasElement | null>(null)
   const latest = useRef<TrackingFrame | null>(null)
   const control = useRef<TrackerRuntimeState>({
-    settings: DEFAULT_SETTINGS,
+    settings,
     source: null,
     video: null,
     mjpegFrame: null,
@@ -116,7 +155,7 @@ export function useTracker(): TrackerController {
     c.source = null
     c.lastVideoTime = -1
     c.sampleTarget = null
-    c.settings = { ...c.settings, locked: false, corners: null }
+    c.settings = { ...c.settings, locked: false }
     setSettings(c.settings)
     if (sourceCanvas.current) {
       const canvas = sourceCanvas.current
@@ -129,10 +168,44 @@ export function useTracker(): TrackerController {
   const configure = useCallback(
     (next: Partial<FrameSettings>, invalidate = true) => {
       const c = control.current
+      const changingFormat = !!next.format && next.format !== c.settings.format
+      let nextSettings: FrameSettings
+      if (changingFormat && next.format) {
+        preferencesRef.current = saveTrackerPreferences(
+          preferencesRef.current,
+          c.settings,
+          dimensionsRef.current
+        )
+        const saved = preferencesRef.current[next.format]
+        const nextDimensions = c.source
+          ? dimensionsRef.current
+          : (saved?.frameDimensions ?? dimensionsRef.current)
+        let baseSettings: FrameSettings
+        if (saved && c.source) {
+          baseSettings = resizeTrackerSettings(saved, nextDimensions)
+        } else if (saved) {
+          baseSettings = { ...saved.settings, locked: false }
+        } else {
+          baseSettings = defaultSettingsFor(next.format, nextDimensions)
+        }
+        nextSettings = { ...baseSettings, ...next }
+        if (!c.source && saved) {
+          dimensionsRef.current = saved.frameDimensions
+          setDimensions(saved.frameDimensions)
+        }
+      } else {
+        nextSettings = { ...c.settings, ...next }
+      }
       c.settings = {
-        ...c.settings,
-        ...next,
+        ...nextSettings,
         ...(invalidate ? { locked: false } : {}),
+      }
+      if (changingFormat) {
+        preferencesRef.current = saveTrackerPreferences(
+          preferencesRef.current,
+          c.settings,
+          dimensionsRef.current
+        )
       }
       if (invalidate) {
         c.generation++
@@ -165,19 +238,21 @@ export function useTracker(): TrackerController {
           video || frameSize
             ? Math.max(2, Math.round(inputHeight * scale))
             : 480
-      c.settings = {
-        ...c.settings,
-        roi: { x: 0, y: 0, width, height },
-        corners: null,
-        locked: false,
-      }
+      c.settings = resizeTrackerSettings(
+        {
+          frameDimensions: dimensionsRef.current,
+          settings: c.settings,
+        },
+        { width, height }
+      )
       c.video = video
       c.source = next
       const canvas = sourceCanvas.current ?? document.createElement("canvas")
       canvas.width = width
       canvas.height = height
       sourceCanvas.current = canvas
-      setDimensions({ width, height })
+      dimensionsRef.current = { width, height }
+      setDimensions(dimensionsRef.current)
       setSettings(c.settings)
       setSource(next)
       setBusy(false)

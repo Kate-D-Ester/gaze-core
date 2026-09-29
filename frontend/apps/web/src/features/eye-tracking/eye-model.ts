@@ -3,8 +3,13 @@ import type { Ellipse, EyeModel, Point } from "./eye-tracking.types"
 import type { EyeModelLockStatus } from "./eye-model.types"
 
 const MINIMUM_SAMPLES = 30
-const REQUIRED_COVERAGE = 0.625
-const REQUIRED_DIRECTIONS = 5
+const REQUIRED_COVERAGE = 0.375
+const REQUIRED_DIRECTIONS = 3
+const MINIMUM_MOVEMENT_RATIO = 0.035
+
+function getMaximumResidual(width: number, height: number) {
+  return Math.max(2, Math.min(width, height) * 0.015)
+}
 
 export function getEyeModelLockStatus(
   model: Pick<
@@ -12,11 +17,13 @@ export function getEyeModelLockStatus(
     "samples" | "coverage" | "radius" | "residual" | "ready"
   > | null,
   width: number,
-  height: number
+  height: number,
+  regionWidth = width,
+  regionHeight = height
 ): EyeModelLockStatus {
-  const minDimension = Math.min(width, height)
+  const minRegionDimension = Math.min(regionWidth, regionHeight)
   const coveredDirections = Math.round((model?.coverage ?? 0) * 8)
-  if (!model || minDimension <= 0) {
+  if (!model || width <= 0 || height <= 0 || minRegionDimension <= 0) {
     return {
       ready: false,
       blocker: "waiting",
@@ -31,11 +38,11 @@ export function getEyeModelLockStatus(
     if (model.samples < MINIMUM_SAMPLES) blocker = "samples"
     else if (model.coverage < REQUIRED_COVERAGE) blocker = "coverage"
     else if (
-      model.radius < minDimension * 0.08 ||
-      model.radius >= minDimension * 0.75
+      model.radius < minRegionDimension * 0.08 ||
+      model.radius >= minRegionDimension * 0.75
     ) {
       blocker = "radius"
-    } else if (model.residual >= Math.max(2, minDimension * 0.015)) {
+    } else if (model.residual >= getMaximumResidual(width, height)) {
       blocker = "fit"
     }
   }
@@ -59,16 +66,26 @@ export function getEyeModelLockStatus(
 export class EyeModelEstimator {
   private observations: Ellipse[] = []
   private centers: Point[] = []
+  private readonly coveredSectors = new Set<number>()
+  private maximumRadius = 0
   private latest: EyeModel | null = null
   reset() {
     this.observations = []
     this.centers = []
+    this.coveredSectors.clear()
+    this.maximumRadius = 0
     this.latest = null
   }
   getLatest() {
     return this.latest
   }
-  observe(e: Ellipse, width: number, height: number): EyeModel | null {
+  observe(
+    e: Ellipse,
+    width: number,
+    height: number,
+    regionWidth = width,
+    regionHeight = height
+  ): EyeModel | null {
     if (e.confidence < 0.85 || !minorAxisLine(e)) return this.latest
     const previous = this.observations.at(-1)
     if (
@@ -91,34 +108,42 @@ export class EyeModelEstimator {
       (axis) =>
         this.centers.reduce((s, p) => s + p[axis], 0) / this.centers.length
     ) as Point
-    const sectors = new Set<number>()
+    const canCollectRange = fit.residual < getMaximumResidual(width, height)
+    const minimumMovement =
+      Math.min(regionWidth, regionHeight) * MINIMUM_MOVEMENT_RATIO
     for (const item of fit.inliers) {
       const dx = item.center[0] - center[0],
         dy = item.center[1] - center[1]
-      if (Math.hypot(dx, dy) > Math.min(width, height) * 0.035)
-        sectors.add(
+      if (canCollectRange && Math.hypot(dx, dy) > minimumMovement) {
+        this.coveredSectors.add(
           Math.floor(((Math.atan2(dy, dx) + Math.PI) * 4) / Math.PI) % 8
         )
+      }
     }
-    const radius = Math.max(
+    const observedRadius = Math.max(
       ...fit.inliers.map((item) => outerEdgeDistance(center, item))
     )
-    const coverage = sectors.size / 8
+    if (canCollectRange) {
+      this.maximumRadius = Math.max(this.maximumRadius, observedRadius)
+    }
+    const coverage = this.coveredSectors.size / 8
     const lockStatus = getEyeModelLockStatus(
       {
         samples: fit.inliers.length,
         coverage,
-        radius,
+        radius: this.maximumRadius,
         residual: fit.residual,
         ready: false,
       },
       width,
-      height
+      height,
+      regionWidth,
+      regionHeight
     )
     const ready = this.latest?.ready === true || lockStatus.ready
     this.latest = {
       center,
-      radius,
+      radius: this.maximumRadius,
       residual: fit.residual,
       samples: fit.inliers.length,
       coverage,

@@ -50,9 +50,7 @@ async function fetchCameraResponse(
       throw createAbortError()
     }
 
-    throw new Error(
-      "The browser could not access this camera. Check the URL and allow cross-origin access (CORS) on the camera."
-    )
+    throw new Error(getCameraAccessErrorMessage(url))
   }
 
   if (!response.ok) {
@@ -123,7 +121,7 @@ async function openVideoSource(
     }
 
     throw new Error(
-      "This network source is not browser-playable. Check the URL and allow cross-origin access (CORS) so the browser can read its frames."
+      "The browser could not play this network video. Check that its URL is reachable and that the camera allows this app's origin with CORS."
     )
   }
 
@@ -192,6 +190,32 @@ function disposeVideo(video: HTMLVideoElement): void {
   video.pause()
   video.removeAttribute("src")
   video.load()
+}
+
+function getCameraAccessErrorMessage(url: URL): string {
+  let streamPortHint = ""
+  if (!url.port && url.pathname === "/stream") {
+    const esp32StreamUrl = new URL(url.href)
+    esp32StreamUrl.port = "81"
+    streamPortHint =
+      `If this is the standard ESP32 CameraWebServer, try ${esp32StreamUrl.href};` +
+      " its stream endpoint uses port 81."
+  }
+
+  let appOrigin = window.location.origin
+  if (appOrigin === "null") {
+    appOrigin = "this app's origin"
+  }
+
+  const message = [
+    `The browser could not reach or read this camera. Confirm ${url.hostname} resolves`,
+    "and the camera is reachable from this device on the same network.",
+    streamPortHint,
+    `If it is reachable, the camera must return Access-Control-Allow-Origin: ${appOrigin}`,
+    "so the browser can read its frames.",
+  ]
+
+  return message.filter(Boolean).join(" ")
 }
 
 function throwIfAborted(signal: AbortSignal): void {
