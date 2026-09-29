@@ -1,3 +1,6 @@
+const LOCAL_FRONTEND_HOSTNAMES = ["localhost", "127.0.0.1"]
+const LOCAL_FRONTEND_PORTS = ["4001", "4013"]
+
 export function getFrontendOrigins(
   frontendUrl = process.env.FRONTEND_URL || "http://localhost:4001",
 ): string[] {
@@ -9,15 +12,28 @@ export function getFrontendOrigins(
     return [frontendUrl]
   }
 
-  const origins = [frontendOrigin.origin]
+  const origins = new Set([frontendOrigin.origin])
+  const isLocalFrontend = LOCAL_FRONTEND_HOSTNAMES.includes(
+    frontendOrigin.hostname
+  )
 
-  if (frontendOrigin.hostname === "localhost") {
-    frontendOrigin.hostname = "127.0.0.1"
-    origins.push(frontendOrigin.origin)
-  } else if (frontendOrigin.hostname === "127.0.0.1") {
-    frontendOrigin.hostname = "localhost"
-    origins.push(frontendOrigin.origin)
+  if (!isLocalFrontend) {
+    return [...origins]
   }
 
-  return origins
+  const localPorts = new Set([
+    frontendOrigin.port,
+    ...LOCAL_FRONTEND_PORTS,
+  ])
+
+  for (const hostname of LOCAL_FRONTEND_HOSTNAMES) {
+    for (const port of localPorts) {
+      const localOrigin = new URL(frontendOrigin.origin)
+      localOrigin.hostname = hostname
+      localOrigin.port = port
+      origins.add(localOrigin.origin)
+    }
+  }
+
+  return [...origins]
 }
