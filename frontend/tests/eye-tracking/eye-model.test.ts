@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { getEyeModelLockStatus } from "../../apps/web/src/features/eye-tracking/eye-model"
-import type { EyeModel } from "../../apps/web/src/features/eye-tracking/types"
+import type { EyeModel } from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
 
 const model = (overrides: Partial<EyeModel> = {}): EyeModel => ({
   center: [160, 120],

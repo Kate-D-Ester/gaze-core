@@ -11,7 +11,7 @@ import {
   gazeFromPupil,
   sphereFromProjection,
 } from "./geometry"
-import type { CV } from "./opencv"
+import type { CV } from "./opencv.types"
 import type {
   Detection,
   Ellipse,
@@ -19,7 +19,8 @@ import type {
   FrameSettings,
   Gaze,
   TrackingFrame,
-} from "./types"
+} from "./eye-tracking.types"
+import type { PendingPupilFit } from "./engine.types"
 
 const pupilMemoryMs = 750
 
@@ -29,7 +30,7 @@ export class TrackingEngine {
   private previousSelected: number | undefined
   private previous: Ellipse | null = null
   private seenAt = -Infinity
-  private pending: { ellipse: Ellipse; time: number } | null = null
+  private pending: PendingPupilFit | null = null
   constructor(privateCv: CV) {
     this.cv = privateCv
   }

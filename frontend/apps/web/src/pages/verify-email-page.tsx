@@ -3,15 +3,14 @@ import { useSearchParams, useNavigate } from "react-router-dom"
 import { Button } from "@workspace/ui/components/button"
 import { authClient } from "@/lib/auth-client"
 import { getBackendBaseUrl } from "@/lib/backend-base-url"
-
-type VerifyEmailPageProps = {
-  onVerified?: () => void
-}
+import type { VerifyEmailPageProps } from "./verify-email-page.types"
 
 export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
+  const [status, setStatus] = useState<"loading" | "success" | "error">(
+    "loading"
+  )
   const [message, setMessage] = useState("")
 
   const token = searchParams.get("token")
@@ -25,10 +24,13 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
       }
 
       try {
-        const response = await fetch(`${getBackendBaseUrl()}/api/auth/verify-email?token=${encodeURIComponent(token)}`, {
-          method: "GET",
-          credentials: "include",
-        })
+        const response = await fetch(
+          `${getBackendBaseUrl()}/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        )
 
         if (response.ok) {
           const pendingEmail = localStorage.getItem("pendingSignInEmail")
@@ -44,7 +46,9 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
               localStorage.removeItem("pendingSignInPassword")
               onVerified?.()
               setStatus("success")
-              setMessage("✅ Email verified and signed in. Redirecting to dashboard...")
+              setMessage(
+                "✅ Email verified and signed in. Redirecting to dashboard..."
+              )
               setTimeout(() => navigate("/dashboard", { replace: true }), 800)
               return
             } catch {
@@ -62,7 +66,9 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
           }
 
           setStatus("success")
-          setMessage("✅ Email verified successfully! Redirecting to sign in...")
+          setMessage(
+            "✅ Email verified successfully! Redirecting to sign in..."
+          )
           setTimeout(() => navigate("/auth", { replace: true }), 1200)
         } else {
           let responseMessage = "Verification failed. Token may have expired."
@@ -94,7 +100,9 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
         {status === "loading" && (
           <div className="mt-6 space-y-4">
             <div className="h-2 w-full animate-pulse rounded bg-muted"></div>
-            <p className="text-sm text-muted-foreground">Verifying your email...</p>
+            <p className="text-sm text-muted-foreground">
+              Verifying your email...
+            </p>
           </div>
         )}
 
@@ -110,7 +118,11 @@ export function VerifyEmailPage({ onVerified }: VerifyEmailPageProps) {
         {status === "error" && (
           <div className="mt-6 space-y-4">
             <p className="text-sm text-red-600">{message}</p>
-            <Button onClick={() => navigate("/auth")} variant="outline" className="w-full">
+            <Button
+              onClick={() => navigate("/auth")}
+              variant="outline"
+              className="w-full"
+            >
               Back to Sign In
             </Button>
             <p className="text-xs text-muted-foreground">

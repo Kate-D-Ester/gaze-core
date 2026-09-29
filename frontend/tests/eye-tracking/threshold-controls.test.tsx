@@ -9,7 +9,7 @@ const { ThresholdControls } =
   await import("../../apps/web/src/features/eye-tracking/threshold-controls")
 const { useTracker } =
   await import("../../apps/web/src/features/eye-tracking/use-tracker")
-import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker"
+import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 
 let tracker: TrackerController
 const host = document.createElement("div")

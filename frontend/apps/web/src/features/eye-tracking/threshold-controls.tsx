@@ -1,14 +1,7 @@
 import { useState, type CSSProperties } from "react"
-import type { FrameSettings } from "./types"
-import type { TrackerController } from "./use-tracker"
+import type { ThresholdControlsProps } from "./threshold-controls.types"
 
-export function ThresholdControls({
-  tracker,
-  update,
-}: {
-  tracker: TrackerController
-  update: (next: Partial<FrameSettings>) => void
-}) {
+export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
   const { settings, frame } = tracker
   const spatial = settings.format === "spatial"
   const manual = !spatial || settings.thresholdMode === "manual"

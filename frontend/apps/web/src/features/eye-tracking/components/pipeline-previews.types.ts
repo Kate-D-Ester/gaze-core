@@ -1,4 +1,4 @@
-import type { TrackingFrame } from "../types"
+import type { TrackingFrame } from "../eye-tracking.types"
 
 export type PipelinePreviewsProps = {
   frame: TrackingFrame | null

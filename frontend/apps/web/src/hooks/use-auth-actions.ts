@@ -3,15 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { authClient } from "@/lib/auth-client"
 import { getBackendAuthMessage, parseAuthError } from "@/lib/auth-error"
 import { extractSessionUser } from "@/lib/session-user"
-import type { SessionData } from "@/types/auth"
-
-type UseAuthActionsParams = {
-  setBusy: (value: boolean) => void
-  setError: (value: string) => void
-  setMessage: (value: string) => void
-  setSession: (value: SessionData) => void
-  loadSession: () => Promise<void>
-}
+import type { UseAuthActionsParams } from "./use-auth-actions.types"
 
 export function useAuthActions({
   setBusy,
@@ -81,7 +73,9 @@ export function useAuthActions({
 
       localStorage.setItem("pendingSignInEmail", email)
       localStorage.setItem("pendingSignInPassword", password)
-      setMessage("✅ Check your email for a verification link. The link expires in 24 hours.")
+      setMessage(
+        "✅ Check your email for a verification link. The link expires in 24 hours."
+      )
       setAuthMode("sign-in")
       setName("")
       setEmail("")

@@ -1,17 +1,9 @@
-import type { ApiKeyRecord } from "@/types/auth"
 import { getAuthBaseUrl } from "@/lib/backend-base-url"
-
-type ApiKeysListResponse = {
-  apiKeys?: ApiKeyRecord[]
-}
-
-type CreateApiKeyResponse = {
-  key?: string
-}
-
-type DeleteApiKeyResponse = {
-  success?: boolean
-}
+import type {
+  ApiKeysListResponse,
+  CreateApiKeyResponse,
+  DeleteApiKeyResponse,
+} from "./api-key-client.types"
 
 const authApiUrl = getAuthBaseUrl()
 

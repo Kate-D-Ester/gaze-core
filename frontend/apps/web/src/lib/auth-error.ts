@@ -1,22 +1,4 @@
-type RawAuthError = {
-  status?: number
-  statusCode?: number
-  statusText?: string
-  message?: string
-  data?: { message?: string }
-  error?:
-    | string
-    | {
-      message?: string
-      status?: number
-      statusCode?: number
-    }
-}
-
-export type ParsedAuthError = {
-  status: number | null
-  message: string
-}
+import type { ParsedAuthError, RawAuthError } from "./auth-error.types"
 
 export function parseAuthError(input: unknown): ParsedAuthError {
   if (typeof input !== "object" || input === null) {
@@ -24,30 +6,32 @@ export function parseAuthError(input: unknown): ParsedAuthError {
   }
 
   const raw = input as RawAuthError
+  const nestedError =
+    typeof raw.error === "object" && raw.error !== null ? raw.error : null
+  let status: number | null = null
 
-  const status =
-    typeof raw.status === "number"
-      ? raw.status
-      : typeof raw.statusCode === "number"
-        ? raw.statusCode
-        : typeof raw.error === "object" && raw.error !== null && typeof raw.error.status === "number"
-          ? raw.error.status
-          : typeof raw.error === "object" && raw.error !== null && typeof raw.error.statusCode === "number"
-            ? raw.error.statusCode
-            : null
+  if (typeof raw.status === "number") {
+    status = raw.status
+  } else if (typeof raw.statusCode === "number") {
+    status = raw.statusCode
+  } else if (typeof nestedError?.status === "number") {
+    status = nestedError.status
+  } else if (typeof nestedError?.statusCode === "number") {
+    status = nestedError.statusCode
+  }
 
-  const message =
-    typeof raw.error === "string"
-      ? raw.error
-      : typeof raw.error === "object" && raw.error !== null && typeof raw.error.message === "string"
-        ? raw.error.message
-        : typeof raw.data?.message === "string"
-          ? raw.data.message
-          : typeof raw.message === "string"
-            ? raw.message
-            : typeof raw.statusText === "string"
-              ? raw.statusText
-              : ""
+  let message = ""
+  if (typeof raw.error === "string") {
+    message = raw.error
+  } else if (typeof nestedError?.message === "string") {
+    message = nestedError.message
+  } else if (typeof raw.data?.message === "string") {
+    message = raw.data.message
+  } else if (typeof raw.message === "string") {
+    message = raw.message
+  } else if (typeof raw.statusText === "string") {
+    message = raw.statusText
+  }
 
   return { status, message }
 }

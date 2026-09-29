@@ -1,6 +1,11 @@
 // Adapted from JEOresearch/EyeTracker (MIT). See research/EyeTracker-LICENSE.
-import type { CV } from "./opencv"
-import type { Detection, Ellipse, Point } from "./types"
+import type { CV } from "./opencv.types"
+import type { Detection, Ellipse, Point } from "./eye-tracking.types"
+import type {
+  CvOwnedObject,
+  DarkestPatch,
+  PupilDetectionOptions,
+} from "./detection.types"
 import { finite } from "./geometry"
 
 /** A dimensionless cosine, unlike the reference's unnormalized dot product. */
@@ -32,12 +37,12 @@ function darkestPatch(
   gray: Uint8Array,
   width: number,
   height: number
-): { point: Point; value: number } | null {
+): DarkestPatch | null {
   const size = Math.max(3, Math.round(Math.min(width, height) / 24)),
     half = Math.floor(size / 2),
     stride = Math.max(2, half)
   let best = Infinity,
-    result: { point: Point; value: number } | null = null
+    result: DarkestPatch | null = null
   for (let y = half + 2; y < height - half - 2; y += stride)
     for (let x = half + 2; x < width - half - 2; x += stride) {
       let sum = 0,
@@ -272,13 +277,6 @@ function pupilContrast(
     homogeneity: 1 / (1 + (high - low) / 35),
   }
 }
-export type PupilDetectionOptions = {
-  thresholdMode?: "auto" | "manual"
-  previous?: Ellipse | null
-  previousSelected?: number
-  includePreviewMasks?: boolean
-  evaluateAllThresholds?: boolean
-}
 export function detectSpatialPupil(
   cv: CV,
   gray: Uint8Array,
@@ -333,7 +331,7 @@ export function detectSpatialPupil(
     passOrder.splice(options.previousSelected!, 1)
     passOrder.unshift(options.previousSelected!)
   }
-  const owned: { delete(): void }[] = []
+  const owned: CvOwnedObject[] = []
   const own = <T extends { delete(): void }>(value: T): T => {
     owned.push(value)
     return value
@@ -503,14 +501,18 @@ export function detectSpatialPupil(
     }
     if (result.selected < 0 && result.previews.length) {
       const previous = options.previousSelected
-      result.selected =
+      const previousIsAvailable =
         previous !== undefined &&
         previous >= 0 &&
         previous < result.previews.length
-          ? previous
-          : options.thresholdMode === "manual"
-            ? 0
-            : 1
+
+      if (previousIsAvailable) {
+        result.selected = previous
+      } else if (options.thresholdMode === "manual") {
+        result.selected = 0
+      } else {
+        result.selected = 1
+      }
       if (irregular)
         result.reason = "Outline too irregular · adjust cutoff or reduce glare"
     }

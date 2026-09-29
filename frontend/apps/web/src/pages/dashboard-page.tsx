@@ -2,24 +2,7 @@ import { ApiKeysPanel } from "@/components/dashboard/api-keys-panel"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { Button } from "@workspace/ui/components/button"
 import { useNavigate } from "react-router-dom"
-import type { ApiKeyRecord, SessionData } from "@/types/auth"
-
-type DashboardPageProps = {
-  session: SessionData
-  busy: boolean
-  loadingKeys: boolean
-  apiKeys: ApiKeyRecord[]
-  newKeyName: string
-  createdApiKey: string
-  message: string
-  error: string
-  onSignOut: () => void
-  onNewKeyNameChange: (value: string) => void
-  onCreateKey: () => void
-  onCopyCreatedKey: () => void
-  onRegenerateKey: (key: ApiKeyRecord) => void
-  onDeleteKey: (key: ApiKeyRecord) => void
-}
+import type { DashboardPageProps } from "./dashboard-page.types"
 
 export function DashboardPage({
   session,
@@ -47,7 +30,9 @@ export function DashboardPage({
         <section className="rounded-xl border bg-card p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-foreground">Eye tracking</h2>
+              <h2 className="text-base font-semibold text-foreground">
+                Eye tracking
+              </h2>
               <p className="text-sm text-muted-foreground">
                 Try the browser-based eye-tracking experience.
               </p>

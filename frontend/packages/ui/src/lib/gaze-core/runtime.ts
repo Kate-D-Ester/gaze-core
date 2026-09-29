@@ -19,7 +19,12 @@ import type {
   Point,
   PupilEllipse,
   Vector3,
-} from "./types"
+} from "./gaze-core.types"
+import type {
+  PupilFitBucket,
+  RecentPupilFit,
+  StablePupilFit,
+} from "./runtime.types"
 
 export class Runtime<T> implements GazeSession<T> {
   private readonly mode: Mode
@@ -30,14 +35,16 @@ export class Runtime<T> implements GazeSession<T> {
   private raf = 0
   private lastFrame = 0
   private smoothed: Vector3 = [0, 0, 1]
-  private readonly recentPupilFits: Array<{ key: string; ellipse: Ellipse; center: Point; score: number }> = []
+  private readonly recentPupilFits: RecentPupilFit[] = []
 
   private readonly video: HTMLVideoElement
   private ownVideo = false
   private stream: MediaStream | null = null
 
   private readonly canvas = document.createElement("canvas")
-  private readonly ctx = this.canvas.getContext("2d", { willReadFrequently: true })
+  private readonly ctx = this.canvas.getContext("2d", {
+    willReadFrequently: true,
+  })
 
   constructor(mode: Mode, input: GazeTrackingInput) {
     if (!this.ctx) throw new Error("Unable to initialize canvas context")
@@ -53,7 +60,8 @@ export class Runtime<T> implements GazeSession<T> {
       this.video.playsInline = true
       this.video.style.display = "none"
       this.ownVideo = true
-      if (typeof document !== "undefined" && document.body) document.body.appendChild(this.video)
+      if (typeof document !== "undefined" && document.body)
+        document.body.appendChild(this.video)
     }
   }
 
@@ -82,7 +90,8 @@ export class Runtime<T> implements GazeSession<T> {
       this.video.removeAttribute("src")
       this.video.load()
     }
-    if (this.ownVideo && this.video.parentElement) this.video.parentElement.removeChild(this.video)
+    if (this.ownVideo && this.video.parentElement)
+      this.video.parentElement.removeChild(this.video)
     this.smoothed = [0, 0, 1]
     this.recentPupilFits.length = 0
   }
@@ -90,12 +99,18 @@ export class Runtime<T> implements GazeSession<T> {
   update(next: GazeTrackingUpdate): void {
     if (next.roi !== undefined) this.config.roi = next.roi
     if (next.eyeCorners) this.config.eyeCorners = next.eyeCorners
-    if (typeof next.threshold === "number") this.config.threshold = clamp(next.threshold, 10, 200)
-    if (typeof next.pupilBlur === "number") this.config.pupilBlur = odd(next.pupilBlur, 3)
-    if (typeof next.glintThreshold === "number") this.config.glintThreshold = clamp(next.glintThreshold, 1, 255)
-    if (typeof next.glintBlur === "number") this.config.glintBlur = odd(next.glintBlur, 1)
-    if (typeof next.smoothingFactor === "number") this.config.smoothingFactor = clamp(next.smoothingFactor, 0.01, 0.5)
-    if (typeof next.sphereRadius === "number") this.config.sphereRadius = Math.max(50, next.sphereRadius)
+    if (typeof next.threshold === "number")
+      this.config.threshold = clamp(next.threshold, 10, 200)
+    if (typeof next.pupilBlur === "number")
+      this.config.pupilBlur = odd(next.pupilBlur, 3)
+    if (typeof next.glintThreshold === "number")
+      this.config.glintThreshold = clamp(next.glintThreshold, 1, 255)
+    if (typeof next.glintBlur === "number")
+      this.config.glintBlur = odd(next.glintBlur, 1)
+    if (typeof next.smoothingFactor === "number")
+      this.config.smoothingFactor = clamp(next.smoothingFactor, 0.01, 0.5)
+    if (typeof next.sphereRadius === "number")
+      this.config.sphereRadius = Math.max(50, next.sphereRadius)
     if (typeof next.fps === "number") this.config.fps = clamp(next.fps, 1, 120)
   }
 
@@ -130,7 +145,10 @@ export class Runtime<T> implements GazeSession<T> {
     const src = this.config.cameraSource
     if (src.kind === "usb") {
       const constraints = await usbConstraints(src)
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false })
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: constraints,
+        audio: false,
+      })
       this.video.srcObject = this.stream
       await this.video.play().catch(() => undefined)
       await waitForVideo(this.video)
@@ -171,7 +189,7 @@ export class Runtime<T> implements GazeSession<T> {
       [roi.x, roi.y],
       roi.width,
       roi.height,
-      this.config.sphereRadius,
+      this.config.sphereRadius
     )
 
     const detection = detectPupil(
@@ -180,12 +198,12 @@ export class Runtime<T> implements GazeSession<T> {
       roi.height,
       [Math.round(eyeCenter[0]), Math.round(eyeCenter[1])],
       this.config.pupilBlur,
-      this.config.threshold,
+      this.config.threshold
     )
     const stabilized = this.stabilizePupilFit(
       detection.pupilEllipse,
       detection.pupilCenter,
-      detection.score >= 0 ? detection.score : 0,
+      detection.score >= 0 ? detection.score : 0
     )
 
     const glint = detectGlint(
@@ -193,7 +211,7 @@ export class Runtime<T> implements GazeSession<T> {
       roi.width,
       roi.height,
       this.config.glintBlur,
-      this.config.glintThreshold,
+      this.config.glintThreshold
     )
 
     const pupilCenterLocal = stabilized.center
@@ -203,7 +221,10 @@ export class Runtime<T> implements GazeSession<T> {
     if (pupilCenterLocal) {
       const fresh = gazeVector3D(pupilCenterLocal, eyeCenter, radius)
       this.smoothed = smooth(this.smoothed, fresh, this.config.smoothingFactor)
-      screenPosition = [pupilCenterLocal[0] + roi.x, pupilCenterLocal[1] + roi.y]
+      screenPosition = [
+        pupilCenterLocal[0] + roi.x,
+        pupilCenterLocal[1] + roi.y,
+      ]
     }
 
     const pupilCenterGlobal = pupilCenterLocal
@@ -211,7 +232,10 @@ export class Runtime<T> implements GazeSession<T> {
       : null
     const pupilEllipse: PupilEllipse | null = pupilEllipseLocal
       ? {
-          center: [pupilEllipseLocal.center[0] + roi.x, pupilEllipseLocal.center[1] + roi.y],
+          center: [
+            pupilEllipseLocal.center[0] + roi.x,
+            pupilEllipseLocal.center[1] + roi.y,
+          ],
           axes: pupilEllipseLocal.axes,
           angle: pupilEllipseLocal.angle,
           score: detection.score >= 0 ? detection.score : 0,
@@ -232,8 +256,16 @@ export class Runtime<T> implements GazeSession<T> {
       pupilCenter: pupilCenterLocal,
       pupilCenterGlobal,
       pupilEllipse,
-      pupilMask: { width: roi.width, height: roi.height, data: detection.pupilMask.slice() },
-      thresholdPreview: { width: roi.width, height: roi.height, data: detection.thresholdPreview.slice() },
+      pupilMask: {
+        width: roi.width,
+        height: roi.height,
+        data: detection.pupilMask.slice(),
+      },
+      thresholdPreview: {
+        width: roi.width,
+        height: roi.height,
+        data: detection.thresholdPreview.slice(),
+      },
       score: detection.score >= 0 ? detection.score : null,
     }
 
@@ -277,8 +309,8 @@ export class Runtime<T> implements GazeSession<T> {
   private stabilizePupilFit(
     ellipse: Ellipse | null,
     center: Point | null,
-    score: number,
-  ): { ellipse: Ellipse | null; center: Point | null } {
+    score: number
+  ): StablePupilFit {
     if (ellipse && center) {
       const radius = (ellipse.axes[0] + ellipse.axes[1]) * 0.5
       const key = [
@@ -299,7 +331,7 @@ export class Runtime<T> implements GazeSession<T> {
       return { ellipse, center }
     }
 
-    const buckets = new Map<string, { count: number; best: { ellipse: Ellipse; center: Point; score: number } }>()
+    const buckets = new Map<string, PupilFitBucket>()
     for (const sample of this.recentPupilFits) {
       const existing = buckets.get(sample.key)
       if (existing) {
@@ -323,12 +355,13 @@ export class Runtime<T> implements GazeSession<T> {
       }
     }
 
-    let bestBucket: { count: number; best: { ellipse: Ellipse; center: Point; score: number } } | null = null
+    let bestBucket: PupilFitBucket | null = null
     for (const bucket of buckets.values()) {
       if (
-        !bestBucket
-        || bucket.count > bestBucket.count
-        || (bucket.count === bestBucket.count && bucket.best.score >= bestBucket.best.score)
+        !bestBucket ||
+        bucket.count > bestBucket.count ||
+        (bucket.count === bestBucket.count &&
+          bucket.best.score >= bestBucket.best.score)
       ) {
         bestBucket = bucket
       }

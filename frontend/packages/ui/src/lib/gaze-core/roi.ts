@@ -1,5 +1,12 @@
 import { clamp, dot, norm, cross2d } from "./math"
-import type { EyeCornersInput, Point, PointInput, RoiInput, RoiRect } from "./types"
+import type {
+  EyeCorners,
+  EyeCornersInput,
+  Point,
+  PointInput,
+  RoiInput,
+  RoiRect,
+} from "./gaze-core.types"
 
 export function normalizePoint(p: PointInput, label: string): Point {
   if (Array.isArray(p)) return [Number(p[0]), Number(p[1])]
@@ -7,14 +14,20 @@ export function normalizePoint(p: PointInput, label: string): Point {
   throw new Error(`${label} must be [x,y] or {x,y}`)
 }
 
-export function normalizeEyeCorners(corners: EyeCornersInput): { inner: Point; outer: Point } {
+export function normalizeEyeCorners(
+  corners: EyeCornersInput
+): EyeCorners {
   return {
     inner: normalizePoint(corners.inner, "eyeCorners.inner"),
     outer: normalizePoint(corners.outer, "eyeCorners.outer"),
   }
 }
 
-export function normalizeRoi(roi: RoiInput | undefined, width: number, height: number): RoiRect {
+export function normalizeRoi(
+  roi: RoiInput | undefined,
+  width: number,
+  height: number
+): RoiRect {
   if (!roi) return { x: 0, y: 0, width, height }
 
   if (!Array.isArray(roi) && "x" in roi) {
@@ -42,7 +55,8 @@ export function normalizeRoi(roi: RoiInput | undefined, width: number, height: n
   const right = norm([br[0] - tr[0], br[1] - tr[1]])
 
   const rightAngle = Math.abs(dot(top, left))
-  const parallel = Math.abs(cross2d(top, bottom)) + Math.abs(cross2d(left, right))
+  const parallel =
+    Math.abs(cross2d(top, bottom)) + Math.abs(cross2d(left, right))
   if (rightAngle > 0.2 || parallel > 0.4) {
     throw new Error("ROI corners must form a rectangle")
   }
@@ -57,15 +71,11 @@ export function normalizeRoi(roi: RoiInput | undefined, width: number, height: n
       height: Math.max(...ys) - Math.min(...ys),
     },
     width,
-    height,
+    height
   )
 }
 
-function clampRoi(
-  roi: { x: number; y: number; width: number; height: number },
-  width: number,
-  height: number,
-): RoiRect {
+function clampRoi(roi: RoiRect, width: number, height: number): RoiRect {
   const x = clamp(Math.round(roi.x), 0, Math.max(0, width - 1))
   const y = clamp(Math.round(roi.y), 0, Math.max(0, height - 1))
   const w = clamp(Math.round(roi.width), 1, Math.max(1, width - x))

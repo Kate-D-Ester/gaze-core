@@ -1,20 +1,15 @@
 import { ChevronDown, RotateCcw } from "lucide-react"
 import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
-import type { FrameSettings, Point } from "../types"
-import type { TrackerController } from "../use-tracker"
+import type { Point } from "../eye-tracking.types"
+import type { ModelControlsProps } from "./model-controls.types"
 
 export function ModelControls({
   tracker,
   corner,
   update,
   setNotice,
-}: {
-  tracker: TrackerController
-  corner: Point | null
-  update: (next: Partial<FrameSettings>) => void
-  setNotice: (message: string) => void
-}) {
+}: ModelControlsProps) {
   const { settings, frame } = tracker
   const lockStatus = getEyeModelLockStatus(
     frame?.model ?? null,

@@ -1,13 +1,7 @@
 import { useCallback, useState } from "react"
 import { createApiKey, deleteApiKey, listApiKeys } from "@/lib/api-key-client"
-import type { ApiKeyRecord } from "@/types/auth"
-
-type UseApiKeyActionsParams = {
-  isAuthenticated: boolean
-  setBusy: (value: boolean) => void
-  setError: (value: string) => void
-  setMessage: (value: string) => void
-}
+import type { ApiKeyRecord } from "@/lib/auth.types"
+import type { UseApiKeyActionsParams } from "./use-api-key-actions.types"
 
 export function useApiKeyActions({
   isAuthenticated,

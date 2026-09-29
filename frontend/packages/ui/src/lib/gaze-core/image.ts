@@ -1,10 +1,12 @@
 import { clamp, odd } from "./math"
-import type { Component, Point } from "./types"
+import type { Component, Point } from "./gaze-core.types"
 
 export function toGray(rgba: Uint8ClampedArray): Uint8Array {
   const out = new Uint8Array(rgba.length / 4)
   for (let i = 0, j = 0; i < rgba.length; i += 4, j += 1) {
-    out[j] = Math.round(rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114)
+    out[j] = Math.round(
+      rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114
+    )
   }
   return out
 }
@@ -31,12 +33,21 @@ export function equalize(gray: Uint8Array): Uint8Array {
 
   const out = new Uint8Array(gray.length)
   for (let i = 0; i < gray.length; i += 1) {
-    out[i] = clamp(Math.round(((cdf[gray[i]] - cdfMin) / (gray.length - cdfMin)) * 255), 0, 255)
+    out[i] = clamp(
+      Math.round(((cdf[gray[i]] - cdfMin) / (gray.length - cdfMin)) * 255),
+      0,
+      255
+    )
   }
   return out
 }
 
-export function gaussian(gray: Uint8Array, width: number, height: number, size: number): Uint8Array {
+export function gaussian(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  size: number
+): Uint8Array {
   if (size <= 1) return gray.slice()
   const s = odd(size, 1)
   const radius = Math.floor(s / 2)
@@ -81,7 +92,7 @@ export function adaptiveInv(
   width: number,
   height: number,
   blockSize: number,
-  c: number,
+  c: number
 ): Uint8Array {
   const half = Math.floor(odd(blockSize, 3) / 2)
   const integral = new Uint32Array((width + 1) * (height + 1))
@@ -89,10 +100,10 @@ export function adaptiveInv(
   for (let y = 1; y <= height; y += 1) {
     for (let x = 1; x <= width; x += 1) {
       integral[y * (width + 1) + x] =
-        gray[(y - 1) * width + (x - 1)]
-        + integral[(y - 1) * (width + 1) + x]
-        + integral[y * (width + 1) + (x - 1)]
-        - integral[(y - 1) * (width + 1) + (x - 1)]
+        gray[(y - 1) * width + (x - 1)] +
+        integral[(y - 1) * (width + 1) + x] +
+        integral[y * (width + 1) + (x - 1)] -
+        integral[(y - 1) * (width + 1) + (x - 1)]
     }
   }
 
@@ -105,10 +116,10 @@ export function adaptiveInv(
       const y1 = clamp(y + half, 0, height - 1)
       const area = (x1 - x0 + 1) * (y1 - y0 + 1)
       const sum =
-        integral[(y1 + 1) * (width + 1) + (x1 + 1)]
-        - integral[y0 * (width + 1) + (x1 + 1)]
-        - integral[(y1 + 1) * (width + 1) + x0]
-        + integral[y0 * (width + 1) + x0]
+        integral[(y1 + 1) * (width + 1) + (x1 + 1)] -
+        integral[y0 * (width + 1) + (x1 + 1)] -
+        integral[(y1 + 1) * (width + 1) + x0] +
+        integral[y0 * (width + 1) + x0]
       out[y * width + x] = gray[y * width + x] > sum / area - c ? 0 : 255
     }
   }
@@ -140,11 +151,21 @@ export function percentile(values: Uint8Array, q: number): number {
   return 255
 }
 
-export function morph(mask: Uint8Array, width: number, height: number): Uint8Array {
+export function morph(
+  mask: Uint8Array,
+  width: number,
+  height: number
+): Uint8Array {
   const neighbors: Point[] = [
-    [-1, -1], [0, -1], [1, -1],
-    [-1, 0], [0, 0], [1, 0],
-    [-1, 1], [0, 1], [1, 1],
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
   ]
 
   const dil = new Uint8Array(mask.length)
@@ -154,7 +175,13 @@ export function morph(mask: Uint8Array, width: number, height: number): Uint8Arr
       for (const [dx, dy] of neighbors) {
         const px = x + dx
         const py = y + dy
-        if (px >= 0 && py >= 0 && px < width && py < height && mask[py * width + px] > 0) {
+        if (
+          px >= 0 &&
+          py >= 0 &&
+          px < width &&
+          py < height &&
+          mask[py * width + px] > 0
+        ) {
           on = true
           break
         }
@@ -170,7 +197,13 @@ export function morph(mask: Uint8Array, width: number, height: number): Uint8Arr
       for (const [dx, dy] of neighbors) {
         const px = x + dx
         const py = y + dy
-        if (px < 0 || py < 0 || px >= width || py >= height || dil[py * width + px] === 0) {
+        if (
+          px < 0 ||
+          py < 0 ||
+          px >= width ||
+          py >= height ||
+          dil[py * width + px] === 0
+        ) {
           on = false
           break
         }
@@ -182,14 +215,28 @@ export function morph(mask: Uint8Array, width: number, height: number): Uint8Arr
   return ero
 }
 
-export function components(mask: Uint8Array, width: number, height: number): Component[] {
+export function components(
+  mask: Uint8Array,
+  width: number,
+  height: number
+): Component[] {
   const visited = new Uint8Array(mask.length)
   const n8: Point[] = [
-    [-1, -1], [0, -1], [1, -1],
-    [-1, 0], [1, 0],
-    [-1, 1], [0, 1], [1, 1],
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
   ]
-  const n4: Point[] = [[0, -1], [1, 0], [0, 1], [-1, 0]]
+  const n4: Point[] = [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+  ]
 
   const out: Component[] = []
 
@@ -231,7 +278,13 @@ export function components(mask: Uint8Array, width: number, height: number): Com
         for (const [dx, dy] of n4) {
           const nx = cx + dx
           const ny = cy + dy
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height || mask[ny * width + nx] === 0) {
+          if (
+            nx < 0 ||
+            ny < 0 ||
+            nx >= width ||
+            ny >= height ||
+            mask[ny * width + nx] === 0
+          ) {
             perimeter += 1
           }
         }
@@ -267,9 +320,14 @@ export function components(mask: Uint8Array, width: number, height: number): Com
   return out
 }
 
-export function componentMean(c: Component, gray: Uint8Array, width: number): number {
+export function componentMean(
+  c: Component,
+  gray: Uint8Array,
+  width: number
+): number {
   if (c.area <= 0) return 0
   let sum = 0
-  for (let i = 0; i < c.points.length; i += 2) sum += gray[c.points[i + 1] * width + c.points[i]]
+  for (let i = 0; i < c.points.length; i += 2)
+    sum += gray[c.points[i + 1] * width + c.points[i]]
   return sum / c.area
 }

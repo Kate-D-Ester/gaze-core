@@ -1,16 +1,8 @@
-type GazeCoreRuntimeConfig = {
-  backendBaseUrl?: string
-}
-
-declare global {
-  interface Window {
-    __GAZECORE_CONFIG__?: GazeCoreRuntimeConfig
-  }
-}
+import type { GazeCoreRuntimeConfig } from "./backend-base-url.types"
 
 const DEFAULT_BACKEND_BASE_URL = "http://localhost:4000"
 
-function getRuntimeBackendBaseUrl() {
+function getRuntimeBackendBaseUrl(): GazeCoreRuntimeConfig["backendBaseUrl"] {
   if (typeof window === "undefined") return undefined
   return window.__GAZECORE_CONFIG__?.backendBaseUrl
 }
@@ -22,7 +14,9 @@ function normalizeBaseUrl(value: string | undefined) {
 }
 
 export function getBackendBaseUrl() {
-  return normalizeBaseUrl(getRuntimeBackendBaseUrl() ?? import.meta.env.VITE_GAZECORE_BACKEND_URL)
+  return normalizeBaseUrl(
+    getRuntimeBackendBaseUrl() ?? import.meta.env.VITE_GAZECORE_BACKEND_URL
+  )
 }
 
 export function getAuthBaseUrl() {

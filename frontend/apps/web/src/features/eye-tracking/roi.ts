@@ -1,7 +1,6 @@
-import type { Point, Rect } from "./types"
+import type { Point, Rect } from "./eye-tracking.types"
+import type { RegionBounds, ResizeHandle } from "./roi.types"
 
-export type RegionBounds = { width: number; height: number }
-export type ResizeHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw"
 export const MIN_REGION_SIZE = 24
 
 function clamp(value: number, min: number, max: number) {

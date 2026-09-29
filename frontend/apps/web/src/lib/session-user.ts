@@ -1,4 +1,4 @@
-import type { SessionData } from "@/types/auth"
+import type { SessionData } from "@/lib/auth.types"
 
 export function extractSessionUser(value: unknown): SessionData {
   if (typeof value !== "object" || value === null) {

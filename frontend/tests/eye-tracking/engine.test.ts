@@ -6,7 +6,7 @@ import type {
   Ellipse,
   FrameSettings,
   Point,
-} from "../../apps/web/src/features/eye-tracking/types"
+} from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
 let engine: TrackingEngine
 beforeAll(async () => {
   engine = new TrackingEngine((await loadOpenCv()).cv)

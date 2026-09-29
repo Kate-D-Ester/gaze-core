@@ -1,17 +1,10 @@
 import { fitEyeCenter, minorAxisLine, outerEdgeDistance } from "./geometry"
-import type { Ellipse, EyeModel, Point } from "./types"
+import type { Ellipse, EyeModel, Point } from "./eye-tracking.types"
+import type { EyeModelLockStatus } from "./eye-model.types"
 
 const MINIMUM_SAMPLES = 30
 const REQUIRED_COVERAGE = 0.625
 const REQUIRED_DIRECTIONS = 5
-
-export type EyeModelLockStatus = {
-  ready: boolean
-  blocker: "waiting" | "samples" | "coverage" | "radius" | "fit" | "ready"
-  coveredDirections: number
-  requiredDirections: number
-  progress: number
-}
 
 export function getEyeModelLockStatus(
   model: Pick<

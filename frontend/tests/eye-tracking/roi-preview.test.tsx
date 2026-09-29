@@ -16,7 +16,7 @@ import {
   useTracker,
   type TrackerController,
 } from "../../apps/web/src/features/eye-tracking/use-tracker"
-import type { Rect } from "../../apps/web/src/features/eye-tracking/types"
+import type { Rect } from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
 
 if (typeof document === "undefined") GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true

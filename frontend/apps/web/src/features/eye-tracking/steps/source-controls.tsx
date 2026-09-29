@@ -1,21 +1,24 @@
 import { useState } from "react"
 import { ArrowRight } from "lucide-react"
-import type { TrackerController } from "../use-tracker"
+import type { SourceControlsProps } from "./source-controls.types"
 
 export function SourceControls({
   tracker,
   deviceId,
   setDeviceId,
   resetSource,
-}: {
-  tracker: TrackerController
-  deviceId: string
-  setDeviceId: (id: string) => void
-  resetSource: () => void
-}) {
+}: SourceControlsProps) {
   const [kind, setKind] = useState<"usb" | "network">("usb")
   const [streamUrl, setStreamUrl] = useState("")
   const cameras = tracker.devices.filter((device) => device.deviceId)
+  let previewButtonLabel = "Start preview"
+
+  if (tracker.source) {
+    previewButtonLabel = "Reconnect"
+  }
+  if (tracker.busy) {
+    previewButtonLabel = "Connecting…"
+  }
 
   function startPreview() {
     resetSource()
@@ -78,11 +81,7 @@ export function SourceControls({
         }
         onClick={startPreview}
       >
-        {tracker.busy
-          ? "Connecting…"
-          : tracker.source
-            ? "Reconnect"
-            : "Start preview"}
+        {previewButtonLabel}
         <ArrowRight size={16} />
       </button>
       {tracker.busy && (

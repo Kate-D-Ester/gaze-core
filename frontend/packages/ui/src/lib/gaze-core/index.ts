@@ -5,11 +5,11 @@ import type {
   GazeSession,
   GazeTrackingInput,
   GazeVectorReturn,
-} from "./types"
+} from "./gaze-core.types"
 
 export function gazeVector(
   input: GazeTrackingInput,
-  listener?: GazeListener<GazeVectorReturn>,
+  listener?: GazeListener<GazeVectorReturn>
 ): GazeSession<GazeVectorReturn> {
   const runtime = new Runtime<GazeVectorReturn>("vector", input)
   if (listener) runtime.subscribe(listener)
@@ -18,7 +18,7 @@ export function gazeVector(
 
 export function gazePupilDetection(
   input: GazeTrackingInput,
-  listener?: GazeListener<GazePupilDetectionReturn>,
+  listener?: GazeListener<GazePupilDetectionReturn>
 ): GazeSession<GazePupilDetectionReturn> {
   const runtime = new Runtime<GazePupilDetectionReturn>("pupil", input)
   if (listener) runtime.subscribe(listener)
@@ -45,4 +45,4 @@ export type {
   RoiInput,
   RoiRect,
   Vector3,
-} from "./types"
+} from "./gaze-core.types"

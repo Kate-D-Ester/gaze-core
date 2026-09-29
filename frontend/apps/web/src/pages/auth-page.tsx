@@ -1,23 +1,27 @@
 import { useState } from "react"
 import { Button } from "@workspace/ui/components/button"
+import type { AuthPageProps, VisibilityToggleProps } from "./auth-page.types"
 
-type AuthPageProps = {
-  mode: "sign-in" | "sign-up"
-  name: string
-  email: string
-  password: string
-  confirmPassword: string
-  busy: boolean
-  message: string
-  error: string
-  onModeChange: (mode: "sign-in" | "sign-up") => void
-  onNameChange: (value: string) => void
-  onEmailChange: (value: string) => void
-  onPasswordChange: (value: string) => void
-  onConfirmPasswordChange: (value: string) => void
-  onSignIn: () => void
-  onSignUp: () => void
-  onGoogleSignIn: () => void
+function VisibilityToggle({ checked, label, onToggle }: VisibilityToggleProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onToggle}
+      className="inline-flex items-center gap-2 text-xs text-muted-foreground select-none"
+    >
+      <span>{label}</span>
+      <span
+        className={`relative h-5 w-10 rounded-full border transition-colors ${checked ? "bg-foreground/20" : "bg-muted"}`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`}
+        />
+      </span>
+    </button>
+  )
 }
 
 export function AuthPage({
@@ -41,42 +45,13 @@ export function AuthPage({
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
-  function VisibilityToggle({
-    checked,
-    label,
-    onToggle,
-  }: {
-    checked: boolean
-    label: string
-    onToggle: () => void
-  }) {
-    return (
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={onToggle}
-        className="inline-flex select-none items-center gap-2 text-xs text-muted-foreground"
-      >
-        <span>{label}</span>
-        <span
-          className={`relative h-5 w-10 rounded-full border transition-colors ${checked ? "bg-foreground/20" : "bg-muted"}`}
-        >
-          <span
-            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`}
-          />
-        </span>
-      </button>
-    )
-  }
-
   return (
     <main className="grid min-h-svh place-items-center bg-gradient-to-b from-background to-muted/40 p-6">
       <section className="w-full max-w-md rounded-xl border bg-card p-6 shadow-sm">
         <h1 className="text-xl font-semibold">GazeCore Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign in with Google OAuth or email/password. Session auth keeps you logged in.
+          Sign in with Google OAuth or email/password. Session auth keeps you
+          logged in.
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -120,7 +95,9 @@ export function AuthPage({
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             placeholder="Password"
             type={showPassword ? "text" : "password"}
-            autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
+            autoComplete={
+              mode === "sign-up" ? "new-password" : "current-password"
+            }
           />
           <div className="-mt-1 flex justify-end">
             <VisibilityToggle
@@ -134,7 +111,9 @@ export function AuthPage({
             <>
               <input
                 value={confirmPassword}
-                onChange={(event) => onConfirmPasswordChange(event.target.value)}
+                onChange={(event) =>
+                  onConfirmPasswordChange(event.target.value)
+                }
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                 placeholder="Confirm password"
                 type={showConfirmPassword ? "text" : "password"}
@@ -171,7 +150,9 @@ export function AuthPage({
         </Button>
 
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
-        {message ? <p className="mt-3 text-sm text-emerald-600">{message}</p> : null}
+        {message ? (
+          <p className="mt-3 text-sm text-emerald-600">{message}</p>
+        ) : null}
       </section>
     </main>
   )

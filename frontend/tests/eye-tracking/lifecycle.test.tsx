@@ -5,29 +5,36 @@ import {
   createRoot,
   type Root,
 } from "../../apps/web/node_modules/react-dom/client"
-import {
-  useTracker,
-  type TrackerController,
-} from "../../apps/web/src/features/eye-tracking/use-tracker"
+import { useTracker } from "../../apps/web/src/features/eye-tracking/use-tracker"
+import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 import { RegionControls } from "../../apps/web/src/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "../../apps/web/src/features/eye-tracking/steps/source-controls"
+import {
+  getCameraErrorMessage,
+  getVideoErrorMessage,
+} from "../../apps/web/src/features/eye-tracking/video-source"
 GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 let controller: TrackerController,
-  root: Root,
+  root: Root | null,
   host: HTMLDivElement,
   stopped: number,
   resolveCamera: (stream: any) => void,
+  rejectCamera: (reason: unknown) => void,
   resolvePlay: () => void,
   availableDevices: MediaDeviceInfo[],
   deviceChangeListener: (() => void) | null,
-  enumerateCalls: number
+  enumerateCalls: number,
+  workers: { onmessage: any; terminate: () => void }[],
+  terminatedWorkers: number
 function Harness() {
   controller = useTracker()
   return null
 }
 beforeEach(async () => {
   stopped = 0
+  terminatedWorkers = 0
+  workers = []
   enumerateCalls = 0
   availableDevices = [
     { kind: "videoinput", deviceId: "camera-1", label: "" } as MediaDeviceInfo,
@@ -36,8 +43,13 @@ beforeEach(async () => {
   ;(globalThis as any).Worker = class {
     onmessage: any
     onerror: any
+    constructor() {
+      workers.push(this)
+    }
     postMessage() {}
-    terminate() {}
+    terminate() {
+      terminatedWorkers += 1
+    }
   }
   globalThis.requestAnimationFrame = () => 1
   globalThis.cancelAnimationFrame = () => {}
@@ -45,8 +57,9 @@ beforeEach(async () => {
     configurable: true,
     value: {
       getUserMedia: () =>
-        new Promise((resolve) => {
+        new Promise((resolve, reject) => {
           resolveCamera = resolve
+          rejectCamera = reject
         }),
       enumerateDevices: async () => {
         enumerateCalls++
@@ -89,7 +102,8 @@ beforeEach(async () => {
   })
 })
 afterEach(async () => {
-  await act(async () => root.unmount())
+  if (root) await act(async () => root?.unmount())
+  root = null
   host.remove()
 })
 const stream = () => ({
@@ -307,4 +321,69 @@ test("MJPEG network streams use decoded frame dimensions instead of video dimens
     globalThis.fetch = originalFetch
     globalThis.createImageBitmap = originalCreateImageBitmap
   }
+})
+
+test("switching to a sample while camera permission is pending disposes the late stream", async () => {
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("")
+    controller.startSample()
+  })
+  await act(async () => {
+    resolveCamera(stream())
+    await pending!
+  })
+
+  expect(controller.source?.kind).toBe("sample")
+  expect(controller.busy).toBe(false)
+  expect(stopped).toBe(1)
+})
+
+test("late worker errors from an older generation do not replace current state", async () => {
+  await act(async () => {
+    workers[0]?.onmessage?.({
+      data: { type: "error", generation: 100, message: "stale worker error" },
+    })
+  })
+
+  expect(controller.error).toBe("")
+  expect(controller.frame).toBeNull()
+})
+
+test("unmounting releases the camera stream and terminates the worker", async () => {
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("")
+  })
+  await act(async () => resolveCamera(stream()))
+  await act(async () => {
+    resolvePlay()
+    await pending!
+  })
+
+  await act(async () => root?.unmount())
+  root = null
+
+  expect(stopped).toBe(1)
+  expect(terminatedWorkers).toBe(1)
+  expect(controller.source?.kind).toBe("camera")
+})
+
+test("camera and media failures use direct, user-readable guidance", async () => {
+  const permissionMessage = getCameraErrorMessage(
+    new DOMException("Permission denied", "NotAllowedError")
+  )
+  const unsupportedVideoMessage = getVideoErrorMessage(null)
+
+  expect(permissionMessage).toContain("Camera permission was denied")
+  expect(unsupportedVideoMessage).toContain("MP4 or WebM")
+
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("")
+    rejectCamera(new DOMException("Permission denied", "NotAllowedError"))
+    await pending!
+  })
+
+  expect(controller.error).toContain("Allow camera access")
 })

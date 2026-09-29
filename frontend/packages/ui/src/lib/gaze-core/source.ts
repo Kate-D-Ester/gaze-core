@@ -1,10 +1,11 @@
-import type { CameraSource } from "./types"
+import type { CameraSource } from "./gaze-core.types"
 
 export async function usbConstraints(
-  src: Extract<CameraSource, { kind: "usb" }>,
+  src: Extract<CameraSource, { kind: "usb" }>
 ): Promise<MediaTrackConstraints> {
   const base = { ...(src.constraints ?? {}) } as MediaTrackConstraints
-  if (src.source === undefined || src.source === null || src.source === "") return base
+  if (src.source === undefined || src.source === null || src.source === "")
+    return base
 
   if (typeof src.source === "string" && Number.isNaN(Number(src.source))) {
     return { ...base, deviceId: { exact: src.source } }
@@ -14,7 +15,9 @@ export async function usbConstraints(
   if (!Number.isInteger(idx) || idx < 0) return base
 
   try {
-    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput")
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+      (d) => d.kind === "videoinput"
+    )
     if (!devices[idx]?.deviceId) return base
     return { ...base, deviceId: { exact: devices[idx].deviceId } }
   } catch {

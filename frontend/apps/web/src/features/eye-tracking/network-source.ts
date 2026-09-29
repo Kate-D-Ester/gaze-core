@@ -45,7 +45,7 @@ async function fetchCameraResponse(
       mode: "cors",
       signal,
     })
-  } catch (error) {
+  } catch {
     if (signal.aborted) {
       throw createAbortError()
     }
@@ -116,7 +116,7 @@ async function openVideoSource(
   try {
     await video.play()
     await waitForVideoDimensions(video, signal)
-  } catch (error) {
+  } catch {
     disposeVideo(video)
     if (signal.aborted) {
       throw createAbortError()

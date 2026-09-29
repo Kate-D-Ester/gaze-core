@@ -25,7 +25,7 @@ import type {
   FrameSettings,
   Point,
   Rect,
-} from "@/features/eye-tracking/types"
+} from "@/features/eye-tracking/eye-tracking.types"
 import type { V2StepCopy, V2StepName } from "./v2-page.types"
 import "./v2.css"
 
@@ -108,6 +108,18 @@ export function V2Page() {
     settings.locked && !!source,
     !!calibration && !!source,
   ]
+  let continueDisabled = false
+  if (step === 0) {
+    continueDisabled = !source
+  } else if (step === 2) {
+    continueDisabled = !modelLockStatus.ready
+  }
+  let focusTitle = "Gaze outside this view"
+  if (!screenPoint) {
+    focusTitle = "Pupil lost"
+  } else if (onscreen) {
+    focusTitle = "Look around."
+  }
   const go = (index: number) => {
     if (allowed[index]) {
       setStep(index)
@@ -408,13 +420,7 @@ export function V2Page() {
           {step < 3 && (
             <button
               className="eye-button primary"
-              disabled={
-                step === 0
-                  ? !source
-                  : step === 2
-                    ? !modelLockStatus.ready
-                    : false
-              }
+              disabled={continueDisabled}
               aria-describedby={
                 step === 2 ? "eye-model-lock-status" : undefined
               }
@@ -460,13 +466,7 @@ export function V2Page() {
             <span className="eye-eyebrow">
               {source?.kind === "sample" ? "SYNTHETIC SAMPLE" : "LIVE GAZE"}
             </span>
-            <h2>
-              {!screenPoint
-                ? "Pupil lost"
-                : onscreen
-                  ? "Look around."
-                  : "Gaze outside this view"}
-            </h2>
+            <h2>{focusTitle}</h2>
             <p>Your gaze dot follows your calibrated screen position.</p>
           </div>
           {onscreen && (

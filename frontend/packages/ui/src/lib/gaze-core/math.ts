@@ -1,4 +1,4 @@
-import type { Point, Vector3 } from "./types"
+import type { Point, Vector3 } from "./gaze-core.types"
 
 export function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v))

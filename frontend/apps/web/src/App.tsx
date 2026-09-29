@@ -49,14 +49,15 @@ function AccountApp() {
     setError,
     setMessage,
   })
+  const loadApiKeys = apiKeyActions.loadApiKeys
 
   useEffect(() => {
     void loadSession()
   }, [loadSession])
 
   useEffect(() => {
-    void apiKeyActions.loadApiKeys()
-  }, [apiKeyActions.loadApiKeys])
+    void loadApiKeys()
+  }, [loadApiKeys])
 
   useEffect(() => {
     if (loadingSession) {

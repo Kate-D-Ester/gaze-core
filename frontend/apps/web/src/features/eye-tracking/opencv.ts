@@ -1,6 +1,5 @@
-import type * as OpenCv from "@techstark/opencv-js"
 import cvModule from "@techstark/opencv-js"
-export type CV = typeof OpenCv
+import type { CV } from "./opencv.types"
 let pending: Promise<{ cv: CV }> | null = null
 /** Lazy-loaded once in the worker; no remote script/CDN and no camera-frame upload. */
 export function loadOpenCv(): Promise<{ cv: CV }> {

@@ -1,6 +1,5 @@
 import { Crosshair, ChevronDown, RotateCcw, Download } from "lucide-react"
-import type { Point, Calibration } from "../types"
-import type { TrackerController } from "../use-tracker"
+import type { LiveControlsProps } from "./live-controls.types"
 
 export function LiveControls({
   tracker,
@@ -12,19 +11,17 @@ export function LiveControls({
   onValidate,
   onRecalibrate,
   onExport,
-}: {
-  tracker: TrackerController
-  calibration: Calibration | null
-  screenPoint: Point | null
-  validation: number | null
-  usable: boolean
-  onFocus: () => void
-  onValidate: () => void
-  onRecalibrate: () => void
-  onExport: () => void
-}) {
+}: LiveControlsProps) {
   const { source, frame } = tracker
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
+  let positionLabel = "Gaze is outside this view"
+
+  if (!screenPoint) {
+    positionLabel = "Pupil lost"
+  } else if (onscreen) {
+    positionLabel = "Screen position"
+  }
+
   return (
     <>
       <div className="eye-gaze-map">
@@ -38,13 +35,7 @@ export function LiveControls({
             }}
           />
         )}
-        <span>
-          {!screenPoint
-            ? "Pupil lost"
-            : onscreen
-              ? "Screen position"
-              : "Gaze is outside this view"}
-        </span>
+        <span>{positionLabel}</span>
       </div>
       <div className="eye-live-coordinates">
         <span>

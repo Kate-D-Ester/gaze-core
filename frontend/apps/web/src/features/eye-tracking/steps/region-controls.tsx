@@ -1,21 +1,19 @@
 import { useState } from "react"
 import { ChevronDown, Maximize } from "lucide-react"
-import type { Rect } from "../types"
-import type { TrackerController } from "../use-tracker"
+import type { Rect } from "../eye-tracking.types"
+import type { RegionControlsProps, RegionDraft } from "./region-controls.types"
+
+const REGION_FIELD_LABELS = {
+  x: "Left",
+  y: "Top",
+  width: "Width",
+  height: "Height",
+} as const
 import { clampRegion, MIN_REGION_SIZE } from "../roi"
 
-export function RegionControls({
-  tracker,
-  chooseRegion,
-}: {
-  tracker: TrackerController
-  chooseRegion: (roi: Rect) => void
-}) {
+export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
   const roi = tracker.settings.roi
-  const [edit, setEdit] = useState<{
-    original: Rect
-    values: Record<keyof Rect, string>
-  } | null>(null)
+  const [edit, setEdit] = useState<RegionDraft | null>(null)
   const values =
     edit?.original === roi
       ? edit.values
@@ -64,14 +62,7 @@ export function RegionControls({
         <div className="eye-number-grid eye-roi-coordinates">
           {(["x", "y", "width", "height"] as const).map((key) => (
             <label className="eye-field" key={key}>
-              {key === "x"
-                ? "Left"
-                : key === "y"
-                  ? "Top"
-                  : key === "width"
-                    ? "Width"
-                    : "Height"}{" "}
-              · px
+              {REGION_FIELD_LABELS[key]} · px
               <input
                 type="number"
                 value={values[key]}

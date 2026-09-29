@@ -1,14 +1,11 @@
 import { Crosshair } from "lucide-react"
+import type { CalibrationControlsProps } from "./calibration-controls.types"
 
 export function CalibrationControls({
   usable,
   locked,
   onStart,
-}: {
-  usable: boolean
-  locked: boolean
-  onStart: () => void
-}) {
+}: CalibrationControlsProps) {
   return (
     <>
       <div className="eye-calibration-illustration" aria-hidden="true">

@@ -18,7 +18,7 @@ import type {
   Ellipse,
   Point,
   Vector3,
-} from "../../apps/web/src/features/eye-tracking/types"
+} from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
 
 const ellipse = (center: Point, angle: number): Ellipse => ({
   center,

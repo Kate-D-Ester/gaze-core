@@ -5,20 +5,15 @@ import {
   VALIDATION_TARGETS,
   gazeFeature,
 } from "./calibration"
-import type { CalibrationSample, Point } from "./types"
-import type { TrackerController } from "./use-tracker"
+import type { Point } from "./eye-tracking.types"
+import type { CalibrationOverlayProps } from "./calibration-overlay.types"
 
 export function CalibrationOverlay({
   tracker,
   validation,
   onComplete,
   onCancel,
-}: {
-  tracker: TrackerController
-  validation: boolean
-  onComplete: (samples: CalibrationSample[]) => void
-  onCancel: () => void
-}) {
+}: CalibrationOverlayProps) {
   const targets = validation ? VALIDATION_TARGETS : CALIBRATION_TARGETS
   const [index, setIndex] = useState(0),
     [progress, setProgress] = useState(0),

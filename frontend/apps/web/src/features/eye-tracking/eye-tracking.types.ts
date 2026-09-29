@@ -2,6 +2,7 @@ export type Point = [number, number]
 export type Vector3 = [number, number, number]
 export type TrackerFormat = "classic" | "spatial"
 export type Rect = { x: number; y: number; width: number; height: number }
+export type FrameDimensions = { width: number; height: number }
 /** Semiaxes in pixels; angle of the MAJOR axis, in radians, image y down. */
 export type Ellipse = {
   center: Point

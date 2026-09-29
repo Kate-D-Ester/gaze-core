@@ -1,25 +1,39 @@
 import { clamp, normalize3 } from "./math"
-import type { Point, Vector3 } from "./types"
+import type { EyeCorners, Point, Vector3 } from "./gaze-core.types"
 
 export function resolveEyeGeometry(
-  corners: { inner: Point; outer: Point },
+  corners: EyeCorners,
   offset: Point,
   width: number,
   height: number,
-  fallbackRadius: number,
+  fallbackRadius: number
 ): [[number, number], number, [[number, number], [number, number]]] {
-  const inner: [number, number] = [corners.inner[0] - offset[0], corners.inner[1] - offset[1]]
-  const outer: [number, number] = [corners.outer[0] - offset[0], corners.outer[1] - offset[1]]
+  const inner: [number, number] = [
+    corners.inner[0] - offset[0],
+    corners.inner[1] - offset[1],
+  ]
+  const outer: [number, number] = [
+    corners.outer[0] - offset[0],
+    corners.outer[1] - offset[1],
+  ]
 
-  const center: [number, number] = [(inner[0] + outer[0]) * 0.5, (inner[1] + outer[1]) * 0.5]
+  const center: [number, number] = [
+    (inner[0] + outer[0]) * 0.5,
+    (inner[1] + outer[1]) * 0.5,
+  ]
   let radius = Math.hypot(outer[0] - inner[0], outer[1] - inner[1]) * 0.5
-  if (!Number.isFinite(radius) || radius < 1) radius = clamp(fallbackRadius, 8, Math.min(width, height) * 0.49)
+  if (!Number.isFinite(radius) || radius < 1)
+    radius = clamp(fallbackRadius, 8, Math.min(width, height) * 0.49)
   radius = clamp(radius, 8, Math.max(width, height) * 4)
 
   return [center, radius, [inner, outer]]
 }
 
-export function gazeVector3D(pupil: Point, center: [number, number], radius: number): Vector3 {
+export function gazeVector3D(
+  pupil: Point,
+  center: [number, number],
+  radius: number
+): Vector3 {
   if (radius <= 1e-6) return [0, 0, 1]
   let nx = (pupil[0] - center[0]) / radius
   let ny = (pupil[1] - center[1]) / radius
@@ -35,7 +49,11 @@ export function gazeVector3D(pupil: Point, center: [number, number], radius: num
   return normalize3([nx, ny, nz]) ?? [0, 0, 1]
 }
 
-export function driftCenter(center: [number, number], pupil: Point | null, gain: number): [number, number] {
+export function driftCenter(
+  center: [number, number],
+  pupil: Point | null,
+  gain: number
+): [number, number] {
   if (!pupil) return center
   return [
     center[0] + (pupil[0] - center[0]) * gain,

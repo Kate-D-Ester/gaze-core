@@ -1,9 +1,18 @@
 export type Point = [number, number]
 export type Vector3 = [number, number, number]
+export type EyeCorners = { inner: Point; outer: Point }
 
 export type CameraSource =
-  | { kind: "usb"; source?: string | number; constraints?: Omit<MediaTrackConstraints, "deviceId"> }
-  | { kind: "network"; source: string; crossOrigin?: "" | "anonymous" | "use-credentials" }
+  | {
+      kind: "usb"
+      source?: string | number
+      constraints?: Omit<MediaTrackConstraints, "deviceId">
+    }
+  | {
+      kind: "network"
+      source: string
+      crossOrigin?: "" | "anonymous" | "use-credentials"
+    }
 
 export type PointInput = Point | { x: number; y: number }
 
@@ -21,7 +30,10 @@ export type RoiCorners = {
   bottomLeft: PointInput
 }
 
-export type RoiInput = RoiRect | RoiCorners | [PointInput, PointInput, PointInput, PointInput]
+export type RoiInput =
+  | RoiRect
+  | RoiCorners
+  | [PointInput, PointInput, PointInput, PointInput]
 export type EyeCornersInput = { inner: PointInput; outer: PointInput }
 
 export type GazeTrackingInput = {
@@ -38,10 +50,21 @@ export type GazeTrackingInput = {
   videoElement?: HTMLVideoElement
 }
 
-export type GazeTrackingUpdate = Partial<Omit<GazeTrackingInput, "cameraSource" | "videoElement">>
+export type GazeTrackingUpdate = Partial<
+  Omit<GazeTrackingInput, "cameraSource" | "videoElement">
+>
 export type BinaryMask = { width: number; height: number; data: Uint8Array }
-export type PupilEllipse = { center: [number, number]; axes: [number, number]; angle: number; score: number }
-export type PupilCircle = { center: [number, number]; axes: [number, number]; angle: number }
+export type PupilEllipse = {
+  center: [number, number]
+  axes: [number, number]
+  angle: number
+  score: number
+}
+export type PupilCircle = {
+  center: [number, number]
+  axes: [number, number]
+  angle: number
+}
 
 export type EyeModelPayload = {
   center: [number, number]
@@ -109,7 +132,11 @@ export type Config = {
 }
 
 export type Mode = "vector" | "pupil"
-export type Ellipse = { center: [number, number]; axes: [number, number]; angle: number }
+export type Ellipse = {
+  center: [number, number]
+  axes: [number, number]
+  angle: number
+}
 
 export type Component = {
   area: number

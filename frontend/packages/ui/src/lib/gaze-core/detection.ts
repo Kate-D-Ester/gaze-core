@@ -9,7 +9,8 @@ import {
   gaussian,
   percentile,
 } from "./image"
-import type { Component, Detection, Ellipse, Point } from "./types"
+import type { Component, Detection, Ellipse, Point } from "./gaze-core.types"
+import type { CircleFit } from "./detection.types"
 
 export function detectPupil(
   gray: Uint8Array,
@@ -17,7 +18,7 @@ export function detectPupil(
   height: number,
   center: Point,
   blurSize: number,
-  threshold: number,
+  threshold: number
 ): Detection {
   const blur = gaussian(gray, width, height, blurSize)
   const mappedThreshold = sliderToThreshold(threshold)
@@ -29,7 +30,8 @@ export function detectPupil(
 
   const darkCutoff = percentile(blur, 0.18)
   const dark = new Uint8Array(blur.length)
-  for (let i = 0; i < blur.length; i += 1) dark[i] = blur[i] <= darkCutoff ? 255 : 0
+  for (let i = 0; i < blur.length; i += 1)
+    dark[i] = blur[i] <= darkCutoff ? 255 : 0
 
   const adaptiveBlock = Math.max(11, blurSize * 5)
   const adaptiveC = clamp(Math.floor(threshold * 0.2), 2, 12)
@@ -56,8 +58,17 @@ export function detectPupil(
   for (const c of candidates) {
     if (c.area < minArea || c.area > maxArea || c.perimeter <= 0) continue
 
-    const circularity = clamp((4 * Math.PI * c.area) / (c.perimeter * c.perimeter), 0, 1)
-    const aspect = clamp(Math.min(c.bbox.width, c.bbox.height) / Math.max(c.bbox.width, c.bbox.height), 0, 1)
+    const circularity = clamp(
+      (4 * Math.PI * c.area) / (c.perimeter * c.perimeter),
+      0,
+      1
+    )
+    const aspect = clamp(
+      Math.min(c.bbox.width, c.bbox.height) /
+        Math.max(c.bbox.width, c.bbox.height),
+      0,
+      1
+    )
     if (aspect < 0.25) continue
 
     const fill = clamp(c.area / (c.bbox.width * c.bbox.height), 0, 1)
@@ -66,21 +77,40 @@ export function detectPupil(
     const cx = c.bbox.x + c.bbox.width / 2
     const cy = c.bbox.y + c.bbox.height / 2
     const distance = Math.hypot(cx - center[0], cy - center[1])
-    const distanceScore = 1 - clamp(distance / Math.max(1, Math.min(width, height) * 0.45), 0, 1)
+    const distanceScore =
+      1 - clamp(distance / Math.max(1, Math.min(width, height) * 0.45), 0, 1)
     const areaScore = clamp(c.area / Math.max(1, targetArea), 0, 1.5) / 1.5
-    const edge = Math.min(c.bbox.x, c.bbox.y, width - (c.bbox.x + c.bbox.width), height - (c.bbox.y + c.bbox.height))
-    const edgeScore = clamp(edge / Math.max(1, Math.min(width, height) * 0.2), 0, 1)
-    const centerBonus = c.area > 0 ? clamp(1 - Math.hypot(cx - center[0], cy - center[1]) / Math.max(1, Math.min(width, height) * 0.5), 0, 1) : 0
+    const edge = Math.min(
+      c.bbox.x,
+      c.bbox.y,
+      width - (c.bbox.x + c.bbox.width),
+      height - (c.bbox.y + c.bbox.height)
+    )
+    const edgeScore = clamp(
+      edge / Math.max(1, Math.min(width, height) * 0.2),
+      0,
+      1
+    )
+    const centerBonus =
+      c.area > 0
+        ? clamp(
+            1 -
+              Math.hypot(cx - center[0], cy - center[1]) /
+                Math.max(1, Math.min(width, height) * 0.5),
+            0,
+            1
+          )
+        : 0
 
     const score =
-      circularity * 0.14
-      + darkness * 0.26
-      + fill * 0.08
-      + aspect * 0.05
-      + areaScore * 0.28
-      + distanceScore * 0.11
-      + edgeScore * 0.03
-      + centerBonus * 0.05
+      circularity * 0.14 +
+      darkness * 0.26 +
+      fill * 0.08 +
+      aspect * 0.05 +
+      areaScore * 0.28 +
+      distanceScore * 0.11 +
+      edgeScore * 0.03 +
+      centerBonus * 0.05
 
     const bboxArea = c.bbox.width * c.bbox.height
     if (bboxArea > 0 && c.area / bboxArea < 0.2) continue
@@ -91,7 +121,15 @@ export function detectPupil(
     }
   }
 
-  const ellipseSource = resolveEllipseSource(best, mask, dark, width, height, center, minArea)
+  const ellipseSource = resolveEllipseSource(
+    best,
+    mask,
+    dark,
+    width,
+    height,
+    center,
+    minArea
+  )
 
   if (!best) {
     if (ellipseSource) {
@@ -143,7 +181,13 @@ function dilate(mask: Uint8Array, width: number, height: number): Uint8Array {
         for (let dx = -1; dx <= 1; dx += 1) {
           const px = x + dx
           const py = y + dy
-          if (px >= 0 && py >= 0 && px < width && py < height && mask[py * width + px] > 0) {
+          if (
+            px >= 0 &&
+            py >= 0 &&
+            px < width &&
+            py < height &&
+            mask[py * width + px] > 0
+          ) {
             on = true
             break
           }
@@ -164,7 +208,13 @@ function erode(mask: Uint8Array, width: number, height: number): Uint8Array {
         for (let dx = -1; dx <= 1; dx += 1) {
           const px = x + dx
           const py = y + dy
-          if (px < 0 || py < 0 || px >= width || py >= height || mask[py * width + px] === 0) {
+          if (
+            px < 0 ||
+            py < 0 ||
+            px >= width ||
+            py >= height ||
+            mask[py * width + px] === 0
+          ) {
             on = false
             break
           }
@@ -176,7 +226,12 @@ function erode(mask: Uint8Array, width: number, height: number): Uint8Array {
   return out
 }
 
-function componentOverlapRatio(a: Component, b: Component, width: number, height: number): number {
+function componentOverlapRatio(
+  a: Component,
+  b: Component,
+  width: number,
+  height: number
+): number {
   const map = new Uint8Array(width * height)
   for (let i = 0; i < b.points.length; i += 2) {
     map[b.points[i + 1] * width + b.points[i]] = 1
@@ -190,7 +245,12 @@ function componentOverlapRatio(a: Component, b: Component, width: number, height
   return overlap / Math.max(1, Math.min(a.area, b.area))
 }
 
-function closeMask(mask: Uint8Array, width: number, height: number, passes: number): Uint8Array {
+function closeMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  passes: number
+): Uint8Array {
   let out: Uint8Array = new Uint8Array(mask.length)
   out.set(mask)
   for (let i = 0; i < passes; i += 1) out = dilate(out, width, height)
@@ -198,7 +258,11 @@ function closeMask(mask: Uint8Array, width: number, height: number, passes: numb
   return out
 }
 
-function componentToMask(component: Component, width: number, height: number): Uint8Array {
+function componentToMask(
+  component: Component,
+  width: number,
+  height: number
+): Uint8Array {
   const out = new Uint8Array(width * height)
   for (let i = 0; i < component.points.length; i += 2) {
     out[component.points[i + 1] * width + component.points[i]] = 255
@@ -213,9 +277,11 @@ function resolveEllipseSource(
   width: number,
   height: number,
   center: Point,
-  minArea: number,
+  minArea: number
 ): Component | null {
-  const searchMask = best ? and(componentToMask(best, width, height), dark) : and(mask, dark)
+  const searchMask = best
+    ? and(componentToMask(best, width, height), dark)
+    : and(mask, dark)
   const mergedMask = closeMask(searchMask, width, height, 2)
   const blobs = components(mergedMask, width, height)
 
@@ -227,8 +293,11 @@ function resolveEllipseSource(
     const cx = blob.bbox.x + blob.bbox.width * 0.5
     const cy = blob.bbox.y + blob.bbox.height * 0.5
     const distance = Math.hypot(cx - center[0], cy - center[1])
-    const distanceScore = 1 - clamp(distance / Math.max(1, Math.min(width, height) * 0.5), 0, 1)
-    const overlapScore = best ? componentOverlapRatio(blob, best, width, height) : 1
+    const distanceScore =
+      1 - clamp(distance / Math.max(1, Math.min(width, height) * 0.5), 0, 1)
+    const overlapScore = best
+      ? componentOverlapRatio(blob, best, width, height)
+      : 1
     const score = blob.area * (0.75 + distanceScore * 0.15 + overlapScore * 0.1)
 
     if (score > selectedScore) {
@@ -245,7 +314,7 @@ export function detectGlint(
   width: number,
   height: number,
   blurSize: number,
-  threshold: number,
+  threshold: number
 ): Point | null {
   const blur = gaussian(gray, width, height, blurSize)
   const mask = new Uint8Array(blur.length)
@@ -262,7 +331,11 @@ export function detectGlint(
   return null
 }
 
-function fitEllipse(component: Component, width: number, height: number): Ellipse {
+function fitEllipse(
+  component: Component,
+  width: number,
+  height: number
+): Ellipse {
   if (component.points.length < 10) {
     const radius = Math.max(3, Math.sqrt(Math.max(1, component.area) / Math.PI))
     return {
@@ -284,14 +357,19 @@ function fitEllipse(component: Component, width: number, height: number): Ellips
   ]
   const fitted = fitCircleLeastSquares(hull)
   const center: Point = fitted?.center ?? seedCenter
-  const distances = hull.map((point) => Math.hypot(point[0] - center[0], point[1] - center[1]))
+  const distances = hull.map((point) =>
+    Math.hypot(point[0] - center[0], point[1] - center[1])
+  )
   const edgeRadius = percentileNumber(distances, 0.72)
   const areaRadius = Math.sqrt(Math.max(1, component.area) / Math.PI)
-  const bboxRadius = Math.max(3, Math.min(component.bbox.width, component.bbox.height) * 0.5)
+  const bboxRadius = Math.max(
+    3,
+    Math.min(component.bbox.width, component.bbox.height) * 0.5
+  )
   const radius = clamp(
     Math.max(edgeRadius, fitted?.radius ?? 0, areaRadius * 0.95),
     3,
-    bboxRadius,
+    bboxRadius
   )
 
   return {
@@ -305,35 +383,53 @@ function extractBoundaryPoints(
   component: Component,
   mask: Uint8Array,
   width: number,
-  height: number,
+  height: number
 ): Point[] {
   const boundary: Point[] = []
   for (let i = 0; i < component.points.length; i += 2) {
     const x = component.points[i]
     const y = component.points[i + 1]
-    const neighbors: Point[] = [[0, -1], [1, 0], [0, 1], [-1, 0]]
+    const neighbors: Point[] = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ]
     for (const [dx, dy] of neighbors) {
       const nx = x + dx
       const ny = y + dy
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height || mask[ny * width + nx] === 0) {
+      if (
+        nx < 0 ||
+        ny < 0 ||
+        nx >= width ||
+        ny >= height ||
+        mask[ny * width + nx] === 0
+      ) {
         boundary.push([x, y])
         break
       }
     }
   }
-  return boundary.length > 0 ? boundary : [[component.sumX / component.area, component.sumY / component.area]]
+  return boundary.length > 0
+    ? boundary
+    : [[component.sumX / component.area, component.sumY / component.area]]
 }
 
 function convexHull(points: Point[]): Point[] {
   if (points.length <= 3) return points
 
-  const sorted = [...points].sort((a, b) => (a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]))
+  const sorted = [...points].sort((a, b) =>
+    a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]
+  )
   const cross = (o: Point, a: Point, b: Point) =>
     (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
   const lower: Point[] = []
   for (const point of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+    while (
+      lower.length >= 2 &&
+      cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0
+    ) {
       lower.pop()
     }
     lower.push(point)
@@ -342,7 +438,10 @@ function convexHull(points: Point[]): Point[] {
   const upper: Point[] = []
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
     const point = sorted[i]
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+    while (
+      upper.length >= 2 &&
+      cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0
+    ) {
       upper.pop()
     }
     upper.push(point)
@@ -353,7 +452,7 @@ function convexHull(points: Point[]): Point[] {
   return [...lower, ...upper]
 }
 
-function fitCircleLeastSquares(points: Point[]): { center: Point; radius: number } | null {
+function fitCircleLeastSquares(points: Point[]): CircleFit | null {
   if (points.length < 3) return null
 
   let sumX = 0

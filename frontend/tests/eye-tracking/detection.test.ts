@@ -4,7 +4,7 @@ import {
   detectSpatialPupil,
   refineContour,
 } from "../../apps/web/src/features/eye-tracking/detection"
-import type { Point } from "../../apps/web/src/features/eye-tracking/types"
+import type { Point } from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
 let cv: Awaited<ReturnType<typeof loadOpenCv>>["cv"]
 beforeAll(async () => {
   cv = (await loadOpenCv()).cv

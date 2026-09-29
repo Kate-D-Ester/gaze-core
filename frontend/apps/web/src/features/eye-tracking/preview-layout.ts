@@ -1,9 +1,12 @@
+import type { FrameDimensions } from "./eye-tracking.types"
+import type { PreviewCardFit, PreviewStage } from "./preview-layout.types"
+
 export function fitPreviewFrame(
   sourceWidth: number,
   sourceHeight: number,
   maxWidth: number,
   maxHeight: number
-) {
+): FrameDimensions | null {
   if (
     ![sourceWidth, sourceHeight, maxWidth, maxHeight].every(
       (value) => Number.isFinite(value) && value > 0
@@ -14,7 +17,10 @@ export function fitPreviewFrame(
   return { width: sourceWidth * scale, height: sourceHeight * scale }
 }
 
-export function fitSquarePreview(maxWidth: number, maxHeight: number) {
+export function fitSquarePreview(
+  maxWidth: number,
+  maxHeight: number
+): FrameDimensions | null {
   if (
     ![maxWidth, maxHeight].every((value) => Number.isFinite(value) && value > 0)
   )
@@ -29,7 +35,7 @@ export function fitPreviewStage(
   maxWidth: number,
   maxHeight: number,
   chromeHeight: number
-) {
+): PreviewStage | null {
   if (
     ![maxWidth, maxHeight, chromeHeight].every(Number.isFinite) ||
     maxWidth <= 0 ||
@@ -65,9 +71,11 @@ export function fitPreviewCard(
   cardHeight: number,
   chromeHeight: number,
   footerHeight = 0
-) {
+): PreviewCardFit | null {
   if (
-    ![cardWidth, cardHeight, chromeHeight, footerHeight].every(Number.isFinite) ||
+    ![cardWidth, cardHeight, chromeHeight, footerHeight].every(
+      Number.isFinite
+    ) ||
     cardWidth <= 0 ||
     cardHeight <= 0 ||
     chromeHeight < 0 ||

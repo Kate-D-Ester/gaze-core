@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react"
 import { authClient } from "@/lib/auth-client"
-import type { SessionData } from "@/types/auth"
+import type { SessionData } from "@/lib/auth.types"
 
 export function useAuthSession() {
   const [session, setSession] = useState<SessionData>(null)

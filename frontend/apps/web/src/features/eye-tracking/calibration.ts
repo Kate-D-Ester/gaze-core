@@ -1,5 +1,10 @@
 import { finite } from "./geometry"
-import type { Calibration, CalibrationSample, Point, Vector3 } from "./types"
+import type {
+  Calibration,
+  CalibrationSample,
+  Point,
+  Vector3,
+} from "./eye-tracking.types"
 
 export const CALIBRATION_TARGETS: Point[] = [
   [0.5, 0.5],

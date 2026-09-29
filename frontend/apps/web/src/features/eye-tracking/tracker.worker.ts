@@ -1,20 +1,8 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope
 import { TrackingEngine } from "./engine"
-import { loadOpenCv } from "./opencv"
-import type { FrameSettings } from "./types"
-export type WorkerRequest = {
-  type: "frame"
-  data: Uint8ClampedArray
-  width: number
-  height: number
-  settings: FrameSettings
-  id: number
-  timestamp: number
-  generation: number
-  includePreviewMasks?: boolean
-  evaluateAllThresholds?: boolean
-}
+import { loadOpenCv } from "./opencv.types"
+import type { WorkerRequest } from "./tracker.worker.types"
 let engine: TrackingEngine | null = null
 let generation = -1
 loadOpenCv()

@@ -1,4 +1,12 @@
-import type { Ellipse, Gaze, Intrinsics, Point, Sphere, Vector3 } from "./types"
+import type {
+  Ellipse,
+  Gaze,
+  Intrinsics,
+  Point,
+  Sphere,
+  Vector3,
+} from "./eye-tracking.types"
+import type { EyeCenterFit, EyeRayLine } from "./geometry.types"
 
 export const dot = (a: number[], b: number[]) =>
   a.reduce((sum, v, i) => sum + v * b[i], 0)
@@ -50,7 +58,12 @@ export function raySphereIntersection(
   const root = Math.sqrt(Math.max(0, disc))
   const near = -halfB - root
   const far = -halfB + root
-  const t = near > 1e-9 ? near : far > 1e-9 ? far : null
+  let t: number | null = null
+  if (near > 1e-9) {
+    t = near
+  } else if (far > 1e-9) {
+    t = far
+  }
   return t === null ? null : (origin.map((v, i) => v + t * d[i]) as Vector3)
 }
 /** Approximate a projected sphere by its angular silhouette radius. Exact on axis.
@@ -98,9 +111,7 @@ export function gazeFromPupil(
     ? { origin: sphere.center, direction, pupil: hit }
     : null
 }
-export function minorAxisLine(
-  e: Ellipse
-): { point: Point; direction: Point } | null {
+export function minorAxisLine(e: Ellipse): EyeRayLine | null {
   if (
     !finite([...e.center, e.major, e.minor, e.angle, e.confidence]) ||
     e.minor <= 0 ||
@@ -128,7 +139,7 @@ export function fitEyeCenter(
   ellipses: Ellipse[],
   width: number,
   height: number
-): { center: Point; inliers: Ellipse[]; residual: number } | null {
+): EyeCenterFit | null {
   const lines = ellipses
     .filter((e) => e.confidence >= 0.85)
     .map((e) => ({ e, line: minorAxisLine(e) }))

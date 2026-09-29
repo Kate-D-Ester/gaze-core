@@ -1,4 +1,4 @@
-import type { Point } from "./types"
+import type { Point } from "./eye-tracking.types"
 /** Clearly labeled synthetic input, processed by the same detector as camera frames. */
 export function drawSample(
   ctx: CanvasRenderingContext2D,

@@ -7,13 +7,9 @@ import {
   type PointerEvent,
 } from "react"
 import { Camera, Crop } from "lucide-react"
-import type { Ellipse, Point, Rect } from "../types"
-import {
-  moveRegion,
-  regionFromPoints,
-  resizeRegion,
-  type ResizeHandle,
-} from "../roi"
+import type { Ellipse, Point, Rect } from "../eye-tracking.types"
+import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
+import type { ResizeHandle } from "../roi.types"
 import { fitPreviewCard, fitSquarePreview } from "../preview-layout"
 import { setCanvasDimensions } from "../canvas-sizing"
 import type {
@@ -73,6 +69,13 @@ export function EyePreview({
   const { frame, dimensions } = tracker
   const roi = tracker.settings.roi
   const displayRegion = selection ?? roi
+  let previewClassName = ""
+
+  if (selectRegion) {
+    previewClassName = redraw ? "selectable" : "movable"
+  } else if (selectCorners) {
+    previewClassName = "selectable"
+  }
 
   useEffect(() => {
     if (view === "threshold") onThresholdViewChange?.(true)
@@ -526,15 +529,7 @@ export function EyePreview({
                     : "Eye camera preview"
                 }
                 tabIndex={selectRegion ? 0 : undefined}
-                className={
-                  selectRegion
-                    ? redraw
-                      ? "selectable"
-                      : "movable"
-                    : selectCorners
-                      ? "selectable"
-                      : ""
-                }
+                className={previewClassName}
                 onPointerDown={(event) => beginGesture(event)}
                 onKeyDown={(event) => editWithKeyboard(event)}
               />

@@ -1,20 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
-
-type Theme = "dark" | "light" | "system"
-type ResolvedTheme = "dark" | "light"
-
-type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
-  disableTransitionOnChange?: boolean
-}
-
-type ThemeProviderState = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
-}
+import type {
+  ResolvedTheme,
+  Theme,
+  ThemeProviderProps,
+  ThemeProviderState,
+} from "./theme-provider.types"
 
 const COLOR_SCHEME_QUERY = "(prefers-color-scheme: dark)"
 
@@ -157,14 +148,14 @@ export function ThemeProvider({
       }
 
       setThemeState((currentTheme) => {
-        const nextTheme =
-          currentTheme === "dark"
-            ? "light"
-            : currentTheme === "light"
-              ? "dark"
-              : getSystemTheme() === "dark"
-                ? "light"
-                : "dark"
+        let nextTheme: Theme
+        if (currentTheme === "dark") {
+          nextTheme = "light"
+        } else if (currentTheme === "light") {
+          nextTheme = "dark"
+        } else {
+          nextTheme = getSystemTheme() === "dark" ? "light" : "dark"
+        }
 
         localStorage.setItem(storageKey, nextTheme)
         return nextTheme
