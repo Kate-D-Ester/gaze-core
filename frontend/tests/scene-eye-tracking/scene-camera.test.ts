@@ -7,7 +7,9 @@ let stopped: string[],
   cameras: SceneCamera[],
   pending: ((stream: MediaStream) => void)[],
   callbacks: Map<number, FrameRequestCallback>,
-  videoTime: number
+  videoTime: number,
+  videoFrameCount: number,
+  videos: HTMLVideoElement[]
 const originalCreate = document.createElement.bind(document)
 const originalFetch = globalThis.fetch
 function stream(id: string): MediaStream {
@@ -28,6 +30,8 @@ beforeEach(() => {
   pending = []
   callbacks = new Map()
   videoTime = 0
+  videoFrameCount = 0
+  videos = []
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
@@ -40,17 +44,25 @@ beforeEach(() => {
   })
   document.createElement = ((tag: string) => {
     const element = originalCreate(tag)
-    if (tag === "video")
+    if (tag === "video") {
+      videos.push(element as HTMLVideoElement)
       Object.defineProperties(element, {
         srcObject: { value: null, writable: true },
         videoWidth: { get: () => 640 },
         videoHeight: { get: () => 480 },
         readyState: { get: () => 2 },
         currentTime: { get: () => videoTime },
+        getVideoPlaybackQuality: {
+          value: () => ({
+            totalVideoFrames: videoFrameCount,
+            droppedVideoFrames: 0,
+          }),
+        },
         play: { value: async () => {} },
         pause: { value: () => {} },
         load: { value: () => {} },
       })
+    }
     if (tag === "canvas")
       Object.defineProperty(element, "getContext", {
         value: () => ({ drawImage() {} }),
@@ -78,6 +90,7 @@ function camera() {
 }
 function tick(time: number) {
   videoTime += 0.05
+  videoFrameCount++
   const next = [...callbacks.values()]
   callbacks.clear()
   next.forEach((cb) => cb(time))
@@ -178,4 +191,61 @@ test("abort releases a pending MJPEG response reader", async () => {
   await start
   expect(cancelled).toBe(true)
   expect(c.getSnapshot().error).toBe("")
+})
+
+test("media-clock advancement without a presented frame neither refreshes scene evidence nor hides a stall", async () => {
+  const c = camera(),
+    start = c.startCamera("scene")
+  let callback: VideoFrameRequestCallback | null = null,
+    canceled = 0
+  // The video is created after the permission promise resolves.
+  pending[0](stream("scene"))
+  await start
+  c.stop()
+  const create = document.createElement
+  document.createElement = ((tag: string) => {
+    const element = create(tag)
+    if (tag === "video")
+      Object.defineProperties(element, {
+        requestVideoFrameCallback: {
+          value: (fn: VideoFrameRequestCallback) => {
+            callback = fn
+            return 7
+          },
+        },
+        cancelVideoFrameCallback: {
+          value: () => {
+            canceled++
+          },
+        },
+      })
+    return element
+  }) as typeof document.createElement
+  const restart = c.startCamera("scene")
+  pending[1](stream("scene"))
+  await restart
+  const now = performance.now()
+  callback?.(now, { presentedFrames: 1 } as VideoFrameCallbackMetadata)
+  tick(now)
+  const first = c.latest
+  expect(first).not.toBeNull()
+  tick(now + 50)
+  expect(c.latest).toBe(first)
+  tick(now + 3000)
+  expect(c.getSnapshot().error).toContain("stopped")
+  expect(canceled).toBe(1)
+})
+test("video-frame-count fallback ignores media clock ticks without newly presented frames", async () => {
+  const c = camera(),
+    start = c.startCamera("scene")
+  pending[0](stream("scene"))
+  await start
+  const now = performance.now()
+  tick(now)
+  const first = c.latest
+  videoTime += 0.05
+  const repaint = [...callbacks.values()]
+  callbacks.clear()
+  repaint.forEach((cb) => cb(now + 50))
+  expect(c.latest).toBe(first)
 })

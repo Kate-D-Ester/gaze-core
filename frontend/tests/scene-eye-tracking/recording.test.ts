@@ -98,3 +98,16 @@ test("startup encoder failure releases capture without reporting a completed rec
   expect(stopped).toBe(1)
   expect(completed).toBe(0)
 })
+
+test("browser inactive-error-data-stop ordering preserves its final chunk", async () => {
+  const r = createSceneRecording(canvas())
+  r.start()
+  last.state = "inactive"
+  last.onerror({ error: new Error("Encoder failure") })
+  const stoppedResult = r.stop()
+  last.ondataavailable({ data: new Blob(["final partial video"]) })
+  last.onstop()
+  const result = await stoppedResult
+  expect(await result.blob.text()).toBe("final partial video")
+  expect(result.error).toContain("Encoder failure")
+})

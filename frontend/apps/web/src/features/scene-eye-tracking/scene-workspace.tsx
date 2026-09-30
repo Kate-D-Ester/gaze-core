@@ -18,6 +18,11 @@ const TITLES = [
   "Live scene gaze",
 ]
 const NAMES = ["Scene camera", "Finger calibration", "Live scene gaze"]
+export type SceneStatus = {
+  connected: boolean
+  calibrated: boolean
+  deviceId?: string
+}
 export function SceneWorkspace({
   tracker,
   step,
@@ -28,7 +33,7 @@ export function SceneWorkspace({
   tracker: TrackerController
   step: number
   onStepChange: (step: number) => void
-  onStatus: (status: { connected: boolean; calibrated: boolean }) => void
+  onStatus: (status: SceneStatus) => void
   eyeRevision: number
 }) {
   const scene = useSceneCamera(),
@@ -44,7 +49,11 @@ export function SceneWorkspace({
   ])
   const state = useSceneSession(tracker, scene.camera, hands.hand, identity)
   useEffect(() => {
-    onStatus({ connected: !!scene.source, calibrated: !!state.calibration })
+    onStatus({
+      connected: !!scene.source,
+      calibrated: !!state.calibration,
+      deviceId: scene.source?.deviceId,
+    })
   }, [onStatus, scene.source, state.calibration])
   const canCapture =
     !!scene.source &&

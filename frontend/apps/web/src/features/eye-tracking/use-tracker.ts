@@ -264,7 +264,7 @@ export function useTracker(): TrackerController {
     []
   )
   const startCamera = useCallback(
-    async (deviceId: string) => {
+    async (deviceId: string, excludedDeviceId?: string) => {
       stop()
       setBusy(true)
       setError("")
@@ -288,6 +288,12 @@ export function useTracker(): TrackerController {
           return
         }
         c.stream = stream
+        const actualId =
+          stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId
+        if (excludedDeviceId && actualId === excludedDeviceId)
+          throw new Error(
+            "Choose different USB devices for the eye camera and the scene camera."
+          )
         const video = document.createElement("video")
         video.muted = true
         video.playsInline = true

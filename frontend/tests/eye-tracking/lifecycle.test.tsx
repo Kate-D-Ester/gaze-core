@@ -223,7 +223,11 @@ test("settings edits and source restarts cannot queue frames behind an active wo
   expect(requests).toHaveLength(1)
   await act(async () => {
     worker.onmessage({
-      data: { type: "error", generation: requests[0].generation, message: "stale" },
+      data: {
+        type: "error",
+        generation: requests[0].generation,
+        message: "stale",
+      },
     })
     tick(400)
   })
@@ -238,7 +242,11 @@ test("settings edits and source restarts cannot queue frames behind an active wo
   expect(requests).toHaveLength(2)
   await act(async () => {
     worker.onmessage({
-      data: { type: "error", generation: requests[1].generation, message: "stale" },
+      data: {
+        type: "error",
+        generation: requests[1].generation,
+        message: "stale",
+      },
     })
     tick(600)
   })
@@ -575,4 +583,46 @@ test("camera and media failures use direct, user-readable guidance", async () =>
   })
 
   expect(controller.error).toContain("Allow camera access")
+})
+
+test("eye startup rejects a resolved USB device already used by the scene role", async () => {
+  let startup: Promise<void>
+  resolvePlay = () => {}
+  await act(async () => {
+    startup = controller.startCamera("", "scene-device")
+  })
+  const track = {
+    label: "Scene camera",
+    getSettings: () => ({ deviceId: "scene-device" }),
+    stop: () => stopped++,
+    addEventListener() {},
+  }
+  await act(async () =>
+    resolveCamera({ getTracks: () => [track], getVideoTracks: () => [track] })
+  )
+  await act(async () => {
+    resolvePlay()
+    await startup!
+  })
+  expect(controller.source).toBeNull()
+  expect(controller.error).toContain("different")
+  expect(stopped).toBe(1)
+})
+test("eye source selection disables the active scene USB device", async () => {
+  await act(async () =>
+    root!.render(
+      createElement(SourceControls, {
+        tracker: controller,
+        deviceId: "",
+        setDeviceId: () => {},
+        resetSource: () => {},
+        excludedDeviceId: "camera-1",
+      })
+    )
+  )
+  const sceneOption = host.querySelector<HTMLOptionElement>(
+    'option[value="camera-1"]'
+  )!
+  expect(sceneOption.disabled).toBe(true)
+  expect(sceneOption.textContent).toContain("scene camera")
 })

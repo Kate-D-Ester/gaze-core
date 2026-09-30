@@ -30,7 +30,7 @@ export function pairObservation(
     !Number.isFinite(now) ||
     !finite([scene.timestamp, scene.width, scene.height, scene.id]) ||
     now - scene.timestamp < 0 ||
-    now - scene.timestamp > MAX_FRAME_AGE_MS ||
+    now - scene.timestamp > MAX_FRAME_AGE_MS + Math.max(0, -delayMs) ||
     scene.width <= 0 ||
     scene.height <= 0 ||
     hand.landmarks.length !== 1

@@ -44,6 +44,10 @@ export class SceneSession {
   private collector: Collector | null = null
   private listeners = new Set<() => void>()
   private lastHandId = -1
+  private lastMeasuredEyeId = -1
+  private continuityAfter = -Infinity
+  private pendingHands: HandObservation[] = []
+  private scenes: SceneObservation[] = []
   getSnapshot = () => this.snapshot
   subscribe = (fn: () => void) => {
     this.listeners.add(fn)
@@ -55,18 +59,44 @@ export class SceneSession {
     this.snapshot = { ...this.snapshot, ...next }
     this.listeners.forEach((fn) => fn())
   }
-  addEye(eye: EyeObservation) {
+  addEye(eye: EyeObservation, now = eye.timestamp) {
     if (this.eyes.at(-1)?.id === eye.id) return
     this.eyes.push(eye)
     this.eyes = this.eyes
       .filter((value) => eye.timestamp - value.timestamp <= 3000)
       .slice(-180)
+    const anchor = this.collector?.anchor
+    const usable =
+      eye.valid &&
+      !!eye.feature &&
+      eye.confidence >= 0.7 &&
+      Number.isFinite(eye.confidence) &&
+      Number.isFinite(eye.timestamp) &&
+      eye.feature.every(Number.isFinite)
+    const moved =
+      !!anchor &&
+      !!eye.feature &&
+      eye.timestamp >= anchor.eyeTimestamp &&
+      Math.hypot(
+        eye.feature[0] - anchor.feature[0],
+        eye.feature[1] - anchor.feature[1]
+      ) > 0.03
+    if (this.collector && (!usable || moved)) {
+      this.continuityAfter = eye.timestamp
+      this.pendingHands = []
+      this.update({ collection: collectPair(this.collector, null) })
+    }
+    this.drainHands(now)
   }
   invalidate(reason = "Camera or eye setup changed. Calibrate again.") {
     const hadMapping = !!this.snapshot.calibration || !!this.snapshot.capture
     this.collector = null
     this.eyes = []
     this.lastHandId = -1
+    this.lastMeasuredEyeId = -1
+    this.continuityAfter = -Infinity
+    this.pendingHands = []
+    this.scenes = []
     this.update({
       calibration: null,
       validation: null,
@@ -91,6 +121,8 @@ export class SceneSession {
     if (mode === "validation" && !this.snapshot.calibration) return
     this.collector = createCollector(mode)
     this.lastHandId = -1
+    this.pendingHands = []
+    this.continuityAfter = -Infinity
     this.update({
       capture: mode,
       collection: collectPair(this.collector, null),
@@ -101,6 +133,7 @@ export class SceneSession {
   }
   cancelCapture() {
     this.collector = null
+    this.pendingHands = []
     this.update({
       capture: null,
       collection: null,
@@ -110,7 +143,35 @@ export class SceneSession {
   observeHand(hand: HandObservation, now: number) {
     if (!this.collector || this.lastHandId === hand.scene.id) return
     this.lastHandId = hand.scene.id
-    const pair = pairObservation(this.eyes, hand, this.snapshot.delayMs, now)
+    if (hand.landmarks.length !== 1) {
+      this.pendingHands = []
+      this.update({ collection: collectPair(this.collector, null) })
+      return
+    }
+    this.pendingHands.push(hand)
+    this.pendingHands = this.pendingHands.slice(-90)
+    this.drainHands(now)
+  }
+  private drainHands(now: number) {
+    while (this.collector && this.pendingHands.length) {
+      const hand = this.pendingHands[0]
+      const targetTime = hand.scene.timestamp - this.snapshot.delayMs
+      const maxAge = MAX_FRAME_AGE_MS + Math.max(0, -this.snapshot.delayMs)
+      if (
+        now - hand.scene.timestamp <= maxAge &&
+        this.snapshot.delayMs < 0 &&
+        (this.eyes.at(-1)?.timestamp ?? -Infinity) < targetTime
+      )
+        return
+      this.pendingHands.shift()
+      this.collectHand(hand, now)
+    }
+    if (!this.collector) this.pendingHands = []
+  }
+  private collectHand(hand: HandObservation, now: number) {
+    if (!this.collector) return
+    let pair = pairObservation(this.eyes, hand, this.snapshot.delayMs, now)
+    if (pair && pair.eyeTimestamp <= this.continuityAfter) pair = null
     const collection = collectPair(this.collector, pair)
     if (!collection.complete) {
       this.update({ collection })
@@ -142,9 +203,29 @@ export class SceneSession {
     }
     this.collector = null
   }
-  measure(scene: SceneObservation | null, now: number) {
+  measure(latestScene: SceneObservation | null, now: number) {
+    if (latestScene && this.scenes.at(-1)?.id !== latestScene.id) {
+      this.scenes.push(latestScene)
+      this.scenes = this.scenes
+        .filter((s) => now - s.timestamp <= 3000)
+        .slice(-180)
+    }
     const calibration = this.snapshot.calibration
     if (!calibration) return
+    const newestEye = this.eyes.at(-1)
+    let scene = latestScene
+    if (this.snapshot.delayMs < 0 && newestEye) {
+      const sceneTime = newestEye.timestamp + this.snapshot.delayMs
+      scene = this.scenes.reduce<SceneObservation | null>(
+        (best, value) =>
+          !best ||
+          Math.abs(value.timestamp - sceneTime) <
+            Math.abs(best.timestamp - sceneTime)
+            ? value
+            : best,
+        null
+      )
+    }
     const time = (scene?.timestamp ?? now) - this.snapshot.delayMs
     const eye = this.eyes.reduce<EyeObservation | null>(
       (best, e) =>
@@ -156,6 +237,8 @@ export class SceneSession {
     let reason = "",
       position = null
     if (
+      !latestScene ||
+      now - latestScene.timestamp > MAX_FRAME_AGE_MS ||
       !scene ||
       !Number.isFinite(scene.timestamp) ||
       !Number.isFinite(scene.width) ||
@@ -163,10 +246,12 @@ export class SceneSession {
       scene.width <= 0 ||
       scene.height <= 0 ||
       now < scene.timestamp ||
-      now - scene.timestamp > MAX_FRAME_AGE_MS
+      now - scene.timestamp >
+        MAX_FRAME_AGE_MS + Math.max(0, -this.snapshot.delayMs)
     )
       reason = "Scene frames stale or unavailable"
     else if (
+      !newestEye?.valid ||
       !eye ||
       !eye.valid ||
       !eye.feature ||
@@ -181,6 +266,9 @@ export class SceneSession {
       reason = "Camera frames could not be paired"
     else position = mapSceneGaze(calibration, eye.feature)
     if (!position && !reason) reason = "Invalid gaze feature"
+    // Repainting/new scene frames must not refresh already-used pupil evidence.
+    if (position && eye?.id === this.lastMeasuredEyeId) return
+    if (position && eye) this.lastMeasuredEyeId = eye.id
     const inFrame = !!position && position.every((v) => v >= 0 && v <= 1)
     if (position && !inFrame) reason = "Gaze outside the scene camera view"
     const extrapolated =
@@ -210,7 +298,11 @@ export class SceneSession {
     this.update({ measurement, trace })
   }
   checkCaptureFreshness(now: number) {
-    if (this.collector && this.collector.lastTimestamp < now - MAX_FRAME_AGE_MS)
+    if (
+      this.collector &&
+      this.collector.lastTimestamp <
+        now - (MAX_FRAME_AGE_MS + Math.max(0, -this.snapshot.delayMs))
+    )
       this.update({ collection: collectPair(this.collector, null) })
   }
 }

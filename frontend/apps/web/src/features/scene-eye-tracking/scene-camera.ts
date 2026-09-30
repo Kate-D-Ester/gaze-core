@@ -40,7 +40,11 @@ export class SceneCamera {
   private generation = 0
   private sequence = 0
   private raf = 0
-  private lastVideoTime = -1
+  private videoFrameHandle = 0
+  private usesFrameCallbacks = false
+  private videoFrameReady = false
+  private videoFrameTimestamp = 0
+  private lastPresentedFrames = -1
   private lastArrival = 0
   private disposed = false
   private refreshDevices = async () => {
@@ -79,6 +83,8 @@ export class SceneCamera {
     this.stream?.getTracks().forEach((track) => track.stop())
     this.stream = null
     if (this.video) {
+      if (this.videoFrameHandle)
+        this.video.cancelVideoFrameCallback?.(this.videoFrameHandle)
       this.video.pause()
       this.video.srcObject = null
       this.video.removeAttribute("src")
@@ -88,7 +94,10 @@ export class SceneCamera {
     this.bitmap?.close()
     this.bitmap = null
     this.latest = null
-    this.lastVideoTime = -1
+    this.videoFrameHandle = 0
+    this.usesFrameCallbacks = false
+    this.videoFrameReady = false
+    this.lastPresentedFrames = -1
     this.drawnBitmapId = -1
     this.update({ source: null, busy: false, error, frame: null })
   }
@@ -247,15 +256,43 @@ export class SceneCamera {
   private activate(source: SceneSource, epoch: number) {
     this.lastArrival = performance.now()
     this.update({ source, busy: false, error: "" })
+    const video = this.video
+    this.usesFrameCallbacks = !!video?.requestVideoFrameCallback
+    if (video && this.usesFrameCallbacks) {
+      const presented: VideoFrameRequestCallback = (now, metadata) => {
+        if (epoch !== this.generation || this.disposed) return
+        if (metadata.presentedFrames !== this.lastPresentedFrames) {
+          this.lastPresentedFrames = metadata.presentedFrames
+          this.videoFrameReady = true
+          this.videoFrameTimestamp = now
+        }
+        this.videoFrameHandle = video.requestVideoFrameCallback(presented)
+      }
+      this.videoFrameHandle = video.requestVideoFrameCallback(presented)
+    } else if (video && typeof video.getVideoPlaybackQuality !== "function") {
+      this.stop(
+        "Scene video needs video-frame callbacks or playback frame counters. Use a current browser."
+      )
+      return
+    }
     const loop = (time: number) => {
       if (epoch !== this.generation || this.disposed) return
       const image = this.bitmap || this.video
+      const quality = !this.usesFrameCallbacks
+        ? this.video?.getVideoPlaybackQuality?.()
+        : null
+      const presentedFrames = quality
+        ? quality.totalVideoFrames - quality.droppedVideoFrames
+        : -1
       const fresh =
         !!image &&
         (this.bitmap
           ? this.bitmapId !== this.drawnBitmapId
           : this.video!.readyState >= 2 &&
-            this.video!.currentTime !== this.lastVideoTime)
+            (this.usesFrameCallbacks
+              ? this.videoFrameReady
+              : presentedFrames > 0 &&
+                presentedFrames !== this.lastPresentedFrames))
       if (fresh && image) {
         const width = this.bitmap?.width || this.video!.videoWidth,
           height = this.bitmap?.height || this.video!.videoHeight
@@ -274,11 +311,16 @@ export class SceneCamera {
             return
           }
           this.drawnBitmapId = this.bitmapId
-          this.lastVideoTime = this.video?.currentTime ?? -1
+          this.videoFrameReady = false
+          if (!this.usesFrameCallbacks)
+            this.lastPresentedFrames = presentedFrames
           this.lastArrival = time
+          if (this.bitmap) this.lastArrival = this.bitmapTime
+          else if (this.usesFrameCallbacks)
+            this.lastArrival = this.videoFrameTimestamp
           this.latest = {
             id: ++this.sequence,
-            timestamp: this.bitmap ? this.bitmapTime : time,
+            timestamp: this.lastArrival,
             width,
             height,
             generation: epoch,

@@ -21,9 +21,9 @@ For a production preview, run `bun run build` followed by `bun run --cwd apps/we
 
 ## Timing and mapping
 
-Both pipelines use `performance.now()` timestamps. Pairing allows at most 100 ms mismatch after the selected relative delay adjustment. Eye history is limited to three seconds; stale scene data older than 250 ms and stale eye data older than 250 ms plus the absolute configured delay are rejected.
+Both pipelines use `performance.now()` timestamps. Pairing allows at most 100 ms mismatch after the selected relative delay adjustment. Timestamp histories are limited to three seconds. The current scene source must stay fresh within 250 ms. Pairing allows the intentionally delayed side an additional configured offset: negative delays retain earlier hand/scene observations until the later eye evidence arrives; positive delays use earlier eye evidence. Duplicate pupil evidence does not create fresh measurement rows.
 
-A positive **Scene arrival delay relative to eye** means the scene stream arrives later. For example, +100 ms pairs a scene received at 1000 ms with eye evidence near 900 ms. This is a manually supplied compensation for transport/decode delay, not hardware synchronization. Compare fresh accuracy checks at stable working distances when tuning it; a fixed compensation cannot correct variable network jitter.
+A positive **Scene arrival delay relative to eye** means the scene stream arrives later. For example, +100 ms pairs a scene received at 1000 ms with eye evidence near 900 ms. A negative value means the eye stream arrives later; pairing waits for that evidence and records the corresponding historical scene frame ID and timestamp. This is a manually supplied compensation for transport/decode delay, not hardware synchronization. Compare fresh accuracy checks at stable working distances when tuning it; a fixed compensation cannot correct variable network jitter.
 
 The mapping uses gaze features from the locked eye model. It fits an affine model and a quadratic candidate using whole-location leave-one-out checks, choosing the quadratic only for at least 10% improvement. Fits with normalized RMS over 0.08, singular features, or insufficient coverage are rejected. These thresholds are initial software guardrails; measured accuracy still depends on the headset, optics, fixation and synchronization.
 
@@ -58,4 +58,17 @@ Before relying on a real headset, validate a second set of physical fixations at
 
 After `bun run build`, run `bun tests/scene-eye-tracking/prepare-browser-fixture.ts` from `frontend`, then `bun run --cwd apps/web preview --host 127.0.0.1 --port 4014`. Open `/scene-fixture.html`. This disposable page uses synthetic camera, pupil and hand data; it does not request camera access or modify the production route.
 
-Use **Test real MediaPipe worker** to load the production worker/WASM/model and run inference on a synthetic image. Connect the synthetic scene camera, start finger calibration and then sweep nine regions. Open live gaze, record/stop, export CSV/JSON/PNG, and toggle hand/pupil loss. A new production build removes the fixture page. These checks prove browser integration, not hardware accuracy.
+Use **Test real MediaPipe worker** to load the production worker/WASM/model and run inference on a synthetic image. Connect the synthetic scene camera, start finger calibration and then sweep nine regions. Open live gaze, record/stop, export CSV/JSON/PNG, and toggle hand/pupil loss. A new production build removes the fixture page. Use **Inspect completed raw video** to check the finalized blob type, size and decoded dimensions directly, even when the browser automation environment does not expose downloads. These checks prove browser integration, not hardware accuracy.
+
+## Verified delivery and implementation decisions
+
+The completed branch passes 197 frontend tests, both workspace type checks, lint and the production build. Browser checks loaded the actual pinned MediaPipe worker/model/WASM, collected nine synthetic calibration regions and five fresh validation regions, suppressed pupil-loss gaze, retained hand-free gaze, and generated a heatmap. The final 30 fps fixture produced about 30 gaze rows per second. A finalized 312,376-byte VP8 WebM decoded and played at 960 × 540 with no video error. This is software integration evidence, not measured headset accuracy.
+
+Independent review findings were reproduced with failing tests and corrected: interrupted hold continuity, repeated eye evidence, negative-delay pairing, final encoder chunks, and repeated scene images during media-clock advancement. The reverse camera-role collision was treated as important and corrected with symmetric device exclusion. No review findings remain deferred.
+
+- **MediaPipe runtime:** the pinned loader requires `importScripts`; the build emits a local classic IIFE worker rather than modifying the library. Real browser inference verified that decision.
+- **Physical accuracy and thresholds:** numerical gates are initial guardrails. Parallax and suitability of those thresholds require fresh physical fixations at the intended depths.
+- **Actual cameras and networks:** software lifecycle and −200/−500 ms delay cases are tested; physical USB concurrency and real IP/mDNS jitter still require the hardware checklist above.
+- **Video and timing:** finalized raw playback is verified directly in the browser. Automated download-event APIs did not expose blob files; CSV/JSON contents are unit-tested. Exact video-coordinate alignment requires an observable event on real cameras.
+- **Other encoders/browsers:** VP8 WebM is browser-tested; codec selection, failure finalization and useful data-log fallback are covered by tests. Other hardware/codec combinations are not claimed as measured.
+- **Completion feedback:** the optional audible cue is omitted; collection progress and completion feedback are visual.

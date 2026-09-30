@@ -63,7 +63,8 @@ export function createSceneRecording(
       clearTimeout(timer)
       try {
         if (recorder?.state !== "inactive") recorder?.stop()
-        else finalize()
+        // Inactive can precede final dataavailable/stop on encoder failure.
+        // Only onstop finalizes a successfully started recorder.
       } catch (cause) {
         error =
           cause instanceof Error

@@ -92,8 +92,8 @@ Tests under `frontend/tests/scene-eye-tracking/`; a route regression test extend
 
 ### Task 5: Verification and delivery
 
-- [ ] Add `docs/scene-camera-eye-tracking.md` with setup, physical-finger instructions, IP/mDNS examples, CORS/mixed-content guidance, delay adjustment, validation, local export formats, parallax, camera-image heatmaps, and hardware-validation checklist. Link research sources and document MediaPipe asset versions/licenses.
-- [ ] Run `bun test`, `bun run typecheck`, `bun run lint`, and `bun run build` from the worktree frontend. Investigate failures before claiming completion. Baseline: 148 tests pass and production build passes; existing OpenCV Node-module externalization warnings are present.
-- [ ] Inspect the real browser route at desktop/narrow widths; exercise loading/error/retry states and deterministic hand/pupil fixtures. Verify the built worker/model assets load from the production preview. Record unavailable hardware checks honestly.
-- [ ] Run an independent whole-branch review, address actionable findings, and rerun relevant checks after changes. Review timing, raw-video separation, validity gaps, resource cleanup, and preservation of `/trial` in particular.
-- [ ] Commit the completed change and report route, branch/worktree, test/build results, artifact formats, and remaining hardware accuracy checks. Keep worktree available for Kate; do not merge or publish without a request.
+- [x] Add `docs/scene-camera-eye-tracking.md` with setup, physical-finger instructions, IP/mDNS examples, CORS/mixed-content guidance, delay adjustment, validation, local export formats, parallax, camera-image heatmaps, and hardware-validation checklist. Link research sources and document MediaPipe asset versions/licenses.
+- [x] Run `bun test`, `bun run typecheck`, `bun run lint`, and `bun run build` from the worktree frontend. Investigate failures before claiming completion. Baseline: 148 tests pass and production build passes; existing OpenCV Node-module externalization warnings are present.
+- [x] Inspect the real browser route at desktop/narrow widths; exercise loading/error/retry states and deterministic hand/pupil fixtures. Verify the built worker/model assets load from the production preview. Record unavailable hardware checks honestly.
+- [x] Run an independent whole-branch review, address actionable findings, and rerun relevant checks after changes. Review timing, raw-video separation, validity gaps, resource cleanup, and preservation of `/trial` in particular.
+- [x] Commit the completed change and report route, branch/worktree, test/build results, artifact formats, and remaining hardware accuracy checks. Keep worktree available for Kate; do not merge or publish without a request.

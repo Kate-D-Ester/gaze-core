@@ -7,6 +7,7 @@ export function SourceControls({
   deviceId,
   setDeviceId,
   resetSource,
+  excludedDeviceId,
 }: SourceControlsProps) {
   const [kind, setKind] = useState<"usb" | "network">("usb")
   const [streamUrl, setStreamUrl] = useState("")
@@ -22,7 +23,7 @@ export function SourceControls({
 
   function startPreview() {
     resetSource()
-    if (kind === "usb") void tracker.startCamera(deviceId)
+    if (kind === "usb") void tracker.startCamera(deviceId, excludedDeviceId)
     else void tracker.startNetworkStream(streamUrl)
   }
 
@@ -54,8 +55,15 @@ export function SourceControls({
           >
             <option value="">Default camera</option>
             {cameras.map((device, index) => (
-              <option key={device.deviceId} value={device.deviceId}>
+              <option
+                key={device.deviceId}
+                value={device.deviceId}
+                disabled={
+                  !!excludedDeviceId && device.deviceId === excludedDeviceId
+                }
+              >
                 {device.label.trim() || `Camera ${index + 1}`}
+                {device.deviceId === excludedDeviceId ? " (scene camera)" : ""}
               </option>
             ))}
           </select>

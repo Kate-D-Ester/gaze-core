@@ -1,4 +1,7 @@
-import { SceneWorkspace } from "@/features/scene-eye-tracking/scene-workspace"
+import {
+  SceneWorkspace,
+  type SceneStatus,
+} from "@/features/scene-eye-tracking/scene-workspace"
 import { LiveControls } from "@/features/eye-tracking/steps/live-controls"
 import { CalibrationControls } from "@/features/eye-tracking/steps/calibration-controls"
 import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
@@ -73,7 +76,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
         ["Live scene gaze", "Map and record your view."],
       ]
     : COPY
-  const [sceneStatus, setSceneStatus] = useState({
+  const [sceneStatus, setSceneStatus] = useState<SceneStatus>({
     connected: false,
     calibrated: false,
   })
@@ -425,6 +428,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
             {step === 0 && (
               <SourceControls
                 tracker={tracker}
+                excludedDeviceId={sceneMode ? sceneStatus.deviceId : undefined}
                 deviceId={deviceId}
                 setDeviceId={setDeviceId}
                 resetSource={resetSource}

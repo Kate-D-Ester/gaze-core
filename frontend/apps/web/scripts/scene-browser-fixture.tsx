@@ -103,7 +103,9 @@ window.Worker = FixtureWorker as unknown as typeof Worker
 export function Fixture() {
   const [step, setStep] = useState(0),
     [frame, setFrame] = useState<TrackingFrame | null>(null),
-    [runtime, setRuntime] = useState("Not tested")
+    [runtime, setRuntime] = useState("Not tested"),
+    [rawVideo, setRawVideo] = useState<string | null>(null),
+    [artifact, setArtifact] = useState("")
   const latest = useRef<TrackingFrame | null>(null)
   const status = useCallback(() => {}, [])
   useEffect(() => {
@@ -216,8 +218,40 @@ export function Fixture() {
           Toggle hand loss
         </button>
         <button onClick={() => setStep(0)}>Scene source controls</button>
+        <button
+          onClick={async () => {
+            const link = document.querySelector<HTMLAnchorElement>(
+              "a[download^='scene-raw']"
+            )
+            if (!link) {
+              setArtifact("Finalize a video first.")
+              return
+            }
+            const blob = await (await fetch(link.href)).blob()
+            setArtifact(`Raw video: ${blob.size} bytes; ${blob.type}`)
+            setRawVideo(link.href)
+          }}
+        >
+          Inspect completed raw video
+        </button>
       </div>
       <output role="status">{runtime}</output>
+      <p role="status">{artifact}</p>
+      {rawVideo && (
+        <video
+          aria-label="Completed raw scene video"
+          src={rawVideo}
+          controls
+          style={{ width: "100%", maxWidth: 640 }}
+          onLoadedMetadata={(e) => {
+            const video = e.currentTarget
+            setArtifact(
+              (current) =>
+                `${current}; decoded ${video.videoWidth} × ${video.videoHeight}`
+            )
+          }}
+        />
+      )}
       <SceneWorkspace
         tracker={tracker}
         step={step}

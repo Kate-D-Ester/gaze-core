@@ -19,18 +19,21 @@ export function useSceneSession(
   useEffect(() => {
     const frame = tracker.frame
     if (!frame) return
-    session.addEye({
-      id: frame.id,
-      timestamp: frame.timestamp,
-      feature: frame.gaze ? gazeFeature(frame.gaze.direction) : null,
-      confidence: frame.detection.ellipse?.confidence ?? 0,
-      valid:
-        tracker.settings.locked &&
-        !!frame.gaze &&
-        !!frame.detection.ellipse &&
-        frame.detection.tracking !== "reacquiring" &&
-        frame.detection.tracking !== "lost",
-    })
+    session.addEye(
+      {
+        id: frame.id,
+        timestamp: frame.timestamp,
+        feature: frame.gaze ? gazeFeature(frame.gaze.direction) : null,
+        confidence: frame.detection.ellipse?.confidence ?? 0,
+        valid:
+          tracker.settings.locked &&
+          !!frame.gaze &&
+          !!frame.detection.ellipse &&
+          frame.detection.tracking !== "reacquiring" &&
+          frame.detection.tracking !== "lost",
+      },
+      performance.now()
+    )
   }, [session, tracker.frame, tracker.settings.locked, identity])
   useEffect(() => {
     if (hand) session.observeHand(hand, performance.now())
