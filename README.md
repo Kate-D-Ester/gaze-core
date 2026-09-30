@@ -17,3 +17,11 @@ Open `http://localhost:4001/trial`. Camera access requires localhost or HTTPS an
 The dashboard, Google/email authentication, and API-key management use the separate backend service. Follow [the backend setup guide](backend/README.md) to configure its environment and database. The `/trial` eye-tracking experience can run without that service.
 
 See [Eye tracking V2](docs/eye-tracking-v2.md) for the tracker workflow, models, limitations, and validation details.
+
+
+## Remote eye tracking (V3)
+
+Open `/trials/remote-eye-tracking` for mobile, webcam, or IR tracking. See
+[the V3 setup, research, and validation guide](docs/remote-eye-tracking-v3.md).
+Mobile camera access requires a trusted HTTPS origin. All model assets are bundled
+locally; camera frames remain on the device.

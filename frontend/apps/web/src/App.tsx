@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react"
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom"
 import { useApiKeyActions } from "@/hooks/use-api-key-actions"
 import { useAuthActions } from "@/hooks/use-auth-actions"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { AuthPage } from "@/pages/auth-page"
 import { DashboardPage } from "@/pages/dashboard-page"
+import { RemoteEyeTrackingPage } from "@/pages/remote-eye-tracking-page"
 import { V2Page } from "@/pages/v2-page"
 import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
   const location = useLocation()
-  if (location.pathname === "/trial") {
+  if (location.pathname === "/trials/remote-eye-tracking")
+    return <RemoteEyeTrackingPage />
+
+  if (location.pathname === "/trial" || location.pathname === "/trials") {
     return <V2Page />
   }
 
@@ -22,7 +32,14 @@ export function App() {
 }
 
 function AccountApp() {
-  const { session, setSession, loadingSession, isAuthenticated, loadSession, signOut } = useAuthSession()
+  const {
+    session,
+    setSession,
+    loadingSession,
+    isAuthenticated,
+    loadSession,
+    signOut,
+  } = useAuthSession()
 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -32,8 +49,7 @@ function AccountApp() {
   const location = useLocation()
 
   const isPublicPath =
-    location.pathname === "/auth"
-    || location.pathname === "/verify-email"
+    location.pathname === "/auth" || location.pathname === "/verify-email"
 
   const authActions = useAuthActions({
     setBusy,
@@ -72,7 +88,13 @@ function AccountApp() {
     if (!isAuthenticated && !isPublicPath) {
       navigate("/auth", { replace: true })
     }
-  }, [isAuthenticated, isPublicPath, loadingSession, location.pathname, navigate])
+  }, [
+    isAuthenticated,
+    isPublicPath,
+    loadingSession,
+    location.pathname,
+    navigate,
+  ])
 
   async function handleSignOut() {
     setBusy(true)
@@ -123,7 +145,10 @@ function AccountApp() {
           />
         }
       />
-      <Route path="/verify-email" element={<VerifyEmailPage onVerified={() => void loadSession()} />} />
+      <Route
+        path="/verify-email"
+        element={<VerifyEmailPage onVerified={() => void loadSession()} />}
+      />
       <Route
         path="/dashboard"
         element={
@@ -140,14 +165,18 @@ function AccountApp() {
             onNewKeyNameChange={apiKeyActions.setNewKeyName}
             onCreateKey={() => void apiKeyActions.handleCreateApiKey()}
             onCopyCreatedKey={() => void apiKeyActions.handleCopyCreatedKey()}
-            onRegenerateKey={(key) => void apiKeyActions.handleRegenerateApiKey(key)}
+            onRegenerateKey={(key) =>
+              void apiKeyActions.handleRegenerateApiKey(key)
+            }
             onDeleteKey={(key) => void apiKeyActions.handleDeleteApiKey(key)}
           />
         }
       />
       <Route
         path="*"
-        element={<Navigate to={isAuthenticated ? "/dashboard" : "/auth"} replace />}
+        element={
+          <Navigate to={isAuthenticated ? "/dashboard" : "/auth"} replace />
+        }
       />
     </Routes>
   )
