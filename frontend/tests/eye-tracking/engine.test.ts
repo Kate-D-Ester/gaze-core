@@ -140,7 +140,7 @@ test("a ready eye model stays available through transient fit failures", () => {
   expect(estimator.getLatest()?.ready).toBe(true)
 })
 
-test("spatial association rejects one-frame jumps but reacquires sustained eye movement", () => {
+test("spatial association confirms initial jumps and immediately follows established pupil movement", () => {
   engine.reset()
   const settings: FrameSettings = {
     format: "spatial",
@@ -173,8 +173,8 @@ test("spatial association rejects one-frame jumps but reacquires sustained eye m
   expect(recovered.detection.ellipse!.center[0]).toBeCloseTo(103, 0)
   expect(
     engine.process(image(240, 150), 320, 240, settings, 4, 120).detection
-      .ellipse
-  ).toBeNull()
+      .ellipse!.center[0]
+  ).toBeCloseTo(240, 0)
   const moved = engine.process(image(240, 150), 320, 240, settings, 5, 160)
   expect(moved.detection.ellipse!.center[0]).toBeCloseTo(240, 0)
   const blank = new Uint8ClampedArray(320 * 240 * 4).fill(185)
@@ -257,4 +257,165 @@ test("a tracked, mildly occluded pupil keeps valid gaze and a stable center", ()
       partial.detection.ellipse!.center[1] - 120
     )
   ).toBeLessThan(2)
+})
+
+test("strong pupil evidence follows a same scale saccade without a confirmation gap", () => {
+  engine.reset()
+  const width = 320,
+    height = 240,
+    settings: FrameSettings = {
+      format: "spatial",
+      roi: { x: 0, y: 0, width, height },
+      thresholdMode: "auto",
+      threshold: 0,
+      fov: 45,
+      radiusMm: 12,
+      corners: null,
+      locked: false,
+    }
+  const image = (cx: number, cy: number) => {
+    const pixels = new Uint8ClampedArray(width * height * 4).fill(255)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const value =
+          (x - cx) ** 2 / 25 ** 2 + (y - cy) ** 2 / 18 ** 2 <= 1 ? 25 : 170
+        const offset = (y * width + x) * 4
+        pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = value
+      }
+    return pixels
+  }
+  for (let frame = 0; frame < 3; frame++)
+    engine.process(
+      image(70, 145),
+      width,
+      height,
+      settings,
+      frame,
+      frame * 40,
+      false
+    )
+  const moved = engine.process(
+    image(255, 65),
+    width,
+    height,
+    settings,
+    3,
+    120,
+    false
+  )
+  expect(moved.detection.ellipse).not.toBeNull()
+  expect(moved.detection.ellipse!.center[0]).toBeCloseTo(255, 0)
+  expect(moved.detection.ellipse!.center[1]).toBeCloseTo(65, 0)
+})
+
+test("gradual pupil constriction and dilation retain a continuously measured track", () => {
+  const width = 320,
+    height = 240,
+    settings: FrameSettings = {
+      format: "spatial",
+      roi: { x: 0, y: 0, width, height },
+      thresholdMode: "auto",
+      threshold: 0,
+      fov: 45,
+      radiusMm: 12,
+      corners: null,
+      locked: false,
+    },
+    pixels = new Uint8ClampedArray(width * height * 4).fill(255)
+  for (const direction of [-1, 1]) {
+    engine.reset()
+    for (let frame = 0; frame <= 96; frame++) {
+      const major = direction < 0 ? 40 - frame * 0.25 : 16 + frame * 0.25,
+        minor = major * 0.75
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const value =
+              ((x - 160) / major) ** 2 + ((y - 120) / minor) ** 2 <= 1
+                ? 25
+                : 170,
+            offset = (y * width + x) * 4
+          pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = value
+        }
+      const result = engine.process(
+        pixels,
+        width,
+        height,
+        settings,
+        frame,
+        frame * (1000 / 24),
+        false
+      )
+      expect(result.detection.ellipse).not.toBeNull()
+      expect(Math.abs(result.detection.ellipse!.major - major)).toBeLessThan(2)
+    }
+  }
+})
+
+test("fresh pupil arcs sustain measured position through long occlusion and stop on closure", () => {
+  engine.reset()
+  const width = 320,
+    height = 240,
+    settings: FrameSettings = {
+      format: "spatial",
+      roi: { x: 0, y: 0, width, height },
+      thresholdMode: "auto",
+      threshold: 0,
+      fov: 45,
+      radiusMm: 12,
+      corners: null,
+      locked: false,
+    }
+  const image = (cx: number, cy: number, occluded: boolean) => {
+    const out = new Uint8ClampedArray(width * height * 4)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4
+        let value =
+          (x - cx) ** 2 / 30 ** 2 + (y - cy) ** 2 / 20 ** 2 <= 1 ? 126 : 170
+        if (occluded && y < cy + 1) value = 12
+        out[i] = out[i + 1] = out[i + 2] = value
+        out[i + 3] = 255
+      }
+    return out
+  }
+  let id = 0
+  for (; id < 4; id++)
+    engine.process(
+      image(160, 120, false),
+      width,
+      height,
+      settings,
+      id,
+      id * 40,
+      false
+    )
+  for (; id < 54; id++) {
+    const cx = 160 + Math.round(8 * Math.sin(id / 8)),
+      cy = 120 + Math.round(4 * Math.cos(id / 8)),
+      frame = engine.process(
+        image(cx, cy, true),
+        width,
+        height,
+        settings,
+        id,
+        id * 40,
+        false
+      )
+    expect(frame.detection.ellipse).not.toBeNull()
+    expect(frame.detection.shapeObserved).toBe(false)
+    expect(Math.abs(frame.detection.ellipse!.center[0] - cx)).toBeLessThan(2)
+    expect(Math.abs(frame.detection.ellipse!.center[1] - cy)).toBeLessThan(2)
+  }
+  const closed = new Uint8ClampedArray(width * height * 4).fill(170)
+  const frame = engine.process(
+    closed,
+    width,
+    height,
+    settings,
+    id,
+    id * 40,
+    false
+  )
+  expect(frame.detection.ellipse).toBeNull()
+  expect(frame.gaze).toBeNull()
 })

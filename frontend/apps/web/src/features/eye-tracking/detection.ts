@@ -9,6 +9,7 @@ import type {
   PupilContourRegion,
   PupilDetectionOptions,
   PupilProposal,
+  PupilRimIdentity,
   PupilRimSample,
 } from "./detection.types"
 import { finite } from "./geometry"
@@ -16,6 +17,8 @@ import { finite } from "./geometry"
 const maxContourCandidates = 24
 const maxContourPoints = 256
 const recoveryTrials = 24
+const maxPartialConfidence = 0.8
+const inwardDepths = [0.4, 0.6, 0.8]
 const rimDirections: Point[] = Array.from({ length: 64 }, (_, i) => [
   Math.cos((i * Math.PI) / 32),
   Math.sin((i * Math.PI) / 32),
@@ -68,7 +71,8 @@ function curvedEdgePoints(points: Point[]): Point[] {
 function darkestPatch(
   gray: Uint8Array,
   width: number,
-  height: number
+  height: number,
+  minimumIntensity = 0
 ): DarkestPatch | null {
   const size = Math.max(3, Math.round(Math.min(width, height) / 24)),
     half = Math.floor(size / 2),
@@ -79,14 +83,17 @@ function darkestPatch(
     for (let x = half + 2; x < width - half - 2; x += stride) {
       let sum = 0,
         sum2 = 0,
-        n = 0
+        n = 0,
+        lowest = 255
       for (let dy = -half; dy <= half; dy += 2)
         for (let dx = -half; dx <= half; dx += 2) {
           const v = gray[(y + dy) * width + x + dx]
+          lowest = Math.min(lowest, v)
           sum += v
           sum2 += v * v
           n++
         }
+      if (lowest < minimumIntensity) continue
       const mean = sum / n,
         variance = Math.max(0, sum2 / n - mean * mean),
         score = mean + 0.25 * Math.sqrt(variance)
@@ -96,6 +103,28 @@ function darkestPatch(
       }
     }
   return result
+}
+
+/** Recognize blank frame padding without excluding a dark pupil inside the image. */
+function hasBlackPadding(
+  gray: Uint8Array,
+  width: number,
+  height: number
+): boolean {
+  const blankRow = (y: number) => {
+    for (let x = 0; x < width; x++) if (gray[y * width + x] > 1) return false
+    return true
+  }
+  const blankColumn = (x: number) => {
+    for (let y = 0; y < height; y++) if (gray[y * width + x] > 1) return false
+    return true
+  }
+  return (
+    blankRow(0) ||
+    blankRow(height - 1) ||
+    blankColumn(0) ||
+    blankColumn(width - 1)
+  )
 }
 function convertEllipse(rect: ReturnType<CV["fitEllipse"]>): Ellipse {
   const width = rect.size.width,
@@ -114,12 +143,15 @@ function edgeError(p: Point, e: Ellipse): number {
   const dx = p[0] - e.center[0],
     dy = p[1] - e.center[1],
     c = Math.cos(e.angle),
-    s = Math.sin(e.angle)
-  return (
-    Math.abs(
-      Math.hypot((c * dx + s * dy) / e.major, (-s * dx + c * dy) / e.minor) - 1
-    ) * e.minor
-  )
+    s = Math.sin(e.angle),
+    u = c * dx + s * dy,
+    v = -s * dx + c * dy,
+    gradient = 2 * Math.hypot(u / e.major ** 2, v / e.minor ** 2)
+  // First-order distance to the implicit ellipse, in pixels. Scaling radial
+  // error by the minor axis understates errors at the ends of an oblique pupil.
+  return gradient > 1e-9
+    ? Math.abs((u / e.major) ** 2 + (v / e.minor) ** 2 - 1) / gradient
+    : Infinity
 }
 function validEllipse(e: Ellipse, width: number, height: number): boolean {
   const c = Math.cos(e.angle),
@@ -136,6 +168,32 @@ function validEllipse(e: Ellipse, width: number, height: number): boolean {
     e.center[1] >= 0 &&
     e.center[0] < width &&
     e.center[1] < height
+  )
+}
+
+/** Preserve pupil identity without restricting off-axis changes to the minor axis. */
+function compatiblePupilScale(
+  ellipse: Ellipse,
+  anchor: Ellipse | null | undefined,
+  confirmed = false
+): boolean {
+  if (!anchor) return true
+  const majorRatio = ellipse.major / anchor.major,
+    areaRatio = (ellipse.major * ellipse.minor) / (anchor.major * anchor.minor)
+  return confirmed
+    ? majorRatio >= 0.55 &&
+        majorRatio <= 1.6 &&
+        (majorRatio >= 0.8 || areaRatio >= 0.4)
+    : majorRatio >= 0.35
+}
+function normalizedRadius(point: Point, ellipse: Ellipse): number {
+  const dx = point[0] - ellipse.center[0],
+    dy = point[1] - ellipse.center[1],
+    c = Math.cos(ellipse.angle),
+    s = Math.sin(ellipse.angle)
+  return Math.hypot(
+    (c * dx + s * dy) / ellipse.major,
+    (-s * dx + c * dy) / ellipse.minor
   )
 }
 
@@ -163,7 +221,8 @@ function boundaryEvidence(
   gray: Uint8Array,
   width: number,
   height: number,
-  e: Ellipse
+  e: Ellipse,
+  reflectionLimit = Infinity
 ): PupilBoundaryEvidence {
   const c = Math.cos(e.angle),
     s = Math.sin(e.angle),
@@ -179,7 +238,13 @@ function boundaryEvidence(
       dy = (ny * step) / length,
       inside = sampleGray(gray, width, height, x - dx, y - dy),
       outside = sampleGray(gray, width, height, x + dx, y + dy)
-    if (inside !== null && outside !== null && outside - inside >= 6)
+    if (
+      inside !== null &&
+      outside !== null &&
+      inside < reflectionLimit &&
+      outside < reflectionLimit &&
+      outside - inside >= 6
+    )
       differences.push(outside - inside)
   }
   differences.sort((a, b) => a - b)
@@ -261,7 +326,10 @@ function trackPartialRim(
   if (!validEllipse(ellipse, width, height)) return null
   const boundary = boundaryEvidence(gray, width, height, ellipse)
   if (boundary.support < 0.4 || boundary.contrast < 10) return null
-  ellipse.confidence = Math.min(0.8, 0.6 + 0.35 * boundary.support)
+  ellipse.confidence = Math.min(
+    maxPartialConfidence,
+    0.6 + 0.35 * boundary.support
+  )
   const points = samples.map((sample) => sample.point),
     refined = inliers.map((sample) => sample.point)
   return {
@@ -274,6 +342,334 @@ function trackPartialRim(
   }
 }
 
+/** Classify pixels before interpolation: a lash/iris blend can mimic pupil gray. */
+function pupilIntensityMembership(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  minimum: number,
+  maximum: number
+): number | null {
+  if (x < 0 || y < 0 || x >= width - 1 || y >= height - 1) return null
+  const ix = Math.floor(x),
+    iy = Math.floor(y),
+    dx = x - ix,
+    dy = y - iy,
+    index = iy * width + ix,
+    topLeft = gray[index],
+    topRight = gray[index + 1],
+    bottomLeft = gray[index + width],
+    bottomRight = gray[index + width + 1]
+  return (
+    (1 - dy) *
+      ((1 - dx) * Number(topLeft >= minimum && topLeft <= maximum) +
+        dx * Number(topRight >= minimum && topRight <= maximum)) +
+    dy *
+      ((1 - dx) * Number(bottomLeft >= minimum && bottomLeft <= maximum) +
+        dx * Number(bottomRight >= minimum && bottomRight <= maximum))
+  )
+}
+
+/** Check the observed arc's dark interior, rather than the occluded ellipse area. */
+function pupilEdgeContrast(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  ellipse: Ellipse,
+  x: number,
+  y: number,
+  nx: number,
+  ny: number,
+  identity: PupilRimIdentity,
+  requirePersistentExterior = false
+): number {
+  const probe = Math.max(1.5, Math.min(5, ellipse.minor * 0.12)),
+    inside = sampleGray(gray, width, height, x - probe * nx, y - probe * ny),
+    outside = sampleGray(gray, width, height, x + probe * nx, y + probe * ny)
+  if (
+    inside === null ||
+    outside === null ||
+    inside > identity.maximumIntensity + 16 ||
+    inside >= identity.reflectionLimit ||
+    outside >= identity.reflectionLimit ||
+    outside - inside < 10
+  )
+    return 0
+  if (requirePersistentExterior) {
+    const start = probe * 2,
+      end = Math.max(start, Math.min(32, ellipse.minor * 0.6)),
+      minimumDrop = (outside - inside) * 0.5
+    let observed = false
+    // A single distant sample can skip the dark return after an internal
+    // reflection. Inspect the bounded path, ignoring glints and other dark objects.
+    for (let depth = start; depth <= end; depth++) {
+      const px = x + depth * nx,
+        py = y + depth * ny,
+        exterior = sampleGray(gray, width, height, px, py)
+      if (exterior === null || exterior >= identity.reflectionLimit) continue
+      if (
+        outside - exterior >= minimumDrop &&
+        (pupilIntensityMembership(
+          gray,
+          width,
+          height,
+          px,
+          py,
+          identity.minimumIntensity,
+          identity.maximumIntensity
+        ) ?? 0) >= 0.5
+      )
+        return 0
+      if (exterior - inside >= 6) observed = true
+    }
+    if (!observed) return 0
+  }
+  // The shallow check excludes an iris edge surrounding a darker pupil.
+  // Multiple deeper samples allow a glint to cross one inward path.
+  for (const fraction of inwardDepths) {
+    const depth = Math.max(probe * 2, ellipse.minor * fraction),
+      core = sampleGray(gray, width, height, x - depth * nx, y - depth * ny)
+    if (core !== null && core <= identity.maximumIntensity)
+      return outside - inside
+  }
+  return 0
+}
+
+function pupilArcCondition(samples: PupilRimSample[]): number {
+  let xx = 0,
+    xy = 0,
+    yy = 0
+  for (const {
+    normal: [nx, ny],
+  } of samples) {
+    xx += nx * nx
+    xy += nx * ny
+    yy += ny * ny
+  }
+  const trace = xx + yy,
+    spread = Math.hypot(xx - yy, 2 * xy)
+  return trace + spread > 0 ? (trace - spread) / (trace + spread) : 0
+}
+
+/** Measure center and common scale; preserve the unobserved aspect ratio/angle. */
+function trackConstrainedPupilRim(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  previous: Ellipse,
+  allSamples: PupilRimSample[],
+  band: number,
+  identity: PupilRimIdentity
+): PupilCandidate | null {
+  const samples = allSamples.filter(
+    ({ point: [x, y], normal: [nx, ny] }) =>
+      pupilEdgeContrast(gray, width, height, previous, x, y, nx, ny, identity) >
+      0
+  )
+  if (samples.length < 20) return null
+  const coefficients = ({
+    point: [x, y],
+    normal: [nx, ny],
+    offset,
+  }: PupilRimSample) => [
+    nx,
+    ny,
+    (nx * (x - previous.center[0]) + ny * (y - previous.center[1]) - offset) /
+      previous.major,
+  ]
+  const solve = (inliers: PupilRimSample[]): number[] | null => {
+    const matrix = Array.from({ length: 3 }, () => [0, 0, 0, 0])
+    for (const sample of inliers) {
+      const row = coefficients(sample)
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) matrix[i][j] += row[i] * row[j]
+        matrix[i][3] += row[i] * sample.offset
+      }
+    }
+    for (let column = 0; column < 3; column++) {
+      let pivot = column
+      for (let row = column + 1; row < 3; row++)
+        if (Math.abs(matrix[row][column]) > Math.abs(matrix[pivot][column]))
+          pivot = row
+      ;[matrix[column], matrix[pivot]] = [matrix[pivot], matrix[column]]
+      const divisor = matrix[column][column]
+      if (Math.abs(divisor) < 1e-7) return null
+      for (let j = column; j < 4; j++) matrix[column][j] /= divisor
+      for (let row = 0; row < 3; row++) {
+        if (row === column) continue
+        const multiplier = matrix[row][column]
+        for (let j = column; j < 4; j++)
+          matrix[row][j] -= multiplier * matrix[column][j]
+      }
+    }
+    const fit = matrix.map((row) => row[3]),
+      scale = 1 + fit[2] / previous.major
+    return finite(fit) &&
+      Math.hypot(fit[0], fit[1]) <= band &&
+      scale >= 0.85 &&
+      scale <= 1.15
+      ? fit
+      : null
+  }
+  const supporting = (fit: number[]) =>
+    samples.filter((sample) => {
+      const row = coefficients(sample)
+      return (
+        Math.abs(
+          row[0] * fit[0] + row[1] * fit[1] + row[2] * fit[2] - sample.offset
+        ) <= 2
+      )
+    })
+  let inliers: PupilRimSample[] = []
+  for (let trial = 0; trial < recoveryTrials; trial++) {
+    const first = Math.floor(((trial + 0.5) * samples.length) / recoveryTrials),
+      second =
+        (first + Math.floor(samples.length * (0.25 + (trial % 3) * 0.0625))) %
+        samples.length,
+      third =
+        (first + Math.floor(samples.length * (0.6 + (trial % 2) * 0.0625))) %
+        samples.length,
+      fit = solve([samples[first], samples[second], samples[third]])
+    if (!fit) continue
+    const candidate = supporting(fit)
+    if (candidate.length > inliers.length) inliers = candidate
+  }
+  if (inliers.length < Math.max(20, samples.length * 0.45)) return null
+  let fit = solve(inliers)
+  if (!fit) return null
+  inliers = supporting(fit)
+  if (inliers.length < 20 || pupilArcCondition(inliers) < 0.2) return null
+  fit = solve(inliers)
+  if (!fit) return null
+  const scale = 1 + fit[2] / previous.major,
+    ellipse: Ellipse = {
+      ...previous,
+      center: [previous.center[0] + fit[0], previous.center[1] + fit[1]],
+      major: previous.major * scale,
+      minor: previous.minor * scale,
+    }
+  if (!validEllipse(ellipse, width, height)) return null
+  const boundary = boundaryEvidence(
+    gray,
+    width,
+    height,
+    ellipse,
+    identity.reflectionLimit
+  )
+  if (boundary.support < 0.4 || boundary.contrast < 10) return null
+  ellipse.confidence = Math.min(
+    maxPartialConfidence,
+    0.6 + 0.35 * boundary.support
+  )
+  return {
+    ellipse,
+    points: samples.map((sample) => sample.point),
+    refined: inliers.map((sample) => sample.point),
+    index: 0,
+    score: ellipse.confidence,
+    shapeObserved: false,
+  }
+}
+
+function darkPupilBoundary(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  ellipse: Ellipse,
+  identity: PupilRimIdentity,
+  checkPersistence = false
+): PupilBoundaryEvidence & {
+  persistentFraction: number
+  arcCondition: number
+} {
+  const c = Math.cos(ellipse.angle),
+    s = Math.sin(ellipse.angle),
+    differences: number[] = []
+  let persistent = 0,
+    xx = 0,
+    xy = 0,
+    yy = 0
+  for (const [ca, sa] of rimDirections) {
+    const x =
+        ellipse.center[0] + c * ellipse.major * ca - s * ellipse.minor * sa,
+      y = ellipse.center[1] + s * ellipse.major * ca + c * ellipse.minor * sa,
+      nx = (c * ca) / ellipse.major - (s * sa) / ellipse.minor,
+      ny = (s * ca) / ellipse.major + (c * sa) / ellipse.minor,
+      length = Math.hypot(nx, ny),
+      contrast = pupilEdgeContrast(
+        gray,
+        width,
+        height,
+        ellipse,
+        x,
+        y,
+        nx / length,
+        ny / length,
+        identity
+      )
+    if (contrast > 0) {
+      differences.push(contrast)
+      const normalX = nx / length,
+        normalY = ny / length
+      xx += normalX * normalX
+      xy += normalX * normalY
+      yy += normalY * normalY
+      if (
+        checkPersistence &&
+        pupilEdgeContrast(
+          gray,
+          width,
+          height,
+          ellipse,
+          x,
+          y,
+          normalX,
+          normalY,
+          identity,
+          true
+        ) > 0
+      )
+        persistent++
+    }
+  }
+  differences.sort((a, b) => a - b)
+  const trace = xx + yy,
+    spread = Math.hypot(xx - yy, 2 * xy)
+  return {
+    support: differences.length / 64,
+    contrast: differences[Math.floor(differences.length / 2)] ?? 0,
+    persistentFraction: differences.length
+      ? persistent / differences.length
+      : 0,
+    arcCondition: trace + spread > 0 ? (trace - spread) / (trace + spread) : 0,
+  }
+}
+
+function supportedFullPupilRim(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  ellipse: Ellipse,
+  identity: PupilRimIdentity
+): boolean {
+  const boundary = darkPupilBoundary(
+    gray,
+    width,
+    height,
+    ellipse,
+    identity,
+    true
+  )
+  return (
+    ellipse.confidence >= 0.8 &&
+    boundary.support >= 0.25 &&
+    boundary.arcCondition >= 0.2 &&
+    boundary.persistentFraction >= 0.9
+  )
+}
+
 /** Track observed edges near the last rim before attempting another segmentation.
  * The outline-first strategy follows PuReST's separation of tracking and detection;
  * this implementation samples grayscale normal profiles, not their Canny pipeline.
@@ -284,15 +680,40 @@ function trackPupilRim(
   width: number,
   height: number,
   previous: Ellipse,
-  anchor: Ellipse
+  anchor: Ellipse,
+  reacquiring = false,
+  shapeReference: Ellipse | null = null,
+  identity: PupilRimIdentity | null = null
 ): PupilCandidate | null {
   if (!validEllipse(previous, width, height)) return null
-  const band = Math.max(3, Math.min(12, Math.round(previous.minor * 0.22))),
+  const band = Math.max(
+      3,
+      Math.min(
+        reacquiring || identity ? 18 : 12,
+        Math.round(previous.minor * (reacquiring || identity ? 0.4 : 0.22))
+      )
+    ),
     probe = Math.max(1, Math.min(2.5, previous.minor * 0.07)),
     c = Math.cos(previous.angle),
     s = Math.sin(previous.angle),
     samples: PupilRimSample[] = [],
-    profile = new Float64Array(band * 2 + 1)
+    profile = new Float64Array(band * 2 + 1),
+    reflectionLimit = pupilContrast(
+      gray,
+      width,
+      height,
+      previous
+    ).reflectionLimit,
+    rejectInteriorPeaks =
+      reacquiring &&
+      shapeReference &&
+      previous.minor < shapeReference.minor * 0.8 &&
+      previous.major >= shapeReference.major * 0.8 &&
+      Math.hypot(
+        previous.center[0] - shapeReference.center[0],
+        previous.center[1] - shapeReference.center[1]
+      ) <
+        shapeReference.major * 0.75
 
   for (const [ca, sa] of rimDirections) {
     const x =
@@ -305,7 +726,7 @@ function trackPupilRim(
       nx = normalX / length,
       ny = normalY / length
     let peak = -1,
-      best = 6
+      best = reacquiring ? 4 : 6
     for (let offset = -band; offset <= band; offset++) {
       const inside = sampleGray(
           gray,
@@ -321,10 +742,31 @@ function trackPupilRim(
           x + (offset + probe) * nx,
           y + (offset + probe) * ny
         ),
-        gradient = inside === null || outside === null ? 0 : outside - inside
+        gradient =
+          inside === null ||
+          outside === null ||
+          inside >= reflectionLimit ||
+          outside >= reflectionLimit
+            ? 0
+            : outside - inside
       profile[offset + band] = gradient
       const score = gradient / (1 + 0.02 * Math.abs(offset))
-      if (score > best) {
+      if (
+        score > best &&
+        (!identity ||
+          pupilEdgeContrast(
+            gray,
+            width,
+            height,
+            previous,
+            x + offset * nx,
+            y + offset * ny,
+            nx,
+            ny,
+            identity,
+            true
+          ) > 0)
+      ) {
         best = score
         peak = offset + band
       }
@@ -359,14 +801,44 @@ function trackPupilRim(
         height,
         px + 2 * probe * nx,
         py + 2 * probe * ny
-      )
+      ),
+      farOutside = rejectInteriorPeaks
+        ? sampleGray(
+            gray,
+            width,
+            height,
+            px + Math.max(2 * probe, previous.minor * 0.6) * nx,
+            py + Math.max(2 * probe, previous.minor * 0.6) * ny
+          )
+        : outside
     // Thin lashes have bright pixels on both sides; a pupil edge has a dark interior.
-    if (inside !== null && outside !== null && outside - inside >= 10)
+    if (
+      inside !== null &&
+      outside !== null &&
+      farOutside !== null &&
+      inside < reflectionLimit &&
+      outside < reflectionLimit &&
+      outside - inside >= (reacquiring ? 6 : 10) &&
+      // A diffuse reflection inside the pupil can make a strong local edge.
+      // A new outline must brighten beyond that peak rather than return to dark core.
+      (!rejectInteriorPeaks ||
+        (farOutside < reflectionLimit && farOutside - inside >= 6))
+    )
       samples.push({ point: [px, py], normal: [nx, ny], offset })
   }
   const points = samples.map((sample) => sample.point),
     partial = () =>
-      trackPartialRim(gray, width, height, previous, samples, band)
+      identity
+        ? trackConstrainedPupilRim(
+            gray,
+            width,
+            height,
+            previous,
+            samples,
+            band,
+            identity
+          )
+        : trackPartialRim(gray, width, height, previous, samples, band)
   if (points.length < 36) return partial()
 
   const fit = (sample: Point[]) => {
@@ -393,10 +865,10 @@ function trackPupilRim(
       ellipse.center[1] - previous.center[1]
     ) >
       band * 1.5 ||
-    ellipse.major / previous.major < 0.8 ||
-    ellipse.major / previous.major > 1.25 ||
-    ellipse.minor / previous.minor < 0.8 ||
-    ellipse.minor / previous.minor > 1.25 ||
+    ellipse.major / previous.major < (reacquiring ? 0.65 : 0.8) ||
+    ellipse.major / previous.major > (reacquiring ? 1.4 : 1.25) ||
+    ellipse.minor / previous.minor < (reacquiring ? 0.5 : 0.8) ||
+    ellipse.minor / previous.minor > (reacquiring ? 1.75 : 1.25) ||
     ellipse.major / anchor.major > 1.2
   )
     return partial()
@@ -419,19 +891,41 @@ function trackPupilRim(
     gap = sectors.has(i % 32) ? 0 : gap + 1
     if (gap > 12) return partial()
   }
-  const boundary = boundaryEvidence(gray, width, height, ellipse)
-  if (boundary.support < 0.8) {
+  const boundary = boundaryEvidence(
+    gray,
+    width,
+    height,
+    ellipse,
+    reflectionLimit
+  )
+  if (!reacquiring && boundary.support < 0.8) {
     const translated = partial()
     if (translated) return translated
   }
-  if (sectors.size < 18 || boundary.support < 0.55 || boundary.contrast < 10)
+  if (
+    sectors.size < 18 ||
+    boundary.support < 0.55 ||
+    boundary.contrast < (reacquiring ? 6 : 10)
+  )
     return partial()
   ellipse.confidence = Math.min(
     0.99,
     0.55 + 0.45 * boundary.support,
-    refined.length / points.length
+    reacquiring
+      ? 0.6 + (0.4 * refined.length) / points.length
+      : refined.length / points.length
   )
   if (ellipse.confidence < 0.72) return partial()
+  if (
+    identity &&
+    (!supportedFullPupilRim(gray, width, height, ellipse, identity) ||
+      !strongPupilEvidence(
+        ellipse,
+        pupilContrast(gray, width, height, ellipse),
+        boundary
+      ))
+  )
+    return partial()
   return { ellipse, points, refined, index: 0, score: ellipse.confidence }
 }
 
@@ -442,38 +936,132 @@ function relocatePupilRim(
   width: number,
   height: number,
   previous: Ellipse,
-  anchor: Ellipse
+  anchor: Ellipse,
+  patch: DarkestPatch,
+  identity: PupilRimIdentity | null = null,
+  requireFullEvidence = false
 ): PupilCandidate | null {
   const radius = Math.max(12, Math.min(96, previous.major * 1.6)),
     step = Math.max(4, Math.ceil(radius / 8)),
     seeds: Pick<PupilCandidate, "ellipse" | "score">[] = []
   // At most 17 × 17 center hypotheses; there is no image pyramid or full-frame search here.
-  for (let dy = -8; dy <= 8; dy++)
-    for (let dx = -8; dx <= 8; dx++) {
-      const distance = Math.hypot(dx * step, dy * step)
-      if (distance > radius || distance < step) continue
-      const ellipse: Ellipse = {
-        ...previous,
-        center: [
-          previous.center[0] + dx * step,
-          previous.center[1] + dy * step,
-        ],
+  for (const scale of identity ? [1.2, 1, 0.75] : [1])
+    for (let dy = -8; dy <= 8; dy++)
+      for (let dx = -8; dx <= 8; dx++) {
+        const distance = Math.hypot(dx * step, dy * step)
+        if (distance > radius || (distance < step && scale === 1)) continue
+        const ellipse: Ellipse = {
+          ...previous,
+          major: previous.major * scale,
+          minor: previous.minor * scale,
+          center: [
+            previous.center[0] + dx * step,
+            previous.center[1] + dy * step,
+          ],
+        }
+        if (
+          !validEllipse(ellipse, width, height) ||
+          (identity && !compatiblePupilScale(ellipse, anchor, true))
+        )
+          continue
+        const boundary = identity
+          ? darkPupilBoundary(gray, width, height, ellipse, identity)
+          : boundaryEvidence(gray, width, height, ellipse)
+        if (
+          boundary.support < (identity ? 0.25 : 0.4) ||
+          boundary.contrast < 10
+        )
+          continue
+        const score =
+          boundary.support * (0.6 + 0.4 * Math.min(1, boundary.contrast / 40)) -
+          (0.05 * distance) / radius
+        if (identity) {
+          const duplicate = seeds.findIndex(
+            (seed) =>
+              Math.hypot(
+                seed.ellipse.center[0] - ellipse.center[0],
+                seed.ellipse.center[1] - ellipse.center[1]
+              ) <
+              step * 0.5
+          )
+          if (duplicate >= 0) {
+            if (seeds[duplicate].score >= score) continue
+            seeds.splice(duplicate, 1)
+          }
+        }
+        seeds.push({ ellipse, score })
+        seeds.sort((a, b) => b.score - a.score)
+        if (seeds.length > 3) seeds.pop()
       }
-      if (!validEllipse(ellipse, width, height)) continue
-      const boundary = boundaryEvidence(gray, width, height, ellipse)
-      if (boundary.support < 0.4 || boundary.contrast < 10) continue
-      const score =
-        boundary.support * (0.6 + 0.4 * Math.min(1, boundary.contrast / 40)) -
-        (0.05 * distance) / radius
-      seeds.push({ ellipse, score })
-      seeds.sort((a, b) => b.score - a.score)
-      if (seeds.length > 3) seeds.pop()
-    }
+  let profileAttempts = 0
   for (const seed of seeds) {
-    const tracked = trackPupilRim(cv, gray, width, height, seed.ellipse, anchor)
+    if (profileAttempts >= 3) break
+    profileAttempts++
+    let tracked = trackPupilRim(
+      cv,
+      gray,
+      width,
+      height,
+      seed.ellipse,
+      anchor,
+      !!identity,
+      null,
+      identity
+    )
+    if (!tracked) continue
     if (
-      tracked &&
-      pupilContrast(gray, width, height, tracked.ellipse).contrast >= 8
+      requireFullEvidence &&
+      tracked.shapeObserved === false &&
+      profileAttempts < 3
+    ) {
+      // The grid only approximates pose. Reprofile from the observed center and
+      // scale before testing a free shape, sharing the same three-attempt budget.
+      profileAttempts++
+      const refined = trackPupilRim(
+        cv,
+        gray,
+        width,
+        height,
+        tracked.ellipse,
+        anchor,
+        !!identity,
+        null,
+        identity
+      )
+      if (refined) tracked = refined
+    }
+    if (
+      identity &&
+      (!compatiblePupilScale(tracked.ellipse, anchor, true) ||
+        tracked.ellipse.major < identity.reference.major * 0.7 ||
+        tracked.ellipse.major > identity.reference.major * 1.4)
+    )
+      continue
+    const appearance = pupilContrast(gray, width, height, tracked.ellipse)
+    if (
+      requireFullEvidence &&
+      (tracked.shapeObserved === false ||
+        !strongPupilEvidence(
+          tracked.ellipse,
+          appearance,
+          boundaryEvidence(
+            gray,
+            width,
+            height,
+            tracked.ellipse,
+            appearance.reflectionLimit
+          )
+        ))
+    )
+      continue
+    // A translated historical shape can match an iris arc after a saccade.
+    // Its core must still resemble the independently observed dark pupil.
+    if (
+      (identity && tracked.shapeObserved === false) ||
+      (appearance.contrast >= 8 &&
+        (tracked.shapeObserved !== false ||
+          appearance.interior - patch.value <=
+            Math.max(20, appearance.contrast * 0.5)))
     )
       return tracked
   }
@@ -649,7 +1237,10 @@ function pupilContrast(
     outside = 0,
     ni = 0,
     no = 0
-  const interior = new Uint32Array(256)
+  const interior = new Uint32Array(256),
+    exteriorHistogram = new Uint32Array(256),
+    central = new Uint32Array(256),
+    annular = new Uint32Array(256)
   const c = Math.cos(e.angle),
     s = Math.sin(e.angle)
   const step = Math.max(1, Math.floor(e.minor / 8))
@@ -672,30 +1263,158 @@ function pupilContrast(
         const index = y * width + x
         inside += gray[index]
         interior[gray[index]]++
+        if (q < 0.16) central[gray[index]]++
+        else if (q > 0.25) annular[gray[index]]++
         ni++
       } else if (q > 1.15 ** 2 && q < 1.65 ** 2) {
         outside += gray[y * width + x]
+        exteriorHistogram[gray[y * width + x]]++
         no++
       }
     }
-  if (!ni || !no) return { contrast: 0, homogeneity: 0, cutoff: 0 }
+  if (!ni || !no)
+    return {
+      contrast: 0,
+      homogeneity: 0,
+      cutoff: 0,
+      interior: 255,
+      pupilIntensity: undefined,
+      pupilIntensityLow: undefined,
+      coreCutoff: null,
+      reflectionLimit: 255,
+    }
+  // Glints can cover more than the upper intensity quintile. Exclude pixels
+  // brighter than the surrounding iris, while requiring a substantial dark core.
+  const exterior = outside / no,
+    limit = Math.min(255, Math.ceil(exterior))
+  let coreCount = 0,
+    coreSum = 0
+  for (let value = 0; value < limit; value++) {
+    coreCount += interior[value]
+    coreSum += value * interior[value]
+  }
+  if (coreCount < ni * 0.5)
+    return {
+      contrast: 0,
+      homogeneity: 0,
+      cutoff: 0,
+      interior: 255,
+      pupilIntensity: undefined,
+      pupilIntensityLow: undefined,
+      coreCutoff: null,
+      reflectionLimit: 255,
+    }
+  inside = coreSum / coreCount
   let count = 0,
     low = -1,
     high = 255
-  for (let value = 0; value < 256; value++) {
+  for (let value = 0; value < limit; value++) {
     count += interior[value]
-    if (low < 0 && count >= ni * 0.2) low = value
-    if (count >= ni * 0.8) {
+    if (low < 0 && count >= coreCount * 0.2) low = value
+    if (count >= coreCount * 0.8) {
       high = value
       break
     }
   }
-  // Trimmed intensity spread tolerates small glints, but penalizes an iris enclosing a darker pupil.
-  return {
-    contrast: outside / no - inside / ni,
-    homogeneity: 1 / (1 + (high - low) / 35),
-    cutoff: Math.round((inside / ni + outside / no) / 2),
+  const quantile = (histogram: Uint32Array) => {
+    let total = 0,
+      cumulative = 0
+    for (let value = 0; value < limit; value++) total += histogram[value]
+    if (total < 8) return null
+    for (let value = 0; value < limit; value++) {
+      cumulative += histogram[value]
+      if (cumulative >= total * 0.35) return value
+    }
+    return null
   }
+  const centerLevel = quantile(central),
+    ringLevel = quantile(annular),
+    coreCutoff =
+      centerLevel !== null && ringLevel !== null && ringLevel - centerLevel >= 6
+        ? Math.round(
+            centerLevel + Math.min(8, (ringLevel - centerLevel) * 0.25)
+          )
+        : null
+  let exteriorCount = 0,
+    brightExterior = 255
+  for (let value = 0; value < 256; value++) {
+    exteriorCount += exteriorHistogram[value]
+    if (exteriorCount >= no * 0.85) {
+      brightExterior = value
+      break
+    }
+  }
+  // Glint-excluded intensity spread penalizes a textured iris around a darker pupil.
+  return {
+    contrast: exterior - inside,
+    homogeneity: 1 / (1 + (high - low) / 35),
+    cutoff: Math.round((inside + exterior) / 2),
+    interior: inside,
+    pupilIntensity: quantile(interior) ?? undefined,
+    pupilIntensityLow: low,
+    coreCutoff,
+    reflectionLimit:
+      brightExterior >= 250
+        ? 256
+        : Math.min(
+            255,
+            brightExterior +
+              Math.max(
+                20,
+                Math.min(brightExterior * 0.7, (255 - brightExterior) * 0.35)
+              )
+          ),
+  }
+}
+function strongPupilEvidence(
+  ellipse: Ellipse,
+  appearance: ReturnType<typeof pupilContrast>,
+  boundary: PupilBoundaryEvidence
+): boolean {
+  return (
+    ellipse.confidence >= 0.85 &&
+    boundary.support >= 0.75 &&
+    appearance.contrast >= 12 &&
+    appearance.homogeneity >= 0.6 &&
+    appearance.coreCutoff === null
+  )
+}
+
+/** Correct a scale-matched iris seed using independently observed darker pupil evidence. */
+function pupilOutlineSeed(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  scaleSeed: Ellipse | null,
+  coreSeed: Ellipse | null
+): Ellipse | null {
+  if (
+    !scaleSeed ||
+    !coreSeed ||
+    coreSeed.major >= scaleSeed.major * 0.7 ||
+    normalizedRadius(coreSeed.center, scaleSeed) >= 0.75
+  )
+    return scaleSeed
+  const outer = pupilContrast(gray, width, height, scaleSeed),
+    inner = pupilContrast(gray, width, height, coreSeed)
+  return outer.coreCutoff !== null &&
+    outer.homogeneity < 0.6 &&
+    inner.coreCutoff === null &&
+    outer.interior - inner.interior >= 6 &&
+    boundaryEvidence(gray, width, height, coreSeed, inner.reflectionLimit)
+      .support >= 0.75
+    ? coreSeed
+    : scaleSeed
+}
+function rimMask(points: Point[], width: number, height: number): Uint8Array {
+  const mask = new Uint8Array(width * height)
+  for (const [x, y] of points) {
+    const ix = Math.round(x),
+      iy = Math.round(y)
+    if (ix >= 0 && iy >= 0 && ix < width && iy < height)
+      mask[iy * width + ix] = 255
+  }
+  return mask
 }
 export function detectSpatialPupil(
   cv: CV,
@@ -717,21 +1436,90 @@ export function detectSpatialPupil(
   if (width < 24 || height < 24 || gray.length !== width * height)
     return { ...result, reason: "Select a larger eye region" }
   const manual = options.thresholdMode === "manual"
+  const partialReference =
+    !manual &&
+    options.trackingAnchorConfirmed &&
+    options.previous &&
+    (options.previousShapeAgeMs ?? 0) > 200 &&
+    (options.previousShapeAgeMs ?? 0) > (options.previousAgeMs ?? 0) &&
+    (options.previousAgeMs ?? 0) <= 750
+      ? options.previous
+      : null
+  const partialPatch = partialReference
+    ? darkestPatch(gray, width, height)
+    : null
+  const learnedIntensity =
+    options.pupilIntensity !== undefined &&
+    Number.isFinite(options.pupilIntensity)
+      ? options.pupilIntensity
+      : undefined
+  let lowerIntensity = learnedIntensity ?? partialPatch?.value ?? 0
+  if (
+    options.pupilIntensityLow !== undefined &&
+    Number.isFinite(options.pupilIntensityLow)
+  )
+    lowerIntensity = options.pupilIntensityLow
+  const identity: PupilRimIdentity | null =
+    partialReference && partialPatch
+      ? {
+          minimumIntensity: Math.max(0, lowerIntensity - 8),
+          maximumIntensity: Math.min(
+            255,
+            learnedIntensity !== undefined
+              ? learnedIntensity + 16
+              : partialPatch.value + 25
+          ),
+          reflectionLimit: pupilContrast(gray, width, height, partialReference)
+            .reflectionLimit,
+          reference: partialReference,
+        }
+      : null
+  const compatibleScale = (ellipse: Ellipse) =>
+    manual ||
+    compatiblePupilScale(
+      ellipse,
+      options.trackingAnchor,
+      options.trackingAnchorConfirmed
+    )
+  const compatibleAppearance = (
+    ellipse: Ellipse,
+    appearance: ReturnType<typeof pupilContrast>
+  ) =>
+    manual ||
+    !options.trackingAnchorConfirmed ||
+    !options.trackingAnchor ||
+    ellipse.major <= options.trackingAnchor.major * 1.1 ||
+    appearance.coreCutoff === null ||
+    appearance.homogeneity >= 0.6
   const trackedResult = (tracked: PupilCandidate): Detection => {
     const mask =
       options.includePreviewMasks !== false
-        ? new Uint8Array(width * height)
+        ? rimMask(tracked.refined, width, height)
         : undefined
-    if (mask)
-      for (const [x, y] of tracked.refined) {
-        const ix = Math.round(x),
-          iy = Math.round(y)
-        if (ix >= 0 && iy >= 0 && ix < width && iy < height)
-          mask[iy * width + ix] = 255
-      }
+    const appearance = pupilContrast(gray, width, height, tracked.ellipse)
     return {
       ...result,
+      fullShapeSearched: result.fullShapeSearched ?? false,
       shapeObserved: tracked.shapeObserved !== false,
+      pupilIntensity:
+        tracked.shapeObserved !== false ? appearance.pupilIntensity : undefined,
+      pupilIntensityLow:
+        tracked.shapeObserved !== false
+          ? appearance.pupilIntensityLow
+          : undefined,
+      strongEvidence:
+        tracked.shapeObserved !== false &&
+        strongPupilEvidence(
+          tracked.ellipse,
+          appearance,
+          boundaryEvidence(
+            gray,
+            width,
+            height,
+            tracked.ellipse,
+            appearance.reflectionLimit
+          )
+        ),
       ellipse: tracked.ellipse,
       seed: tracked.ellipse.center,
       contour: tracked.points,
@@ -741,7 +1529,7 @@ export function detectSpatialPupil(
         {
           label: "Tracked rim",
           method: "tracking",
-          threshold: pupilContrast(gray, width, height, tracked.ellipse).cutoff,
+          threshold: appearance.cutoff,
           score: tracked.ellipse.confidence,
           ...(mask ? { mask } : {}),
         },
@@ -753,6 +1541,8 @@ export function detectSpatialPupil(
     !manual && options.previous && (options.previousAgeMs ?? 0) <= 150
       ? options.previous
       : null
+  const canRetainShape = (options.previousShapeAgeMs ?? 0) <= 200 || !!identity
+  let weakTracked: PupilCandidate | null = null
   if (recent) {
     const tracked = trackPupilRim(
       cv,
@@ -760,24 +1550,82 @@ export function detectSpatialPupil(
       width,
       height,
       recent,
-      options.trackingAnchor ?? recent
+      options.trackingAnchor ?? recent,
+      false,
+      null,
+      identity
     )
-    if (tracked) return trackedResult(tracked)
+    if (
+      tracked &&
+      compatibleScale(tracked.ellipse) &&
+      (tracked.shapeObserved !== false || canRetainShape)
+    ) {
+      const appearance = pupilContrast(gray, width, height, tracked.ellipse)
+      if (compatibleAppearance(tracked.ellipse, appearance)) {
+        if (
+          identity &&
+          tracked.shapeObserved === false &&
+          tracked.ellipse.confidence >= maxPartialConfidence &&
+          !options.refreshShape
+        )
+          return trackedResult(tracked)
+        if (
+          tracked.shapeObserved !== false &&
+          appearance.contrast >= 16 &&
+          (appearance.coreCutoff === null || options.trackingAnchorConfirmed)
+        )
+          return trackedResult(tracked)
+        // Keep a weak fresh measurement available while stronger image evidence competes.
+        tracked.score =
+          (tracked.ellipse.confidence *
+            (0.55 + 0.45 * Math.min(1, appearance.contrast / 60)) *
+            appearance.homogeneity +
+            0.12) *
+          Math.log1p(Math.PI * tracked.ellipse.major * tracked.ellipse.minor)
+        weakTracked = tracked
+      }
+    }
   }
-  const patch = darkestPatch(gray, width, height)
+  const patch = partialPatch ?? darkestPatch(gray, width, height)
   if (!patch) return result
   result.seed = patch.point
+  // Prefer the observed dark core without ruling out a pupil brighter than a lash
+  // or the dark end of an illumination gradient.
+  const coreSimilarity = (interior: number) =>
+    0.3 + 0.7 / (1 + (Math.max(0, interior - patch.value) / 15) ** 2)
+  const scaleSimilarity = (ellipse: Ellipse) =>
+    !manual && options.trackingAnchorConfirmed && options.trackingAnchor
+      ? 0.25 +
+        0.75 *
+          Math.exp(
+            -3 *
+              Math.abs(Math.log(ellipse.major / options.trackingAnchor.major))
+          )
+      : 1
+  if (weakTracked)
+    weakTracked.score *=
+      scaleSimilarity(weakTracked.ellipse) *
+      coreSimilarity(
+        pupilContrast(gray, width, height, weakTracked.ellipse).interior
+      )
   const cutoff = (value: number) =>
     Math.round(Math.max(0, Math.min(255, value)))
   const otsu = manual ? 0 : otsuThreshold(gray)
+  // Black padding can be much darker than the pupil.
+  // Keep the strict hypotheses, then search the brighter scene population.
+  const foregroundPatch =
+    !manual && patch.value < otsu * 0.3 && hasBlackPadding(gray, width, height)
+      ? darkestPatch(gray, width, height, otsu + 1)
+      : null
   const globalThresholds = manual
     ? [cutoff(thresholdOffset)]
-    : [5, 15, 25].map((delta, index) =>
-        cutoff(
-          Math.max(patch.value + delta, otsu * [0.55, 0.8, 1][index]) +
-            thresholdOffset
-        )
-      )
+    : [
+        patch.value + 15,
+        Math.max(patch.value + 25, otsu * 0.55),
+        foregroundPatch
+          ? foregroundPatch.value + 30
+          : Math.max(patch.value + 35, otsu * 0.8),
+      ].map((value) => cutoff(value + thresholdOffset))
   const canUseLocalHistory =
     !manual && options.previous && (options.previousAgeMs ?? 0) <= 150
   const estimatedThreshold = canUseLocalHistory
@@ -793,6 +1641,7 @@ export function detectSpatialPupil(
     return value
   }
   try {
+    result.fullShapeSearched = true
     const source = own(new cv.Mat(height, width, cv.CV_8UC1))
     source.data.set(gray)
     result.previews = thresholds.map((threshold, index) => ({
@@ -819,6 +1668,10 @@ export function detectSpatialPupil(
     const proposals: PupilProposal[] = []
     let bestCandidate: PupilCandidate | null = null
     let irregular = false
+    let fragmented = false
+    let seedEllipse: Ellipse | null = null
+    let scaleSeed: Ellipse | null = null
+    let scaleSeedScore = 0
 
     const consider = (
       ellipse: Ellipse,
@@ -827,16 +1680,28 @@ export function detectSpatialPupil(
       refined: Point[]
     ) => {
       if (!validEllipse(ellipse, width, height)) return
-      // After a brief loss, an eye-sized shadow must not replace a pupil-sized track.
+      const anchor = options.trackingAnchor
+      // The major axis changes little during a saccade. Keep its scale through
+      // a blink so a tiny iris feature cannot establish a new pupil identity.
+      if (!compatibleScale(ellipse)) return
+      const appearance = pupilContrast(gray, width, height, ellipse)
+      // A brighter-scene cutoff may merge pupil and iris during acquisition.
+      // Without an established identity, do not promote that enclosing outline.
       if (
-        !manual &&
-        options.trackingAnchor &&
-        ellipse.major > options.trackingAnchor.major * 1.6
+        foregroundPatch &&
+        !options.trackingAnchorConfirmed &&
+        appearance.coreCutoff !== null
       )
         return
-      const boundary = boundaryEvidence(gray, width, height, ellipse)
+      if (!compatibleAppearance(ellipse, appearance)) return
+      const boundary = boundaryEvidence(
+        gray,
+        width,
+        height,
+        ellipse,
+        appearance.reflectionLimit
+      )
       if (boundary.support < 0.55) return
-      const appearance = pupilContrast(gray, width, height, ellipse)
       const contrast = Math.max(
         appearance.contrast,
         boundary.contrast * boundary.support
@@ -847,7 +1712,28 @@ export function detectSpatialPupil(
         0.4 + 0.6 * boundary.support
       )
       if (confidence < 0.65) return
+      // A nearby, weak oversized fit often follows the eyelid shadow. A new
+      // location or a strongly observed rim can still establish a larger pupil.
+      if (
+        !manual &&
+        anchor &&
+        ellipse.major > anchor.major * 1.6 &&
+        confidence < 0.9 &&
+        Math.hypot(
+          ellipse.center[0] - (options.previous ?? anchor).center[0],
+          ellipse.center[1] - (options.previous ?? anchor).center[1]
+        ) <
+          anchor.major * 2
+      )
+        return
       const fitted = { ...ellipse, confidence }
+      // Validate current pupil arcs before a reflected cap can become a new
+      // full-shape reference. Outward brightness must persist beyond the rim.
+      if (
+        identity &&
+        !supportedFullPupilRim(gray, width, height, fitted, identity)
+      )
+        return
       let score =
         confidence *
         (0.55 + 0.45 * Math.min(1, contrast / 60)) *
@@ -872,6 +1758,46 @@ export function detectSpatialPupil(
         score += 0.12 * position * size
       }
       if (index === options.previousSelected) score += 0.03
+      // Integrated rim evidence favors a whole pupil over a few dark iris pixels.
+      score *= Math.log1p(Math.PI * fitted.major * fitted.minor)
+      score *= coreSimilarity(appearance.interior)
+      score *= scaleSimilarity(fitted)
+      const seedRadius = normalizedRadius(patch.point, fitted)
+      if (seedRadius > 1) score *= 0.5
+      if (!manual && bestCandidate) {
+        const other = bestCandidate.ellipse,
+          smaller = fitted.major < other.major ? fitted : other,
+          larger = smaller === fitted ? other : fitted
+        if (smaller.major < larger.major * 0.7 && smaller.confidence >= 0.72) {
+          const contained =
+              normalizedRadius(smaller.center, larger) +
+                smaller.major / larger.minor <
+              1,
+            otherAppearance = pupilContrast(gray, width, height, other),
+            smallerInterior =
+              smaller === fitted
+                ? appearance.interior
+                : otherAppearance.interior,
+            largerInterior =
+              larger === fitted ? appearance.interior : otherAppearance.interior
+          // An enclosing iris can have a strong outer rim. Prefer an independently
+          // supported darker pupil inside it, following PuRe's nested-pupil check.
+          const largerAppearance =
+            larger === fitted ? appearance : otherAppearance
+          if (
+            contained &&
+            largerAppearance.coreCutoff !== null &&
+            largerInterior - smallerInterior >= 6 &&
+            (!options.trackingAnchorConfirmed ||
+              !anchor ||
+              larger.major > anchor.major * 1.3 ||
+              largerAppearance.homogeneity < 0.6)
+          ) {
+            if (larger === fitted) return
+            score = Math.max(score, bestCandidate.score + 0.001)
+          }
+        }
+      }
       result.previews[index].score = Math.max(
         result.previews[index].score,
         confidence
@@ -936,11 +1862,108 @@ export function detectSpatialPupil(
             priority +=
               0.1 * Math.exp(-distance / Math.max(1, options.previous.major))
           }
-          regions.push({ index: i, area, priority })
+          priority *= Math.log1p(Math.max(area, contour.rows))
+          regions.push({ index: i, area, priority, bounds: box })
           regions.sort((a, b) => b.priority - a.priority)
           if (regions.length > maxContourCandidates) regions.pop()
         } finally {
           contour.delete()
+        }
+      }
+      const fragments: {
+        region: PupilContourRegion
+        points: Point[]
+        refined: Point[]
+      }[] = []
+      const fitContour = (
+        points: Point[],
+        refined: Point[],
+        area: number,
+        fragmentCount = 1
+      ) => {
+        const fitPoints = cv.matFromArray(
+          refined.length,
+          1,
+          cv.CV_32FC2,
+          refined.flat()
+        )
+        let fitted: Ellipse
+        try {
+          fitted = convertEllipse(cv.fitEllipse(fitPoints))
+        } finally {
+          fitPoints.delete()
+        }
+        if (
+          !finite([
+            ...fitted.center,
+            fitted.major,
+            fitted.minor,
+            fitted.angle,
+          ]) ||
+          fitted.minor <= 0
+        )
+          return
+        const tolerance = Math.max(1.5, fitted.minor * 0.06),
+          agreement =
+            points.filter((p) => edgeError(p, fitted) <= tolerance).length /
+            points.length,
+          fill = Math.min(1, area / (Math.PI * fitted.major * fitted.minor))
+        fitted.confidence = Math.min(fill, agreement)
+        if (
+          !manual &&
+          !edgeBased &&
+          index === 0 &&
+          validEllipse(fitted, width, height)
+        ) {
+          if (
+            normalizedRadius(patch.point, fitted) < 1 &&
+            (!seedEllipse || fitted.major < seedEllipse.major)
+          )
+            seedEllipse = fitted
+        }
+        const boundary = validEllipse(fitted, width, height)
+          ? boundaryEvidence(gray, width, height, fitted)
+          : { support: 0, contrast: 0 }
+        const anchor = options.trackingAnchor
+        if (
+          !manual &&
+          !edgeBased &&
+          anchor &&
+          options.trackingAnchorConfirmed &&
+          fitted.major >= anchor.major * 0.8 &&
+          fitted.major <= anchor.major * 1.25 &&
+          boundary.support >= 0.4
+        ) {
+          const containsSeed = normalizedRadius(patch.point, fitted) < 1,
+            score =
+              boundary.support *
+              Math.exp(-Math.abs(Math.log(fitted.major / anchor.major)))
+          // A glint can ruin mask fill while leaving a usable whole outline.
+          // Preserve one scale-compatible seed from any of the four masks;
+          // fresh signed rim measurements still have to validate the fit.
+          if (containsSeed && score > scaleSeedScore) {
+            scaleSeed = fitted
+            scaleSeedScore = score
+          }
+        }
+        if (!edgeBased) consider(fitted, index, points, refined)
+        if (refined.length >= 12) {
+          irregular = true
+          queueRecovery({
+            index,
+            points,
+            refined,
+            ellipse: fitted,
+            area,
+            quality:
+              (boundary.support * 0.6 +
+                agreement * 0.2 +
+                Math.min(1, refined.length / points.length) * 0.2) *
+              Math.log1p(Math.max(area, points.length)) *
+              Math.sqrt(fragmentCount) *
+              (0.25 +
+                0.75 * pupilContrast(gray, width, height, fitted).homogeneity),
+          })
         }
       }
       for (const region of regions) {
@@ -962,87 +1985,94 @@ export function detectSpatialPupil(
             ? curvedEdgePoints(points)
             : refineContour(points)
           if (refined.length < 6) continue
-          const fitPoints = cv.matFromArray(
-            refined.length,
-            1,
-            cv.CV_32FC2,
-            refined.flat()
-          )
-          let fitted: Ellipse
-          try {
-            fitted = convertEllipse(cv.fitEllipse(fitPoints))
-          } finally {
-            fitPoints.delete()
-          }
-          if (
-            !finite([
-              ...fitted.center,
-              fitted.major,
-              fitted.minor,
-              fitted.angle,
-            ]) ||
-            fitted.minor <= 0
-          )
-            continue
-          const tolerance = Math.max(1.5, fitted.minor * 0.06),
-            agreement =
-              points.filter((p) => edgeError(p, fitted) <= tolerance).length /
-              points.length,
-            fill = Math.min(1, area / (Math.PI * fitted.major * fitted.minor))
-          fitted.confidence = Math.min(fill, agreement)
-          const boundary = validEllipse(fitted, width, height)
-            ? boundaryEvidence(gray, width, height, fitted)
-            : { support: 0, contrast: 0 }
-          if (!edgeBased) consider(fitted, index, points, refined)
-          if (refined.length >= 12) {
-            irregular = true
-            queueRecovery({
-              index,
-              points,
-              refined,
-              ellipse: fitted,
-              area,
-              quality:
-                boundary.support * 0.6 +
-                agreement * 0.2 +
-                Math.min(1, refined.length / points.length) * 0.2,
-            })
-          }
+          fitContour(points, refined, area)
+          if (!manual && !edgeBased) fragments.push({ region, points, refined })
         } finally {
           contour.delete()
         }
       }
-    }
-
-    const segment = (index: number) => {
-      const maskPixels = mask.data,
-        threshold = result.previews[index].threshold
-      for (let i = 0; i < gray.length; i++) {
-        maskPixels[i] = gray[i] <= threshold ? 255 : 0
+      // Reflections can divide one pupil into disconnected masks. Combine only
+      // neighboring core fragments; image evidence still validates the final rim.
+      fragments.sort((a, b) => b.region.area - a.region.area)
+      const fragmentMargin = (
+        a: PupilContourRegion["bounds"],
+        b: PupilContourRegion["bounds"]
+      ) =>
+        Math.max(
+          3,
+          Math.min(Math.max(a.width, a.height), Math.max(b.width, b.height)) *
+            0.25
+        )
+      const nearby = (
+        a: PupilContourRegion["bounds"],
+        b: PupilContourRegion["bounds"]
+      ) => {
+        const margin = fragmentMargin(a, b)
+        return (
+          Math.max(a.x - b.x - b.width, b.x - a.x - a.width) <= margin &&
+          Math.max(a.y - b.y - b.height, b.y - a.y - a.height) <= margin
+        )
       }
-      cv.morphologyEx(mask, filtered, cv.MORPH_OPEN, kernel)
-      if (options.includePreviewMasks !== false)
-        result.previews[index].mask = Uint8Array.from(filtered.data)
-      findCandidates(filtered, index)
+      const cores = options.previous
+        ? [options.previous.center, patch.point]
+        : [patch.point]
+      let combined = 0
+      for (let i = 0; i < Math.min(8, fragments.length) && combined < 3; i++)
+        for (
+          let j = i + 1;
+          j < Math.min(8, fragments.length) && combined < 3;
+          j++
+        ) {
+          const a = fragments[i],
+            b = fragments[j],
+            ab = a.region.bounds,
+            bb = b.region.bounds,
+            margin = fragmentMargin(ab, bb),
+            left = Math.min(ab.x, bb.x),
+            right = Math.max(ab.x + ab.width, bb.x + bb.width),
+            top = Math.min(ab.y, bb.y),
+            bottom = Math.max(ab.y + ab.height, bb.y + bb.height)
+          if (
+            b.region.area < a.region.area * 0.08 ||
+            !nearby(ab, bb) ||
+            !cores.some(
+              ([x, y]) =>
+                x >= left - margin &&
+                x <= right + margin &&
+                y >= top - margin &&
+                y <= bottom + margin
+            )
+          )
+            continue
+          combined++
+          fragmented = true
+          const joined = [a, b]
+          for (const fragment of fragments.slice(0, 8)) {
+            if (joined.length >= 4) break
+            if (
+              !joined.includes(fragment) &&
+              fragment.region.area >= a.region.area * 0.08 &&
+              joined.some((part) =>
+                nearby(part.region.bounds, fragment.region.bounds)
+              )
+            )
+              joined.push(fragment)
+          }
+          fitContour(
+            joined.flatMap((part) => part.points),
+            joined.flatMap((part) => part.refined),
+            joined.reduce((area, part) => area + part.region.area, 0),
+            joined.length
+          )
+        }
     }
-    for (let index = 0; index < thresholds.length; index++) segment(index)
 
-    const currentBest = (): PupilCandidate | null => bestCandidate
-    if (
-      estimatedThreshold !== null &&
-      (!currentBest() || currentBest()!.ellipse.confidence < 0.82)
-    ) {
-      result.previews.push({
-        label: "Reacquire",
-        threshold: globalThresholds[1],
-        method: "global",
-        score: 0,
-      })
-      segment(result.previews.length - 1)
-    }
+    let recoveryAttempts = 0
     const recoverBestProposal = () => {
+      if (recoveryAttempts >= 2) return
       const proposal = proposals.shift()
       if (!proposal) return
+      recoveryAttempts++
       const recovered = recoverPupilRim(
         cv,
         proposal.points,
@@ -1057,11 +2087,155 @@ export function detectSpatialPupil(
       if (recovered)
         consider(recovered, proposal.index, proposal.points, proposal.refined)
     }
+
+    const segment = (index: number) => {
+      const maskPixels = mask.data,
+        threshold = result.previews[index].threshold
+      for (let i = 0; i < gray.length; i++) {
+        maskPixels[i] = gray[i] <= threshold ? 255 : 0
+      }
+      cv.morphologyEx(mask, filtered, cv.MORPH_OPEN, kernel)
+      if (options.includePreviewMasks !== false)
+        result.previews[index].mask = Uint8Array.from(filtered.data)
+      findCandidates(filtered, index)
+    }
+    const currentBest = (): PupilCandidate | null => bestCandidate
+    // Outline previews do not perform segmentation. Count threshold passes,
+    // so an outline refinement cannot suppress the fourth recovery mask.
+    const canSegmentAgain = () =>
+      result.previews.filter((preview) => preview.method === "global").length <
+      4
+    for (let index = 0; index < thresholds.length; index++) {
+      segment(index)
+      // Reconstruct dark-core arcs before broader iris masks can
+      // displace them from the bounded recovery shortlist.
+      if (
+        index === 0 &&
+        estimatedThreshold === null &&
+        (fragmented ||
+          !currentBest() ||
+          currentBest()!.ellipse.confidence < 0.88)
+      )
+        recoverBestProposal()
+    }
+    const broadCandidate = currentBest(),
+      coreCutoff =
+        broadCandidate &&
+        pupilContrast(gray, width, height, broadCandidate.ellipse).coreCutoff
+    // An iris can win the first masks because its outer boundary is stronger.
+    // Spend the fourth mask on its darker central pupil when that structure exists.
+    if (
+      !manual &&
+      canSegmentAgain() &&
+      broadCandidate &&
+      coreCutoff !== null &&
+      coreCutoff !== undefined &&
+      coreCutoff < thresholds[0] - 4
+    ) {
+      result.previews.push({
+        label: "Dark core",
+        threshold: cutoff(coreCutoff),
+        method: "global",
+        score: 0,
+      })
+      proposals.length = 0
+      segment(result.previews.length - 1)
+      recoverBestProposal()
+    }
+
+    const localCandidate = currentBest(),
+      previous = options.previous,
+      moved =
+        previous &&
+        localCandidate &&
+        (!isContinuousPupil(localCandidate.ellipse, previous, width, height) ||
+          Math.hypot(
+            localCandidate.ellipse.center[0] - previous.center[0],
+            localCandidate.ellipse.center[1] - previous.center[1]
+          ) >
+            previous.major * 0.75)
+    if (
+      !manual &&
+      canSegmentAgain() &&
+      ((estimatedThreshold !== null &&
+        moved &&
+        globalThresholds[0] < thresholds[0] - 6) ||
+        !currentBest() ||
+        currentBest()!.ellipse.confidence < 0.82)
+    ) {
+      result.previews.push({
+        label: "Reacquire",
+        threshold: cutoff(
+          estimatedThreshold !== null
+            ? globalThresholds[
+                foregroundPatch || (!moved && localCandidate) ? 2 : 0
+              ]
+            : (foregroundPatch ? foregroundPatch.value + 40 : otsu) +
+                thresholdOffset
+        ),
+        method: "global",
+        score: 0,
+      })
+      // A local histogram can still describe the iris after an abrupt change.
+      // Preserve its three hypotheses, then compare independent dark-core evidence.
+      if (estimatedThreshold !== null && moved) proposals.length = 0
+      segment(result.previews.length - 1)
+      if (estimatedThreshold !== null && moved) recoverBestProposal()
+    }
     if (!currentBest() || currentBest()!.ellipse.confidence < 0.88)
       recoverBestProposal()
 
+    scaleSeed = pupilOutlineSeed(gray, width, height, scaleSeed, seedEllipse)
+    const recoveredCandidate = currentBest(),
+      // Reflections can leave only an upper fragment in the strict mask.
+      // Refine the recovered whole-pupil candidate before the smaller seed.
+      outlineSeed =
+        scaleSeed ??
+        (recoveredCandidate &&
+        options.trackingAnchorConfirmed &&
+        options.trackingAnchor &&
+        recoveredCandidate.ellipse.major >= options.trackingAnchor.major * 0.8
+          ? recoveredCandidate.ellipse
+          : seedEllipse)
     if (
-      recent &&
+      !manual &&
+      outlineSeed &&
+      outlineSeed.confidence >= 0.1 &&
+      (!recoveredCandidate ||
+        recoveredCandidate.ellipse.confidence < 0.9 ||
+        pupilContrast(gray, width, height, recoveredCandidate.ellipse)
+          .coreCutoff !== null)
+    ) {
+      const outlined = trackPupilRim(
+        cv,
+        gray,
+        width,
+        height,
+        outlineSeed,
+        options.trackingAnchor ?? outlineSeed,
+        true,
+        recent
+      )
+      if (outlined && outlined.shapeObserved !== false) {
+        const index = result.previews.length
+        result.previews.push({
+          label: "Rim recovery",
+          threshold: globalThresholds[0],
+          method: "edges",
+          score: 0,
+          ...(options.includePreviewMasks !== false
+            ? { mask: rimMask(outlined.refined, width, height) }
+            : {}),
+        })
+        consider(outlined.ellipse, index, outlined.points, outlined.refined)
+      }
+    }
+
+    if (
+      (recent || partialReference) &&
+      (!weakTracked ||
+        !identity ||
+        weakTracked.ellipse.confidence < maxPartialConfidence) &&
       (!currentBest() || currentBest()!.ellipse.confidence < 0.72)
     ) {
       const relocated = relocatePupilRim(
@@ -1069,14 +2243,27 @@ export function detectSpatialPupil(
         gray,
         width,
         height,
-        recent,
-        options.trackingAnchor ?? recent
+        (recent ?? partialReference)!,
+        options.trackingAnchor ?? (recent ?? partialReference)!,
+        patch,
+        identity,
+        !!identity && weakTracked?.shapeObserved === false
       )
-      if (relocated) return trackedResult(relocated)
+      if (
+        relocated &&
+        compatibleScale(relocated.ellipse) &&
+        compatibleAppearance(
+          relocated.ellipse,
+          pupilContrast(gray, width, height, relocated.ellipse)
+        ) &&
+        (relocated.shapeObserved !== false || canRetainShape)
+      )
+        return trackedResult(relocated)
     }
 
     if (
       !manual &&
+      recoveryAttempts < 2 &&
       (!currentBest() || currentBest()!.ellipse.confidence < 0.82)
     ) {
       // At most one extra edge pass and one more robust fit; no unbounded threshold search.
@@ -1097,11 +2284,48 @@ export function detectSpatialPupil(
       recoverBestProposal()
     }
     const winner = currentBest()
+    if (identity && weakTracked?.shapeObserved === false) {
+      const appearance =
+        winner && pupilContrast(gray, width, height, winner.ellipse)
+      if (
+        !winner ||
+        !appearance ||
+        !strongPupilEvidence(
+          winner.ellipse,
+          appearance,
+          boundaryEvidence(
+            gray,
+            width,
+            height,
+            winner.ellipse,
+            appearance.reflectionLimit
+          )
+        )
+      )
+        return trackedResult(weakTracked)
+      // A strong full measurement refreshes shape and brightness even when
+      // the partial fit's historical size gives it a higher ranking score.
+      weakTracked = null
+    }
+    if (weakTracked && (!winner || weakTracked.score >= winner.score))
+      return trackedResult(weakTracked)
     if (winner) {
       result.selected = winner.index
       result.contour = winner.points
       result.refined = winner.refined
       result.ellipse = winner.ellipse
+      const appearance = pupilContrast(gray, width, height, winner.ellipse),
+        boundary = boundaryEvidence(
+          gray,
+          width,
+          height,
+          winner.ellipse,
+          appearance.reflectionLimit
+        )
+      result.strongEvidence =
+        !manual && strongPupilEvidence(winner.ellipse, appearance, boundary)
+      result.pupilIntensity = appearance.pupilIntensity
+      result.pupilIntensityLow = appearance.pupilIntensityLow
       const preview = result.previews[winner.index]
       if (preview.method === "edges") {
         preview.threshold = pupilContrast(

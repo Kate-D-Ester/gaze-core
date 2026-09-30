@@ -26,6 +26,11 @@ export class TrackingEngine {
   private previous: Ellipse | null = null
   private trackingAnchor: Ellipse | null = null
   private seenAt = -Infinity
+  private shapeSeenAt = -Infinity
+  private shapeCheckedAt = -Infinity
+  private anchorObservations = 0
+  private pupilIntensity: number | undefined
+  private pupilIntensityLow: number | undefined
   private pending: PendingPupilFit | null = null
   private gray = new Uint8Array(0)
   constructor(privateCv: CV) {
@@ -40,6 +45,11 @@ export class TrackingEngine {
     this.trackingAnchor = null
     this.pending = null
     this.seenAt = -Infinity
+    this.shapeSeenAt = -Infinity
+    this.shapeCheckedAt = -Infinity
+    this.anchorObservations = 0
+    this.pupilIntensity = undefined
+    this.pupilIntensityLow = undefined
   }
   process(
     rgba: Uint8ClampedArray,
@@ -101,7 +111,12 @@ export class TrackingEngine {
       this.previous = null
       this.pending = null
     }
-    if (timestamp - this.seenAt > 3000) this.trackingAnchor = null
+    if (timestamp - this.seenAt > 3000) {
+      this.trackingAnchor = null
+      this.anchorObservations = 0
+      this.pupilIntensity = undefined
+      this.pupilIntensityLow = undefined
+    }
     if (settings.format === "spatial") {
       detection = detectSpatialPupil(
         this.cv,
@@ -113,11 +128,17 @@ export class TrackingEngine {
           thresholdMode: settings.thresholdMode,
           previous: this.previous,
           previousAgeMs: timestamp - this.seenAt,
+          previousShapeAgeMs: timestamp - this.shapeSeenAt,
+          pupilIntensity: this.pupilIntensity,
+          pupilIntensityLow: this.pupilIntensityLow,
+          refreshShape: timestamp - this.shapeCheckedAt >= 200,
           trackingAnchor: this.trackingAnchor,
+          trackingAnchorConfirmed: this.anchorObservations >= 2,
           previousSelected: this.previousSelected,
           includePreviewMasks,
         }
       )
+      if (detection.fullShapeSearched) this.shapeCheckedAt = timestamp
       this.associate(detection, timestamp, roi.width, roi.height)
       const e = detection.ellipse
       model = this.model.getLatest()
@@ -231,9 +252,19 @@ export class TrackingEngine {
       this.pending &&
       timestamp - this.pending.time <= 150 &&
       isContinuousPupil(candidate, this.pending.ellipse, width, height)
+    const anchor = this.trackingAnchor,
+      sameScale =
+        anchor &&
+        candidate.major / anchor.major >= 0.55 &&
+        candidate.major / anchor.major <= 1.6,
+      observedMovement =
+        detection.strongEvidence === true &&
+        this.anchorObservations >= 2 &&
+        sameScale
     const accepted = continuous
       ? candidate.confidence >= 0.72
-      : candidate.confidence >= 0.82 && (!this.previous || confirmed)
+      : candidate.confidence >= 0.82 &&
+        (!this.previous || confirmed || observedMovement)
     if (!accepted) {
       this.pending = { ellipse: candidate, time: timestamp }
       detection.candidate = candidate
@@ -245,11 +276,62 @@ export class TrackingEngine {
           : "Confirming pupil movement"
       return
     }
+    const establishedAnchor = this.anchorObservations >= 2
     this.previous = candidate
+    if (detection.shapeObserved !== false) {
+      this.shapeSeenAt = timestamp
+      this.shapeCheckedAt = timestamp
+      if (
+        candidate.confidence >= 0.8 &&
+        detection.pupilIntensity !== undefined
+      ) {
+        this.pupilIntensity = detection.pupilIntensity
+        this.pupilIntensityLow = detection.pupilIntensityLow
+      }
+    }
+    if (
+      detection.strongEvidence &&
+      (!establishedAnchor ||
+        (anchor &&
+          candidate.major / anchor.major >= 0.7 &&
+          candidate.major / anchor.major <= 1.4))
+    ) {
+      this.anchorObservations =
+        anchor &&
+        candidate.major / anchor.major >= 0.7 &&
+        candidate.major / anchor.major <= 1.4
+          ? Math.min(3, this.anchorObservations + 1)
+          : 1
+    }
     if (detection.previews[detection.selected]?.method !== "tracking") {
-      this.trackingAnchor = candidate
+      // A weak cap under the lid must not progressively shrink the remembered
+      // pupil. Update its scale only from independently supported full rims.
+      if (
+        !this.trackingAnchor ||
+        (detection.strongEvidence &&
+          (!establishedAnchor ||
+            (candidate.major / this.trackingAnchor.major >= 0.9 &&
+              candidate.major / this.trackingAnchor.major <= 1.25)))
+      )
+        this.trackingAnchor = candidate
       this.previousSelected =
         detection.selected >= 0 ? detection.selected : undefined
+    } else if (
+      anchor &&
+      detection.strongEvidence &&
+      detection.shapeObserved !== false &&
+      candidate.major / anchor.major >= 0.7 &&
+      candidate.major / anchor.major <= 1.4
+    ) {
+      // Strong full rims can observe gradual physiological size changes.
+      // Adapt size slowly, preserving the independently measured aspect ratio,
+      // center and angle so weak caps cannot redefine the reference shape.
+      const scale = 1 + 0.1 * (candidate.major / anchor.major - 1)
+      this.trackingAnchor = {
+        ...anchor,
+        major: anchor.major * scale,
+        minor: anchor.minor * scale,
+      }
     }
     this.seenAt = timestamp
     this.pending = null

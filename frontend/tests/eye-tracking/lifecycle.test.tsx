@@ -9,6 +9,7 @@ import { useTracker } from "../../apps/web/src/features/eye-tracking/use-tracker
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 import { RegionControls } from "../../apps/web/src/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "../../apps/web/src/features/eye-tracking/steps/source-controls"
+import type { WorkerRequest } from "../../apps/web/src/features/eye-tracking/tracker.worker.types"
 import {
   getCameraErrorMessage,
   getVideoErrorMessage,
@@ -25,7 +26,11 @@ let controller: TrackerController,
   availableDevices: MediaDeviceInfo[],
   deviceChangeListener: (() => void) | null,
   enumerateCalls: number,
-  workers: { onmessage: any; terminate: () => void }[],
+  workers: {
+    onmessage: any
+    postMessage: (request: WorkerRequest) => void
+    terminate: () => void
+  }[],
   terminatedWorkers: number
 function Harness() {
   controller = useTracker()
@@ -176,6 +181,71 @@ test("source dimensions survive ROI invalidation before a new frame arrives", as
   expect(controller.frame).toBeNull()
 })
 
+test("settings edits and source restarts cannot queue frames behind an active worker request", async () => {
+  await act(async () => root?.unmount())
+  root = null
+  let tick: FrameRequestCallback = () => {},
+    requests: WorkerRequest[] = []
+  globalThis.requestAnimationFrame = (callback) => {
+    tick = callback
+    return 1
+  }
+  const context = {
+    clearRect() {},
+    fillRect() {},
+    beginPath() {},
+    ellipse() {},
+    arc() {},
+    fill() {},
+    stroke() {},
+    getImageData: () => ({ data: new Uint8ClampedArray(640 * 480 * 4) }),
+  }
+  HTMLCanvasElement.prototype.getContext = (() => context) as any
+  await act(async () => {
+    root = createRoot(host)
+    root.render(createElement(Harness))
+  })
+  const worker = workers.at(-1)!
+  worker.postMessage = (request) => requests.push(request)
+  controller.sourceCanvas.current = document.createElement("canvas")
+  await act(async () => {
+    worker.onmessage({ data: { type: "ready" } })
+    controller.startSample()
+    tick(100)
+  })
+  expect(requests).toHaveLength(1)
+  await act(async () => {
+    controller.configure({ threshold: 5 })
+    tick(200)
+    controller.configure({ threshold: 10 })
+    tick(300)
+  })
+  expect(requests).toHaveLength(1)
+  await act(async () => {
+    worker.onmessage({
+      data: { type: "error", generation: requests[0].generation, message: "stale" },
+    })
+    tick(400)
+  })
+  expect(controller.error).toBe("")
+  expect(requests).toHaveLength(2)
+  expect(requests[1].settings.threshold).toBe(10)
+  await act(async () => {
+    controller.stop()
+    controller.startSample()
+    tick(500)
+  })
+  expect(requests).toHaveLength(2)
+  await act(async () => {
+    worker.onmessage({
+      data: { type: "error", generation: requests[1].generation, message: "stale" },
+    })
+    tick(600)
+  })
+  expect(controller.error).toBe("")
+  expect(requests).toHaveLength(3)
+})
+
 test("tracker restores ROI, manual corners, and threshold preferences after remount", async () => {
   await act(async () =>
     controller.configure({
@@ -283,18 +353,18 @@ test("saved camera coordinates scale to the active camera dimensions", async () 
   })
 
   expect(controller.settings.roi).toEqual({
-    x: 128,
-    y: 72,
-    width: 640,
-    height: 360,
+    x: 64,
+    y: 36,
+    width: 320,
+    height: 180,
   })
   expect(controller.settings.corners).toEqual([
-    [200, 150],
-    [1000, 450],
+    [100, 75],
+    [500, 225],
   ])
 })
 
-test("high-resolution camera frames retain eye detail before ROI cropping", async () => {
+test("high-resolution camera frames fit the processing limit without distortion", async () => {
   Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
     configurable: true,
     get: () => 1920,
@@ -312,7 +382,7 @@ test("high-resolution camera frames retain eye detail before ROI cropping", asyn
     resolvePlay()
     await pending!
   })
-  expect(controller.dimensions).toEqual({ width: 1280, height: 720 })
+  expect(controller.dimensions).toEqual({ width: 640, height: 360 })
 })
 
 test("enumerates USB cameras on mount and refreshes the list when devices change", async () => {

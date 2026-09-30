@@ -26,6 +26,7 @@ export function useTrackerWorker(
     const fail = (message: string) => {
       c.ready = false
       c.inflight = false
+      c.inflightGeneration = -1
       setEngineReady(false)
       setError(message)
       stop()
@@ -183,6 +184,8 @@ export function useTrackerWorker(
     return () => {
       cancelAnimationFrame(raf)
       worker.terminate()
+      c.inflight = false
+      c.inflightGeneration = -1
       c.ready = false
       c.worker = null
       c.generation++

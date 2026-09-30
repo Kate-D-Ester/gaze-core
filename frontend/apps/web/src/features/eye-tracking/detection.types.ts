@@ -14,8 +14,16 @@ export type PupilDetectionOptions = {
   expectedCenter?: Point
   previous?: Ellipse | null
   previousAgeMs?: number
+  previousShapeAgeMs?: number
+  /** Dark interior quantile from an accepted, strongly supported full pupil. */
+  pupilIntensity?: number
+  /** Lower interior quantile; distinguishes pupil variation from darker lashes. */
+  pupilIntensityLow?: number
+  /** Periodically compare an inferred shape with independent full-ROI detection. */
+  refreshShape?: boolean
   /** Last independently detected shape; limits gradual drift during rim tracking. */
   trackingAnchor?: Ellipse | null
+  trackingAnchorConfirmed?: boolean
   previousSelected?: number
   includePreviewMasks?: boolean
 }
@@ -31,6 +39,13 @@ export type PupilRimSample = {
   offset: number
 }
 
+export type PupilRimIdentity = {
+  minimumIntensity: number
+  maximumIntensity: number
+  reflectionLimit: number
+  reference: Ellipse
+}
+
 export type PupilProposal = {
   index: number
   points: Point[]
@@ -44,6 +59,7 @@ export type PupilContourRegion = {
   index: number
   area: number
   priority: number
+  bounds: { x: number; y: number; width: number; height: number }
 }
 
 export type PupilCandidate = {

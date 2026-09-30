@@ -133,8 +133,8 @@ export function useTracker(): TrackerController {
     const c = control.current
     c.generation++
     c.sourceEpoch++
-    c.inflight = false
-    c.inflightGeneration = -1
+    // The worker still owns any submitted frame. Its stale response releases
+    // that request before a restarted source can submit the next frame.
     c.stream?.getTracks().forEach((track) => track.stop())
     c.stream = null
     c.networkAbort?.abort()
@@ -209,8 +209,6 @@ export function useTracker(): TrackerController {
       }
       if (invalidate) {
         c.generation++
-        c.inflight = false
-        c.inflightGeneration = -1
         clearFrame()
       }
       setSettings(c.settings)
@@ -224,20 +222,26 @@ export function useTracker(): TrackerController {
       frameSize?: FrameDimensions
     ) => {
       const c = control.current
-      const inputWidth = video?.videoWidth ?? frameSize?.width ?? 640
-      const inputHeight = video?.videoHeight ?? frameSize?.height ?? 480
+      const inputWidth =
+        video?.videoWidth ?? frameSize?.width ?? DEFAULT_DIMENSIONS.width
+      const inputHeight =
+        video?.videoHeight ?? frameSize?.height ?? DEFAULT_DIMENSIONS.height
       const scale =
         video || frameSize
-          ? Math.min(1280 / inputWidth, 960 / inputHeight, 1)
+          ? Math.min(
+              DEFAULT_DIMENSIONS.width / inputWidth,
+              DEFAULT_DIMENSIONS.height / inputHeight,
+              1
+            )
           : 1
       const width =
           video || frameSize
             ? Math.max(2, Math.round(inputWidth * scale))
-            : 640,
+            : DEFAULT_DIMENSIONS.width,
         height =
           video || frameSize
             ? Math.max(2, Math.round(inputHeight * scale))
-            : 480
+            : DEFAULT_DIMENSIONS.height
       c.settings = resizeTrackerSettings(
         {
           frameDimensions: dimensionsRef.current,
@@ -274,8 +278,8 @@ export function useTracker(): TrackerController {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: DEFAULT_DIMENSIONS.width },
+            height: { ideal: DEFAULT_DIMENSIONS.height },
           },
           audio: false,
         })

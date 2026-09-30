@@ -31,8 +31,15 @@ export type ThresholdPreview = {
   score: number
 }
 export type Detection = {
-  /** False when current edges determine translation but the previous ellipse axes are retained. */
+  /** False when current arcs constrain position/scale while hidden shape remains inferred. */
   shapeObserved?: boolean
+  /** Fresh image evidence sufficient for an immediate movement update at the established scale. */
+  strongEvidence?: boolean
+  /** Glint-excluded dark interior quantile, measured from the current full fit. */
+  pupilIntensity?: number
+  pupilIntensityLow?: number
+  /** A full-ROI search was performed even if a measured partial rim ultimately won. */
+  fullShapeSearched?: boolean
   /** Visible feedback only; never used to fit the eye model or produce gaze. */
   candidate?: Ellipse
   tracking?: "tracking" | "reacquiring" | "lost"
