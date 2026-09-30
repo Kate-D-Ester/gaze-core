@@ -1,6 +1,6 @@
 # Scene-camera eye tracking implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add `/trial/scene-camera-eye-tracking` with two cameras, fingertip calibration, live scene gaze, local recording, coordinate logs, and heatmaps.
 
@@ -54,41 +54,41 @@ Tests under `frontend/tests/scene-eye-tracking/`; a route regression test extend
 
 **Interfaces:** `EyeObservation = { id, timestamp, feature, confidence, valid }`; `SceneObservation = { id, timestamp, width, height }`; `HandObservation = { scene, landmarks, worldLandmarks, handedness }`. `pairObservation(eyes, hand, delayMs, now): CalibrationPair | null`; `createCollector(mode): Collector`; `collectPair(collector, pair): CollectionResult`; `fitSceneCalibration(holds): SceneCalibration | null`; `mapSceneGaze(calibration, feature): Point | null`; `validateSceneCalibration(calibration, holds): ValidationResult | null`.
 
-- [ ] Write `calibration.test.ts`: fresh nearest-time matching accepts a pair within 100 ms after delay adjustment; rejects eye/scene data older than 250 ms, nonfinite values, confidence below 0.7, untracked gaze, ambiguous hands, and duplicate frame IDs.
-- [ ] Run `bun test tests/scene-eye-tracking/calibration.test.ts`; confirm missing-module failure.
-- [ ] Implement pairing and collector. Use nine 3×3 scene regions, a 300 ms settling period, at least 20 unique pairs over at least 800 ms per hold, target drift <=0.025 normalized units, and a bounded 3-second eye history. Reset incomplete holds on invalid evidence or excessive movement. Validation gathers five fresh holds. Save raw accepted pairs and robust hold aggregates.
-- [ ] Test that movement/blink/stale data reset a hold, revisiting completed regions does not inflate coverage, and all regions plus scene extent are required. Test collapsed/collinear/nonfinite feature distributions and spatially inadequate coverage fail.
-- [ ] Implement affine and second-order fits with centered/scaled QR; use whole-hold leave-one-out validation. Choose quadratic only when its RMS improves affine by at least 10%; reject RMS above 0.08 normalized scene units. Preserve unclamped coordinates and calibration coverage bounds. Test synthetic affine/quadratic recovery and noisy/degenerate rejection.
-- [ ] Run Task 1 tests; commit `feat: add scene calibration quality gates`.
+- [x] Write `calibration.test.ts`: fresh nearest-time matching accepts a pair within 100 ms after delay adjustment; rejects eye/scene data older than 250 ms, nonfinite values, confidence below 0.7, untracked gaze, ambiguous hands, and duplicate frame IDs.
+- [x] Run `bun test tests/scene-eye-tracking/calibration.test.ts`; confirm missing-module failure.
+- [x] Implement pairing and collector. Use nine 3×3 scene regions, a 300 ms settling period, at least 20 unique pairs over at least 800 ms per hold, target drift <=0.025 normalized units, and a bounded 3-second eye history. Reset incomplete holds on invalid evidence or excessive movement. Validation gathers five fresh holds. Save raw accepted pairs and robust hold aggregates.
+- [x] Test that movement/blink/stale data reset a hold, revisiting completed regions does not inflate coverage, and all regions plus scene extent are required. Test collapsed/collinear/nonfinite feature distributions and spatially inadequate coverage fail.
+- [x] Implement affine and second-order fits with centered/scaled QR; use whole-hold leave-one-out validation. Choose quadratic only when its RMS improves affine by at least 10%; reject RMS above 0.08 normalized scene units. Preserve unclamped coordinates and calibration coverage bounds. Test synthetic affine/quadratic recovery and noisy/degenerate rejection.
+- [x] Run Task 1 tests; commit `feat: add scene calibration quality gates`.
 
 ### Task 2: Independent scene capture and hand inference
 
 **Interfaces:** `useSceneCamera(): SceneCameraController` exposes `source`, `busy`, `error`, `devices`, `rawCanvas`, `latest`, `startCamera(deviceId)`, `startNetworkStream(url)`, `stop()`, and a frame subscription. `useHandTracker(scene, enabled): HandTrackerController` exposes `status`, `error`, `latest`, `retry()`; results use Task 1 contracts.
 
-- [ ] Write `scene-camera.test.tsx` with fake devices/video/MJPEG: start two roles independently, ignore late permission responses, cancel pending requests, retain native dimensions, detect a stalled stream, handle resolution changes, and release all owned resources on unmount.
-- [ ] Run tests and confirm failure; implement scene controller using existing `openNetworkSource`/video utilities. Keep scene canvas independent of the pupil worker. Use generation IDs, abort signals, track-ended handlers, a fresh-frame timeout, and one retained MJPEG bitmap.
-- [ ] Pin MediaPipe Tasks Vision and distribute matching WASM plus model assets. Follow Google's module-worker sample and explicitly verify installed package worker-loader compatibility. Record source/version/license attribution for distributed assets. Configure VIDEO mode, two-hand detection for ambiguity checks, confidence thresholds 0.7, and CPU fallback if worker GPU initialization fails.
-- [ ] Write hand-controller tests for one in-flight frame, unique scene IDs, stale generation messages, load failure/retry, missing browser support, and bitmap closure. Run failing tests, implement worker/controller, and run passing tests.
-- [ ] Run Tasks 1–2 tests plus `bun run build`; commit `feat: add independent scene camera and hand worker`.
+- [x] Write `scene-camera.test.tsx` with fake devices/video/MJPEG: start two roles independently, ignore late permission responses, cancel pending requests, retain native dimensions, detect a stalled stream, handle resolution changes, and release all owned resources on unmount.
+- [x] Run tests and confirm failure; implement scene controller using existing `openNetworkSource`/video utilities. Keep scene canvas independent of the pupil worker. Use generation IDs, abort signals, track-ended handlers, a fresh-frame timeout, and one retained MJPEG bitmap.
+- [x] Pin MediaPipe Tasks Vision and distribute matching WASM plus model assets. Follow Google's module-worker sample and explicitly verify installed package worker-loader compatibility. Record source/version/license attribution for distributed assets. Configure VIDEO mode, two-hand detection for ambiguity checks, confidence thresholds 0.7, and CPU fallback if worker GPU initialization fails.
+- [x] Write hand-controller tests for one in-flight frame, unique scene IDs, stale generation messages, load failure/retry, missing browser support, and bitmap closure. Run failing tests, implement worker/controller, and run passing tests.
+- [x] Run Tasks 1–2 tests plus `bun run build`; commit `feat: add independent scene camera and hand worker`.
 
 ### Task 3: Public route and guided calibration/live scene flow
 
 **Interfaces:** `V2Page({ sceneMode?: boolean })` keeps default behavior. `SceneWorkspace({ tracker, onInvalidateEyeSetup })` contains scene steps and Task 1/2 controllers. `ScenePreview({ scene, hand, gaze, trace, coverage, heatmap })` renders native-aspect unmirrored coordinates. `useSceneSession(tracker, scene, hands)` owns the current mapping, fresh validation, measurement records, and notices.
 
-- [ ] Add route tests for `/trial/scene-camera-eye-tracking`, public access, six setup stages, both formats, and preserved `/trial`. Run tests to establish failure.
-- [ ] Extend the existing v2 shell with an explicit scene-mode branch; share the existing first-three-step UI, corner controls, lock readiness, and pupil pipeline. Add scene-specific step names/copy and scene workspace components; do not duplicate the full eye setup page.
-- [ ] Add source controls with known-device conflict checks and explicit delay adjustment; full-hand skeleton and highlighted landmark 8; nine-region progress and physical-fingertip guidance; start/cancel/retry calibration and five-hold independent validation; live gaze/trace with pupil/scene loss and extrapolation feedback.
-- [ ] Test calibration invalidation for eye settings/format/source, scene source/resolution, and delay changes; resizing leaves mapping valid. Test absent hands after calibration do not stop gaze and stale pupil/scene data do stop gaze. Stop recording before changes that invalidate a session.
-- [ ] Add scoped responsive styles and accessible labels/status. Run route/lifecycle tests and all prior tests; commit `feat: add fingertip calibrated scene gaze route`.
+- [x] Add route tests for `/trial/scene-camera-eye-tracking`, public access, six setup stages, both formats, and preserved `/trial`. Run tests to establish failure.
+- [x] Extend the existing v2 shell with an explicit scene-mode branch; share the existing first-three-step UI, corner controls, lock readiness, and pupil pipeline. Add scene-specific step names/copy and scene workspace components; do not duplicate the full eye setup page.
+- [x] Add source controls with known-device conflict checks and explicit delay adjustment; full-hand skeleton and highlighted landmark 8; nine-region progress and physical-fingertip guidance; start/cancel/retry calibration and five-hold independent validation; live gaze/trace with pupil/scene loss and extrapolation feedback.
+- [x] Test calibration invalidation for eye settings/format/source, scene source/resolution, and delay changes; resizing leaves mapping valid. Test absent hands after calibration do not stop gaze and stale pupil/scene data do stop gaze. Stop recording before changes that invalidate a session.
+- [x] Add scoped responsive styles and accessible labels/status. Run route/lifecycle tests and all prior tests; commit `feat: add fingertip calibrated scene gaze route`.
 
 ### Task 4: Recording, coordinate exports, and heatmaps
 
 **Interfaces:** `createSceneRecording(canvas, options): RecordingController` with `start`, `stop(): Promise<RecordingResult>`, `dispose`; `appendMeasurement(session, measurement)` bounds logging; `exportSessionCsv(session): string`; `exportSessionJson(session): string`; `buildHeatmap(measurements, width, height): Heatmap`; downloads use supported MIME/extension and shared timing metadata.
 
-- [ ] Write `session.test.ts`, `recording.test.ts`, and `heatmap.test.ts`: invalid/out-of-frame gaze excluded from density, timestamps and null/loss reasons preserved in CSV/JSON, dwell time excludes dropout gaps, MIME selected from browser support, recorder errors/stop races finalize once, and cleanup preserves completed blobs.
-- [ ] Run tests and confirm failure; implement separate overlay-free raw scene capture (USB track where available; canvas re-encode for network/MJPEG), optional overlay-free eye canvas recording, and documented recording timing offsets. Bound sessions to 10 minutes/128 MiB, stop at limits, and preserve partial results on source failure. Validate actual recorder MIME before naming downloads.
-- [ ] Add record/stop, elapsed-time feedback, video download, CSV/JSON download, and heatmap PNG controls. Include calibration/settings/source/timestamp metadata and optional hand observations. Keep unannotated video separate from overlays. Provide a readable unsupported-recording state while retaining data exports.
-- [ ] Test source failure/change/unmount, recorder failure, object-URL cleanup, unsupported captureStream, and replacement of a completed session. Run all frontend tests and build; commit `feat: record scene gaze and export session artifacts`.
+- [x] Write `session.test.ts`, `recording.test.ts`, and `heatmap.test.ts`: invalid/out-of-frame gaze excluded from density, timestamps and null/loss reasons preserved in CSV/JSON, dwell time excludes dropout gaps, MIME selected from browser support, recorder errors/stop races finalize once, and cleanup preserves completed blobs.
+- [x] Run tests and confirm failure; implement separate overlay-free raw scene capture (USB track where available; canvas re-encode for network/MJPEG), optional overlay-free eye canvas recording, and documented recording timing offsets. Bound sessions to 10 minutes/128 MiB, stop at limits, and preserve partial results on source failure. Validate actual recorder MIME before naming downloads.
+- [x] Add record/stop, elapsed-time feedback, video download, CSV/JSON download, and heatmap PNG controls. Include calibration/settings/source/timestamp metadata and optional hand observations. Keep unannotated video separate from overlays. Provide a readable unsupported-recording state while retaining data exports.
+- [x] Test source failure/change/unmount, recorder failure, object-URL cleanup, unsupported captureStream, and replacement of a completed session. Run all frontend tests and build; commit `feat: record scene gaze and export session artifacts`.
 
 ### Task 5: Verification and delivery
 

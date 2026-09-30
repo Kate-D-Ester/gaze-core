@@ -1,3 +1,4 @@
+import { useId } from "react"
 import type { V2StepPanelProps } from "./v2-step-panel.types"
 
 export function V2StepPanel({
@@ -9,17 +10,18 @@ export function V2StepPanel({
   message,
   children,
 }: V2StepPanelProps) {
+  const headingId = useId()
   const statusMessage = error || message
 
   return (
-    <aside className="eye-controls" aria-labelledby="eye-step-title">
+    <aside className="eye-controls" aria-labelledby={headingId}>
       <div className="eye-controls-heading">
         <div>
           <span className="eye-eyebrow">
             STEP {String(stepNumber).padStart(2, "0")} /{" "}
             {stepName.toUpperCase()}
           </span>
-          <h2 id="eye-step-title">{title}</h2>
+          <h2 id={headingId}>{title}</h2>
           <p>{description}</p>
         </div>
       </div>

@@ -71,7 +71,7 @@ test("step panel exposes the active step and readable error feedback", async () 
   })
 
   expect(host.querySelector("aside.eye-controls")).not.toBeNull()
-  expect(host.querySelector("#eye-step-title")?.textContent).toBe(
+  expect(host.querySelector("aside.eye-controls h2")?.textContent).toBe(
     "Build the eye model"
   )
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(

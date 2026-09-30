@@ -66,3 +66,16 @@ test("original trial retains its screen-calibration workflow", async () => {
     [...host.querySelectorAll(".eye-step-text")].map((e) => e.textContent)
   ).toEqual(["Camera", "Eye region", "Eye model", "Calibrate", "Live gaze"])
 })
+
+test("eye and scene panels each reference their own unique heading", async () => {
+  await render("/trial/scene-camera-eye-tracking")
+  const panels = [...host.querySelectorAll("aside.eye-controls")]
+  expect(panels).toHaveLength(2)
+  const ids = panels.map((panel) => panel.getAttribute("aria-labelledby"))
+  expect(new Set(ids).size).toBe(2)
+  for (const panel of panels) {
+    expect(panel.querySelector("h2")?.id).toBe(
+      panel.getAttribute("aria-labelledby")
+    )
+  }
+})

@@ -9,6 +9,10 @@ await mkdir(destination, { recursive: true })
 await cp(path.join(packageRoot, "wasm"), path.join(destination, "wasm"), {
   recursive: true,
 })
+await cp(
+  path.join(root, "public/models/LICENSE"),
+  path.join(destination, "LICENSE")
+)
 const result = await Bun.build({
   entrypoints: [
     path.join(root, "src/features/scene-eye-tracking/hand.worker.ts"),
