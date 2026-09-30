@@ -1,7 +1,7 @@
 # Scene-camera eye tracking
 
 Date: 2026-10-01
-Status: Proposed design; research and workspace preparation complete, implementation awaiting design review.
+Status: Design approved by Kate on 2026-10-01; implementation plan awaiting review.
 Route: `/trial/scene-camera-eye-tracking`
 Workspace: `/Users/kate/Desktop/Codex-projects/worktree-v4`
 Branch: `codex/worktree-v4`
