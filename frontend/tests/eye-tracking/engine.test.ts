@@ -183,7 +183,7 @@ test("spatial association rejects one-frame jumps but reacquires sustained eye m
   expect(lost.detection.ellipse).toBeNull()
 })
 
-test("a tracked, mildly occluded pupil keeps a valid gaze instead of flickering at the acquisition cutoff", () => {
+test("a tracked, mildly occluded pupil keeps valid gaze and a stable center", () => {
   engine.reset()
   const settings: FrameSettings = {
     format: "spatial",
@@ -249,7 +249,7 @@ test("a tracked, mildly occluded pupil keeps a valid gaze instead of flickering 
     ++id,
     id * 40
   )
-  expect(partial.detection.ellipse!.confidence).toBeLessThan(0.85)
+  expect(partial.detection.tracking).toBe("tracking")
   expect(partial.gaze).not.toBeNull()
   expect(
     Math.hypot(

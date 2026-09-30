@@ -68,27 +68,26 @@ export function useTrackerWorker(
               0
             )
         if (!c.previewMasksEnabled) {
-          previewMasks = []
+          previewMasks.clear()
           previewMaskGeneration = message.generation
         } else if (previewMaskGeneration !== message.generation) {
           previewMaskGeneration = message.generation
-          previewMasks = []
+          previewMasks.clear()
         }
         const previews = message.frame.detection.previews.map(
-          (
-            preview: TrackingFrame["detection"]["previews"][number],
-            index: number
-          ) => {
+          (preview: TrackingFrame["detection"]["previews"][number]) => {
             if (!c.previewMasksEnabled) {
               if (!preview.mask) return preview
               return {
                 label: preview.label,
                 threshold: preview.threshold,
+                method: preview.method,
                 score: preview.score,
               }
             }
-            if (preview.mask) previewMasks[index] = preview.mask
-            const mask = preview.mask ?? previewMasks[index]
+            const key = `${preview.method ?? "global"}:${preview.label}`
+            if (preview.mask) previewMasks.set(key, preview.mask)
+            const mask = preview.mask ?? previewMasks.get(key)
             return mask && !preview.mask ? { ...preview, mask } : preview
           }
         )
@@ -110,13 +109,13 @@ export function useTrackerWorker(
     }
     worker.onmessageerror = () =>
       fail("The vision engine returned data the page could not read.")
-    const captureCanvas = document.createElement("canvas")
+    const captureCanvas = document.createElement("canvas"),
+      previewMasks = new Map<string, Uint8Array>()
     let raf = 0,
       last = 0,
       lastPreviewMaskFrame = -Infinity,
       previewMaskRequestGeneration = -1,
-      previewMaskGeneration = -1,
-      previewMasks: (Uint8Array | undefined)[] = []
+      previewMaskGeneration = -1
     const loop = (time: number) => {
       raf = requestAnimationFrame(loop)
       if (!c.source || !c.ready || c.inflight || time - last < 1000 / 24) return
@@ -175,7 +174,6 @@ export function useTrackerWorker(
         timestamp: time,
         generation: c.generation,
         includePreviewMasks,
-        evaluateAllThresholds: c.previewMasksEnabled,
       }
       c.inflight = true
       c.inflightGeneration = c.generation

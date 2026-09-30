@@ -34,8 +34,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       request.settings,
       request.id,
       request.timestamp,
-      request.includePreviewMasks,
-      request.evaluateAllThresholds
+      request.includePreviewMasks
     )
     // Contour point clouds are used only inside the worker's pupil selection;
     // the UI renders the fitted ellipse, so don't clone these large arrays.

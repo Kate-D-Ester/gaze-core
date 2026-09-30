@@ -10,7 +10,6 @@ export type WorkerRequest = {
   timestamp: number
   generation: number
   includePreviewMasks?: boolean
-  evaluateAllThresholds?: boolean
 }
 
 export type WorkerResponse =

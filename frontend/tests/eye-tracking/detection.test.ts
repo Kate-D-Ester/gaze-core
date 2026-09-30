@@ -51,7 +51,7 @@ test("preview masks can be skipped without changing pupil detection", () => {
   expect(withMasks.previews.every((preview) => !!preview.mask)).toBe(true)
   expect(withoutMasks.previews.every((preview) => !preview.mask)).toBe(true)
 })
-test("steady pupil tracking reuses the last threshold when the full comparison is closed", () => {
+test("preview visibility does not change threshold selection or exceed the comparison budget", () => {
   const previous = {
     center: [158, 117] as Point,
     major: 36,
@@ -79,18 +79,16 @@ test("steady pupil tracking reuses the last threshold when the full comparison i
   const fullResult = detectSpatialPupil(complete.cv, frame(), 320, 240, 0, {
     previous,
     previousSelected: 1,
-    includePreviewMasks: false,
-    evaluateAllThresholds: true,
+    includePreviewMasks: true,
   })
   const fastResult = detectSpatialPupil(fast.cv, frame(), 320, 240, 0, {
     previous,
     previousSelected: 1,
     includePreviewMasks: false,
-    evaluateAllThresholds: false,
   })
 
-  expect(complete.calls()).toBe(3)
-  expect(fast.calls()).toBe(1)
+  expect(complete.calls()).toBeLessThanOrEqual(4)
+  expect(fast.calls()).toBeLessThanOrEqual(4)
   expect(fastResult.selected).toBe(fullResult.selected)
   expect(fastResult.ellipse?.center[0]).toBeCloseTo(
     fullResult.ellipse!.center[0],
@@ -266,4 +264,179 @@ test("auto preview keeps its previous threshold when candidates are equivalent o
   )
   expect(lost.ellipse).toBeNull()
   expect(lost.selected).toBe(2)
+})
+
+function shadedPupil(
+  width: number,
+  height: number,
+  center: Point,
+  major: number,
+  minor: number,
+  background: (x: number, y: number) => number = () => 185,
+  contrast = 130
+) {
+  const data = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const inside =
+        ((x - center[0]) / major) ** 2 + ((y - center[1]) / minor) ** 2 <= 1
+      data[y * width + x] = Math.max(
+        0,
+        Math.round(background(x, y) - (inside ? contrast : 0))
+      )
+    }
+  return data
+}
+
+test("auto fits the whole pupil across an illumination gradient in one frame", () => {
+  const data = shadedPupil(
+    320,
+    240,
+    [180, 120],
+    50,
+    30,
+    (x) => 40 + 0.65 * x,
+    35
+  )
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    includePreviewMasks: false,
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 180, result.ellipse!.center[1] - 120)
+  ).toBeLessThan(2)
+  expect(Math.abs(result.ellipse!.major - 50)).toBeLessThan(3)
+  expect(Math.abs(result.ellipse!.minor - 30)).toBeLessThan(3)
+})
+
+test("a wide pupil that fits a shallow ROI is not rejected by its major axis", () => {
+  const result = detectSpatialPupil(
+    cv,
+    shadedPupil(240, 100, [120, 50], 70, 30),
+    240,
+    100,
+    0
+  )
+  expect(result.ellipse).not.toBeNull()
+  expect(Math.abs(result.ellipse!.major - 70)).toBeLessThan(2)
+  expect(Math.abs(result.ellipse!.minor - 30)).toBeLessThan(2)
+})
+
+test("lash cleanup preserves a small pupil in a large eye ROI", () => {
+  const result = detectSpatialPupil(
+    cv,
+    shadedPupil(960, 720, [480, 360], 6, 4),
+    960,
+    720,
+    0
+  )
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 480, result.ellipse!.center[1] - 360)
+  ).toBeLessThan(1)
+  expect(Math.abs(result.ellipse!.major - 6)).toBeLessThan(1)
+  expect(Math.abs(result.ellipse!.minor - 4)).toBeLessThan(1)
+})
+
+test("visible pupil arcs survive connection to a dark eyelid at the ROI border", () => {
+  const data = shadedPupil(320, 240, [160, 85], 27, 21)
+  for (let y = 20; y <= 74; y++) data.fill(35, y * 320, (y + 1) * 320)
+  const result = detectSpatialPupil(cv, data, 320, 240, 0)
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 160, result.ellipse!.center[1] - 85)
+  ).toBeLessThan(3)
+  expect(Math.abs(result.ellipse!.major - 27)).toBeLessThan(3)
+  expect(Math.abs(result.ellipse!.minor - 21)).toBeLessThan(3)
+})
+
+test("a stronger pupil can win after movement while a weak oval remains nearby", () => {
+  const data = shadedPupil(320, 240, [245, 140], 19, 13)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++)
+      if (((x - 100) / 19) ** 2 + ((y - 120) / 13) ** 2 <= 1)
+        data[y * 320 + x] = 172
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    previous: {
+      center: [100, 120],
+      major: 19,
+      minor: 13,
+      angle: 0,
+      confidence: 0.95,
+    },
+    previousSelected: 2,
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 245, result.ellipse!.center[1] - 140)
+  ).toBeLessThan(2)
+})
+
+test("a closed eyelid and crossing lash strands do not produce a pupil", () => {
+  const data = new Uint8Array(320 * 240).fill(180)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++)
+      if (
+        Math.abs(y - (90 + 0.0008 * (x - 160) ** 2)) < 4 ||
+        (y > 60 &&
+          y < 135 &&
+          (Math.abs(x - 100 - 0.4 * y) < 2 || Math.abs(x - 210 + 0.3 * y) < 2))
+      )
+        data[y * 320 + x] = 15
+  const result = detectSpatialPupil(cv, data, 320, 240, 0)
+  expect(result.ellipse).toBeNull()
+})
+
+test("a clipped pupil is reconstructed only when enough visible rim remains", () => {
+  const visible = detectSpatialPupil(
+    cv,
+    shadedPupil(180, 140, [90, 14], 28, 20),
+    180,
+    140,
+    0
+  )
+  expect(visible.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(visible.ellipse!.center[0] - 90, visible.ellipse!.center[1] - 14)
+  ).toBeLessThan(3)
+  const hidden = detectSpatialPupil(
+    cv,
+    shadedPupil(180, 140, [90, -12], 28, 20),
+    180,
+    140,
+    0
+  )
+  expect(hidden.ellipse?.confidence ?? 0).toBeLessThan(0.82)
+})
+
+test("current pupil evidence wins over a previously selected enclosing iris mask", () => {
+  const data = shadedPupil(320, 240, [160, 120], 29, 23, () => 185, 105)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++)
+      if (((x - 160) / 20) ** 2 + ((y - 120) / 16) ** 2 <= 1)
+        data[y * 320 + x] = 65
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    previous: {
+      center: [160, 120],
+      major: 20,
+      minor: 16,
+      angle: 0,
+      confidence: 0.95,
+    },
+    previousSelected: 2,
+    includePreviewMasks: false,
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(Math.abs(result.ellipse!.major - 20)).toBeLessThan(2)
+  expect(Math.abs(result.ellipse!.minor - 16)).toBeLessThan(2)
+})
+
+test("lighting gradients without a pupil do not become detections", () => {
+  for (const background of [
+    (x: number, y: number) => 25 + x * 0.6 + y * 0.1,
+    (x: number, y: number) => 210 - x * 0.4 - y * 0.2,
+  ]) {
+    const data = shadedPupil(320, 240, [160, 120], 30, 20, background, 0)
+    expect(detectSpatialPupil(cv, data, 320, 240, 0).ellipse).toBeNull()
+  }
 })

@@ -24,11 +24,15 @@ export type EyeModel = {
 }
 export type ThresholdPreview = {
   label: string
+  /** For rim/edge tracking, an estimated starting cutoff when switching to Manual. */
   threshold: number
+  method?: "global" | "edges" | "tracking"
   mask?: Uint8Array
   score: number
 }
 export type Detection = {
+  /** False when current edges determine translation but the previous ellipse axes are retained. */
+  shapeObserved?: boolean
   /** Visible feedback only; never used to fit the eye model or produce gaze. */
   candidate?: Ellipse
   tracking?: "tracking" | "reacquiring" | "lost"

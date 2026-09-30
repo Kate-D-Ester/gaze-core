@@ -97,7 +97,9 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
         />
       </div>
       <p className="eye-threshold-levels">
-        {manual ? "0 dark · 255 light" : "Auto adapts each frame"}
+        {manual
+          ? "0 dark · 255 light"
+          : "Auto follows the pupil rim and adjusts the threshold when needed"}
       </p>
     </section>
   )

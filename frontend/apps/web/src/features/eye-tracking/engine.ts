@@ -1,5 +1,4 @@
 import { gazeVector3D } from "../../../../../packages/ui/src/lib/gaze-core/geometry"
-import { toGray } from "../../../../../packages/ui/src/lib/gaze-core/image"
 import { detectSpatialPupil, isContinuousPupil } from "./detection"
 import { EyeModelEstimator } from "./eye-model"
 import {
@@ -25,8 +24,10 @@ export class TrackingEngine {
   private configKey = ""
   private previousSelected: number | undefined
   private previous: Ellipse | null = null
+  private trackingAnchor: Ellipse | null = null
   private seenAt = -Infinity
   private pending: PendingPupilFit | null = null
+  private gray = new Uint8Array(0)
   constructor(privateCv: CV) {
     this.cv = privateCv
   }
@@ -36,6 +37,7 @@ export class TrackingEngine {
     this.configKey = ""
     this.previousSelected = undefined
     this.previous = null
+    this.trackingAnchor = null
     this.pending = null
     this.seenAt = -Infinity
   }
@@ -46,8 +48,7 @@ export class TrackingEngine {
     settings: FrameSettings,
     id: number,
     timestamp: number,
-    includePreviewMasks = true,
-    evaluateAllThresholds = true
+    includePreviewMasks = true
   ): TrackingFrame {
     const start = performance.now(),
       roi = settings.roi
@@ -79,16 +80,20 @@ export class TrackingEngine {
       this.reset()
       this.configKey = key
     }
-    const cropped = new Uint8ClampedArray(roi.width * roi.height * 4)
-    for (let y = 0; y < roi.height; y++)
-      cropped.set(
-        rgba.subarray(
-          ((y + roi.y) * width + roi.x) * 4,
-          ((y + roi.y) * width + roi.x + roi.width) * 4
-        ),
-        y * roi.width * 4
-      )
-    const gray = toGray(cropped)
+    if (this.gray.length !== roi.width * roi.height)
+      this.gray = new Uint8Array(roi.width * roi.height)
+    const gray = this.gray
+    // Crop and convert directly into a reusable buffer, without an intermediate RGBA crop.
+    for (let y = 0; y < roi.height; y++) {
+      let source = ((y + roi.y) * width + roi.x) * 4
+      const row = y * roi.width
+      for (let x = 0; x < roi.width; x++, source += 4)
+        gray[row + x] = Math.round(
+          rgba[source] * 0.299 +
+            rgba[source + 1] * 0.587 +
+            rgba[source + 2] * 0.114
+        )
+    }
     let detection: Detection,
       model: EyeModel | null = null,
       gaze: Gaze | null = null
@@ -96,6 +101,7 @@ export class TrackingEngine {
       this.previous = null
       this.pending = null
     }
+    if (timestamp - this.seenAt > 3000) this.trackingAnchor = null
     if (settings.format === "spatial") {
       detection = detectSpatialPupil(
         this.cv,
@@ -106,17 +112,16 @@ export class TrackingEngine {
         {
           thresholdMode: settings.thresholdMode,
           previous: this.previous,
+          previousAgeMs: timestamp - this.seenAt,
+          trackingAnchor: this.trackingAnchor,
           previousSelected: this.previousSelected,
           includePreviewMasks,
-          evaluateAllThresholds,
         }
       )
-      this.previousSelected =
-        detection.selected >= 0 ? detection.selected : undefined
       this.associate(detection, timestamp, roi.width, roi.height)
       const e = detection.ellipse
       model = this.model.getLatest()
-      if (e && !settings.locked)
+      if (e && !settings.locked && detection.shapeObserved !== false)
         model = this.model.observe(
           { ...e, center: [e.center[0] + roi.x, e.center[1] + roi.y] },
           width,
@@ -165,11 +170,8 @@ export class TrackingEngine {
           previous: this.previous,
           previousSelected: this.previousSelected,
           includePreviewMasks,
-          evaluateAllThresholds,
         }
       )
-      this.previousSelected =
-        detection.selected >= 0 ? detection.selected : undefined
       this.associate(detection, timestamp, roi.width, roi.height)
       const e = detection.ellipse
       if (corners && radius > 4) {
@@ -244,6 +246,11 @@ export class TrackingEngine {
       return
     }
     this.previous = candidate
+    if (detection.previews[detection.selected]?.method !== "tracking") {
+      this.trackingAnchor = candidate
+      this.previousSelected =
+        detection.selected >= 0 ? detection.selected : undefined
+    }
     this.seenAt = timestamp
     this.pending = null
     detection.tracking = "tracking"
