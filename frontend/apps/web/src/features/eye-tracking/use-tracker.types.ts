@@ -9,6 +9,7 @@ import type {
 export type TrackerSource = {
   kind: "camera" | "network" | "video" | "sample"
   name: string
+  deviceId?: string
 }
 
 export type TrackerRuntimeState = {

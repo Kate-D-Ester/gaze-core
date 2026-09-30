@@ -10,6 +10,10 @@ import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
   const location = useLocation()
+  if (location.pathname === "/trial/scene-camera-eye-tracking") {
+    return <V2Page sceneMode />
+  }
+
   if (location.pathname === "/trial") {
     return <V2Page />
   }

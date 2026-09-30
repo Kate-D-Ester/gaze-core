@@ -1,3 +1,4 @@
+import { SceneWorkspace } from "@/features/scene-eye-tracking/scene-workspace"
 import { LiveControls } from "@/features/eye-tracking/steps/live-controls"
 import { CalibrationControls } from "@/features/eye-tracking/steps/calibration-controls"
 import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
@@ -50,7 +51,11 @@ const COPY: readonly V2StepCopy[] = [
   ],
   ["Live gaze", "Check your gaze, validate accuracy, or export a result."],
 ]
-export function V2Page() {
+export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
+  const steps: readonly string[] = sceneMode ? ["Camera", "Eye region", "Eye model", "Scene camera", "Finger calibration", "Live scene gaze"] : STEPS
+  const copy = sceneMode ? [...COPY.slice(0,3), ["Connect the scene camera", "USB or network stream."], ["Calibrate with your finger", "Look at your physical index fingertip."], ["Live scene gaze", "Map and record your view."]] : COPY
+  const [sceneStatus,setSceneStatus] = useState({connected:false,calibrated:false})
+  const [eyeRevision,setEyeRevision] = useState(0)
   const tracker = useTracker(),
     { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
   const [step, setStep] = useState(0),
@@ -78,6 +83,7 @@ export function V2Page() {
     }
   }
   const clearCalibration = useCallback(() => {
+    setEyeRevision(revision => revision + 1)
     setCalibration(null)
     setValidation(null)
     setCapture(null)
@@ -116,7 +122,7 @@ export function V2Page() {
   const screenPoint =
     calibration && feature ? mapGaze(calibration, feature) : null
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
-  const allowed = [
+  const allowed = sceneMode ? [true, !!source, regionStepComplete && !!source, settings.locked && !!source, settings.locked && !!source && sceneStatus.connected, settings.locked && !!source && sceneStatus.connected && sceneStatus.calibrated] : [
     true,
     !!source,
     regionStepComplete && !!source,
@@ -130,7 +136,7 @@ export function V2Page() {
     continueDisabled = !modelLockStatus.ready
   }
   let focusTitle = "Gaze outside this view"
-  let stepDescription = COPY[step][1]
+  let stepDescription = copy[step][1]
   if (!screenPoint) {
     focusTitle = "Pupil lost"
   } else if (onscreen) {
@@ -263,7 +269,7 @@ export function V2Page() {
           <span className="eye-logo">
             <Eye size={21} />
           </span>
-          GazeCore<span className="eye-version">V2</span>
+          GazeCore<span className="eye-version">{sceneMode ? "SCENE" : "V2"}</span>
         </Link>
         <div className="eye-header-right">
           <span className="eye-local">
@@ -274,7 +280,7 @@ export function V2Page() {
       </header>
       <div className="eye-title-row">
         <div>
-          <h1>Eye tracking</h1>
+          <h1>{sceneMode ? "Scene camera eye tracking" : "Eye tracking"}</h1>
         </div>
         <div className="eye-formats" aria-label="Tracker format">
           {(["classic", "spatial"] as const).map((format, i) => (
@@ -297,7 +303,7 @@ export function V2Page() {
         </div>
       </div>
       <V2StepNavigation
-        steps={STEPS}
+        steps={steps}
         activeStep={step}
         completedSteps={
           new Set(
@@ -313,7 +319,8 @@ export function V2Page() {
         }
         onSelectStep={go}
       />
-      <div className="eye-workspace">
+      {sceneMode && <SceneWorkspace tracker={tracker} step={step - 3} onStepChange={next => setStep(next + 3)} onStatus={setSceneStatus} eyeRevision={eyeRevision} />}
+      <div className={`eye-workspace ${sceneMode && step >= 3 ? "scene-eye-diagnostic" : ""}`}>
         <section
           className="eye-preview-column"
           aria-label="Eye preview and tuning"
@@ -361,10 +368,10 @@ export function V2Page() {
             </details>
           </div>
         </section>
-        <V2StepPanel
+        {(!sceneMode || step < 3) && <V2StepPanel
           stepNumber={step + 1}
-          stepName={STEPS[step]}
-          title={COPY[step][0]}
+          stepName={steps[step]}
+          title={copy[step][0]}
           description={stepDescription}
           error={tracker.error}
           message={notice}
@@ -414,7 +421,7 @@ export function V2Page() {
               onExport={exportResult}
             />
           )}
-        </V2StepPanel>
+        </V2StepPanel>}
       </div>
       <footer
         className={`eye-bottom-bar ${step === 2 ? "has-model-status" : ""}`}
