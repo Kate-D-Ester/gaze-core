@@ -300,7 +300,8 @@ export function useTracker(): TrackerController {
           {
             kind: "camera",
             name: stream.getVideoTracks()[0]?.label || "Camera",
-            deviceId: stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId,
+            deviceId:
+              stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId,
           },
           video
         )

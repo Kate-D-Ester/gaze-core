@@ -52,10 +52,32 @@ const COPY: readonly V2StepCopy[] = [
   ["Live gaze", "Check your gaze, validate accuracy, or export a result."],
 ]
 export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
-  const steps: readonly string[] = sceneMode ? ["Camera", "Eye region", "Eye model", "Scene camera", "Finger calibration", "Live scene gaze"] : STEPS
-  const copy = sceneMode ? [...COPY.slice(0,3), ["Connect the scene camera", "USB or network stream."], ["Calibrate with your finger", "Look at your physical index fingertip."], ["Live scene gaze", "Map and record your view."]] : COPY
-  const [sceneStatus,setSceneStatus] = useState({connected:false,calibrated:false})
-  const [eyeRevision,setEyeRevision] = useState(0)
+  const steps: readonly string[] = sceneMode
+    ? [
+        "Camera",
+        "Eye region",
+        "Eye model",
+        "Scene camera",
+        "Finger calibration",
+        "Live scene gaze",
+      ]
+    : STEPS
+  const copy = sceneMode
+    ? [
+        ...COPY.slice(0, 3),
+        ["Connect the scene camera", "USB or network stream."],
+        [
+          "Calibrate with your finger",
+          "Look at your physical index fingertip.",
+        ],
+        ["Live scene gaze", "Map and record your view."],
+      ]
+    : COPY
+  const [sceneStatus, setSceneStatus] = useState({
+    connected: false,
+    calibrated: false,
+  })
+  const [eyeRevision, setEyeRevision] = useState(0)
   const tracker = useTracker(),
     { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
   const [step, setStep] = useState(0),
@@ -83,7 +105,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
     }
   }
   const clearCalibration = useCallback(() => {
-    setEyeRevision(revision => revision + 1)
+    setEyeRevision((revision) => revision + 1)
     setCalibration(null)
     setValidation(null)
     setCapture(null)
@@ -122,13 +144,25 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
   const screenPoint =
     calibration && feature ? mapGaze(calibration, feature) : null
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
-  const allowed = sceneMode ? [true, !!source, regionStepComplete && !!source, settings.locked && !!source, settings.locked && !!source && sceneStatus.connected, settings.locked && !!source && sceneStatus.connected && sceneStatus.calibrated] : [
-    true,
-    !!source,
-    regionStepComplete && !!source,
-    settings.locked && !!source,
-    !!calibration && !!source,
-  ]
+  const allowed = sceneMode
+    ? [
+        true,
+        !!source,
+        regionStepComplete && !!source,
+        settings.locked && !!source,
+        settings.locked && !!source && sceneStatus.connected,
+        settings.locked &&
+          !!source &&
+          sceneStatus.connected &&
+          sceneStatus.calibrated,
+      ]
+    : [
+        true,
+        !!source,
+        regionStepComplete && !!source,
+        settings.locked && !!source,
+        !!calibration && !!source,
+      ]
   let continueDisabled = false
   if (step === 0) {
     continueDisabled = !source
@@ -269,7 +303,8 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
           <span className="eye-logo">
             <Eye size={21} />
           </span>
-          GazeCore<span className="eye-version">{sceneMode ? "SCENE" : "V2"}</span>
+          GazeCore
+          <span className="eye-version">{sceneMode ? "SCENE" : "V2"}</span>
         </Link>
         <div className="eye-header-right">
           <span className="eye-local">
@@ -319,8 +354,18 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
         }
         onSelectStep={go}
       />
-      {sceneMode && <SceneWorkspace tracker={tracker} step={step - 3} onStepChange={next => setStep(next + 3)} onStatus={setSceneStatus} eyeRevision={eyeRevision} />}
-      <div className={`eye-workspace ${sceneMode && step >= 3 ? "scene-eye-diagnostic" : ""}`}>
+      {sceneMode && (
+        <SceneWorkspace
+          tracker={tracker}
+          step={step - 3}
+          onStepChange={(next) => setStep(next + 3)}
+          onStatus={setSceneStatus}
+          eyeRevision={eyeRevision}
+        />
+      )}
+      <div
+        className={`eye-workspace ${sceneMode && step >= 3 ? "scene-eye-diagnostic" : ""}`}
+      >
         <section
           className="eye-preview-column"
           aria-label="Eye preview and tuning"
@@ -368,60 +413,62 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
             </details>
           </div>
         </section>
-        {(!sceneMode || step < 3) && <V2StepPanel
-          stepNumber={step + 1}
-          stepName={steps[step]}
-          title={copy[step][0]}
-          description={stepDescription}
-          error={tracker.error}
-          message={notice}
-        >
-          {step === 0 && (
-            <SourceControls
-              tracker={tracker}
-              deviceId={deviceId}
-              setDeviceId={setDeviceId}
-              resetSource={resetSource}
-            />
-          )}
-          {step === 1 && (
-            <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
-          )}
-          {step === 2 && (
-            <ModelControls
-              tracker={tracker}
-              corner={corner}
-              update={update}
-              setNotice={setNotice}
-            />
-          )}
-          {step === 3 && (
-            <CalibrationControls
-              usable={usable}
-              locked={settings.locked}
-              onStart={() => {
-                setNotice("")
-                setCapture("calibration")
-              }}
-            />
-          )}
-          {step === 4 && (
-            <LiveControls
-              tracker={tracker}
-              calibration={calibration}
-              screenPoint={screenPoint}
-              validation={validation}
-              usable={usable}
-              onFocus={() => setFocus(true)}
-              onValidate={() => setCapture("validation")}
-              onRecalibrate={() => {
-                clearCalibration()
-                setStep(3)
-              }}
-              onExport={exportResult}
-            />
-          )}
-        </V2StepPanel>}
+        {(!sceneMode || step < 3) && (
+          <V2StepPanel
+            stepNumber={step + 1}
+            stepName={steps[step]}
+            title={copy[step][0]}
+            description={stepDescription}
+            error={tracker.error}
+            message={notice}
+          >
+            {step === 0 && (
+              <SourceControls
+                tracker={tracker}
+                deviceId={deviceId}
+                setDeviceId={setDeviceId}
+                resetSource={resetSource}
+              />
+            )}
+            {step === 1 && (
+              <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
+            )}
+            {step === 2 && (
+              <ModelControls
+                tracker={tracker}
+                corner={corner}
+                update={update}
+                setNotice={setNotice}
+              />
+            )}
+            {step === 3 && (
+              <CalibrationControls
+                usable={usable}
+                locked={settings.locked}
+                onStart={() => {
+                  setNotice("")
+                  setCapture("calibration")
+                }}
+              />
+            )}
+            {step === 4 && (
+              <LiveControls
+                tracker={tracker}
+                calibration={calibration}
+                screenPoint={screenPoint}
+                validation={validation}
+                usable={usable}
+                onFocus={() => setFocus(true)}
+                onValidate={() => setCapture("validation")}
+                onRecalibrate={() => {
+                  clearCalibration()
+                  setStep(3)
+                }}
+                onExport={exportResult}
+              />
+            )}
+          </V2StepPanel>
+        )}
       </div>
       <footer
         className={`eye-bottom-bar ${step === 2 ? "has-model-status" : ""}`}
