@@ -9,11 +9,14 @@ export type SessionState = {
   error: string
   observation: RemoteObservation | null
   devices: MediaDeviceInfo[]
+  cameraAccess: "idle" | "requesting" | "granted" | "error"
+  cameraError: string
   fps: number
 }
 export type SessionEnvironment = {
   getStream: (constraints: MediaStreamConstraints) => Promise<MediaStream>
   enumerate: () => Promise<MediaDeviceInfo[]>
+  onDeviceChange?: (refresh: () => void) => () => void
   worker: () => Worker
   capture: (video: HTMLVideoElement) => Promise<ImageBitmap>
   requestFrame: (callback: FrameRequestCallback) => number
@@ -24,20 +27,38 @@ const initialState = (): SessionState => ({
   error: "",
   observation: null,
   devices: [],
+  cameraAccess: "idle",
+  cameraError: "",
   fps: 0,
 })
+function cameraDevices(): MediaDevices {
+  const devices = globalThis.navigator?.mediaDevices
+  if (!globalThis.isSecureContext || !devices)
+    throw new Error(
+      "Camera access needs HTTPS or localhost. Open the phone page through a secure connection."
+    )
+  return devices
+}
 function browserEnvironment(video: HTMLVideoElement): SessionEnvironment {
   return {
-    getStream: (constraints) => {
-      if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia)
-        return Promise.reject(
-          new Error(
-            "Camera access needs HTTPS or localhost. Open the phone page through a secure connection."
-          )
-        )
-      return navigator.mediaDevices.getUserMedia(constraints)
+    getStream: async (constraints) => {
+      const devices = cameraDevices()
+      if (typeof devices.getUserMedia !== "function")
+        throw new Error("This browser does not support camera access.")
+      return devices.getUserMedia(constraints)
     },
-    enumerate: () => navigator.mediaDevices.enumerateDevices(),
+    enumerate: async () => {
+      const devices = cameraDevices()
+      if (typeof devices.enumerateDevices !== "function")
+        throw new Error("This browser cannot list available cameras.")
+      return devices.enumerateDevices()
+    },
+    onDeviceChange: (refresh) => {
+      const devices = navigator.mediaDevices
+      if (!devices?.addEventListener) return () => {}
+      devices.addEventListener("devicechange", refresh)
+      return () => devices.removeEventListener("devicechange", refresh)
+    },
     worker: () =>
       new Worker(new URL("./remote.worker.ts", import.meta.url), {
         type: "module",
@@ -72,6 +93,10 @@ export class RemoteSession {
   private env: SessionEnvironment
   private state = initialState()
   private generation = 0
+  private deviceRevision = 0
+  private disposed = false
+  private permissionStream: MediaStream | null = null
+  private removeDeviceChange: (() => void) | undefined
   private stream: MediaStream | null = null
   private worker: Worker | null = null
   private frameId = 0
@@ -98,10 +123,86 @@ export class RemoteSession {
     this.video = video
     this.notify = notify
     this.env = env ?? browserEnvironment(video)
+    this.removeDeviceChange = this.env.onDeviceChange?.(
+      () => void this.refreshDevices()
+    )
+    void this.refreshDevices()
   }
   private update(patch: Partial<SessionState>): void {
+    if (this.disposed) return
     this.state = { ...this.state, ...patch }
     this.notify(this.state)
+  }
+  async refreshDevices(): Promise<void> {
+    await this.discoverDevices()
+  }
+  private async discoverDevices(generation?: number): Promise<void> {
+    if (this.disposed) return
+    const revision = ++this.deviceRevision
+    const current = () =>
+      !this.disposed &&
+      revision === this.deviceRevision &&
+      (generation === undefined || generation === this.generation)
+    try {
+      const devices = (await this.env.enumerate()).filter(
+        (device) => device.kind === "videoinput"
+      )
+      if (!current()) return
+      let cameraAccess = this.state.cameraAccess
+      if (
+        cameraAccess !== "requesting" &&
+        devices.some((device) => device.label)
+      )
+        cameraAccess = "granted"
+      this.update({ devices, cameraAccess, cameraError: "" })
+    } catch (error) {
+      if (current())
+        this.update({
+          cameraAccess:
+            this.state.cameraAccess === "requesting" ? "requesting" : "error",
+          cameraError: cameraError(error),
+        })
+    }
+  }
+  async requestCameraAccess(): Promise<void> {
+    const cameraAccess = this.state.cameraAccess
+    if (this.disposed || cameraAccess === "requesting") return
+    if (this.stream || this.state.status === "loading") {
+      await this.refreshDevices()
+      return
+    }
+    const generation = this.generation
+    this.update({ cameraAccess: "requesting", cameraError: "" })
+    let stream: MediaStream | null = null
+    try {
+      stream = await this.env.getStream({ audio: false, video: true })
+      if (this.disposed || generation !== this.generation) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      this.permissionStream = stream
+      await this.discoverDevices(generation)
+      if (
+        !this.disposed &&
+        generation === this.generation &&
+        this.state.cameraAccess === "requesting"
+      )
+        this.update({ cameraAccess: "granted" })
+    } catch (error) {
+      if (!this.disposed && generation === this.generation)
+        this.update({ cameraAccess: "error", cameraError: cameraError(error) })
+    } finally {
+      if (stream && this.permissionStream === stream) {
+        this.permissionStream = null
+        stream.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }
+  dispose(): void {
+    this.disposed = true
+    this.removeDeviceChange?.()
+    this.removeDeviceChange = undefined
+    this.stop()
   }
   setSettings(settings: RemoteSettings): void {
     this.settings = settings
@@ -118,21 +219,33 @@ export class RemoteSession {
     this.worker = null
     this.stream?.getTracks().forEach((track) => track.stop())
     this.stream = null
+    this.permissionStream?.getTracks().forEach((track) => track.stop())
+    this.permissionStream = null
     this.video.pause()
     this.video.srcObject = null
     this.modelReady = this.cameraReady = this.busy = false
     this.lastResult = 0
     this.lastVideoTime = -1
-    this.update({ status: "idle", observation: null, error: "", fps: 0 })
+    this.update({
+      status: "idle",
+      observation: null,
+      error: "",
+      fps: 0,
+      cameraAccess:
+        this.state.cameraAccess === "requesting"
+          ? "idle"
+          : this.state.cameraAccess,
+    })
   }
   private fail(message: string): void {
     this.stop()
     this.update({ status: "error", error: message })
   }
   async start(mode: RemoteMode, deviceId?: string): Promise<void> {
+    if (this.disposed) return
     this.stop()
     const generation = this.generation
-    this.update({ status: "loading", devices: [] })
+    this.update({ status: "loading" })
     try {
       const worker = this.env.worker()
       this.worker = worker
@@ -210,15 +323,8 @@ export class RemoteSession {
       if (generation !== this.generation) return
       this.cameraReady = true
       this.activate(generation)
-      void this.env
-        .enumerate()
-        .then((devices) => {
-          if (generation === this.generation)
-            this.update({
-              devices: devices.filter((device) => device.kind === "videoinput"),
-            })
-        })
-        .catch(() => {})
+      this.update({ cameraAccess: "granted", cameraError: "" })
+      void this.refreshDevices()
     } catch (error) {
       if (generation === this.generation) this.fail(cameraError(error))
     }

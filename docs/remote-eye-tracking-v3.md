@@ -36,19 +36,37 @@ over HTTPS with SPA route fallback and the included `/models/` assets.
 | ------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | Mobile | MediaPipe face/iris plus pretrained BlazeGaze eye appearance | Face rotation/position/scale, inverse-scale and phone pose/gaze interactions           | Modern phone browser, selfie camera, trusted HTTPS                            |
 | Webcam | Same local appearance backbone plus eye geometry             | Face rotation/position/scale and desktop head/gaze interactions                        | Both eyes resolved, stable camera above screen                                |
-| IR     | OpenCV pupil ellipse and fresh compact corneal reflection    | Pupil-to-reflection displacement, reference translation/scale and interaction features | Compatible IR eye view with one identifiable reflection; selected one-eye ROI |
+| IR | Automatic eye crops, OpenCV dark/bright pupil ellipses; optional observed glints | Full-face binocular pupil/canthus offsets and independently observed face pose; close-up PCCR uses reference translation/scale | Resolved pupils in the original camera image; close-up PCCR additionally requires a clear reflection |
 
 The RGB paths use different feature mappings and backend preferences; they are
 not independently trained phone/desktop networks. Mobile prefers single-thread
 WASM, desktop prefers WebGL, with visible backend identity in exported observations.
 All models and WASM are same-origin assets. A missing model never silently turns
-into an iris-only tracker. IR never pretends a single eye view provides full 6-DoF
-head rotation. A regular webcam advertised as IR-compatible is insufficient if
-it cannot show a usable pupil and corneal reflection.
+into an iris-only tracker. Full-face IR uses the shared face/eyelid localizer to
+propose two eye boxes, then crops the original source pixels and runs the normal
+spatial pupil detector with automatic thresholding inside each crop. It does not
+use inferred iris centers as pupil measurements or load the RGB appearance model.
+Dark and bright pupil contrast are supported; saturated bright interiors are
+rejected as ambiguous. Glints remain separately visible measurements but are not
+required for full-face calibration. The feature representation remains fixed when
+glints disappear. Missing pupils, blinks and lost faces clear gaze input.
+
+A selected close-up eye region, or a sufficiently large single-eye view, uses
+PCCR: pupil-to-reflection displacement and apparent scale. Pupil setup feedback
+remains visible without a reflection, but calibrated close-up gaze requires a
+fresh unambiguous reflection. This path cannot measure head rotation. Face and
+close-up pipelines are kept separate through a calibration session.
+
+The camera picker is available before Start. Discovery on mount and camera hotplug
+does not request permission. Browsers may hide device identities before permission;
+**Discover cameras** briefly requests video only, reveals choices, and releases the
+stream without starting tracking models. Stop/unmount invalidate late grants.
+Automatic IR thresholding is checked by default; the slider appears only when
+turning off Auto. Manual eye region selection remains available for close-up cameras.
 
 ## Head-aware calibration
 
-1. Start the camera explicitly, then check eyes and live head/reference motion.
+1. Select a camera before Start (use Discover cameras if browser permission hides the choices), then check measured pupils and live head/reference motion.
 2. Follow nine screen targets. Each target retains 18 fresh eye/pose frames after
    a 700 ms settling period; blinking, lost faces/references, and stale frames do
    not advance capture. Head motion is **not** rejected or averaged into a single
@@ -103,6 +121,15 @@ RGB code is MIT, runtime code is Apache-2.0; commercial rights for the supplied
 weights and their training data have not been established by this work. This is
 a research trial until device validation and model licensing are resolved.
 
+[PuRe (Santini et al.)](https://arxiv.org/html/1712.08900) motivates the eye-image
+scale assumptions and reversed contrast for bright-pupil detection. We use the
+existing spatial detector with contrast inversion; this is not a PuRe port.
+[Pupil Capture documentation](https://docs.pupil-labs.com/core/software/pupil-capture/#fine-tuning-pupil-detection)
+explains how sensor resolution and exposure affect pupil detection. Preserving
+source-resolution eye crops is an engineering correction to the original full-frame
+downscale. The bundled face model's robustness on the intended NIR feed still
+requires measurement; it is not trained specifically for that camera by this work.
+
 ## Hardware acceptance before production
 
 Measure repeated five-target sessions on target iOS/Android browsers, laptop and
@@ -121,3 +148,25 @@ synthetic test score should be reported as real-camera gaze accuracy.
 - Rendered at desktop and 390 px phone width; phone cards stack, visible buttons are at least 44 px tall, and the page has no horizontal overflow.
 - Fresh review findings were fixed with regression checks: duplicated physical video frames, stale gaze, unsupported joint head poses, native matrix convention, and flow recovery after resize or camera loss.
 - No real-human camera accuracy, Safari/iOS device latency, or commercial-weight clearance was established by these checks.
+
+## IR and camera discovery correction (2026-10-01)
+
+The original IR trial assumed a near-eye crop and discarded all visual feedback
+without a reflection. On a full-camera view this sacrificed pupil resolution and
+required a signal the camera might not supply. The correction localizes eye regions,
+retains source-resolution pupil pixels, supports dark/bright contrast, and uses
+face-referenced pupil gaze when the whole face is visible. Separate close-up PCCR
+behavior and its reflection requirement are preserved.
+
+Regression checks exercise real OpenCV on source-resolution synthetic pixels,
+missing glints, pupil loss, bright pupils, independent head pose, and camera
+permission/hotplug/disposal races. Synthetic face-locator fixtures verify crop and
+feature plumbing; they do not establish NIR face-model performance, textured-eye
+accuracy or actual hardware gaze error. Re-run held-out validation on the real IR
+camera before comparing it with the working RGB setup.
+
+Verified after the correction: **245 Bun tests passed**, full frontend lint and
+production build passed. A Chromium browser check initialized the actual IR worker
+and local face model, rejected a blank frame, and processed synthetic pupil/glint
+pixels using automatic thresholding. The real IR camera check remained pending
+browser camera permission; no physical-camera gaze accuracy is claimed.

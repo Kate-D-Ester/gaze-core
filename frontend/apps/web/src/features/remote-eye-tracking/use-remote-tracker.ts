@@ -17,6 +17,8 @@ export function useRemoteTracker(
     status: "idle",
     error: "",
     devices: [],
+    cameraAccess: "idle",
+    cameraError: "",
     observation: null,
     fps: 0,
   })
@@ -41,7 +43,7 @@ export function useRemoteTracker(
     document.addEventListener("visibilitychange", hide)
     return () => {
       document.removeEventListener("visibilitychange", hide)
-      session.stop()
+      session.dispose()
       sessionRef.current = null
     }
   }, [])
@@ -54,5 +56,21 @@ export function useRemoteTracker(
     []
   )
   const stop = useCallback(() => sessionRef.current?.stop(), [])
-  return { state, videoRef, latest, start, stop }
+  const requestCameraAccess = useCallback(
+    () => sessionRef.current?.requestCameraAccess(),
+    []
+  )
+  const refreshDevices = useCallback(
+    () => sessionRef.current?.refreshDevices(),
+    []
+  )
+  return {
+    state,
+    videoRef,
+    latest,
+    start,
+    stop,
+    requestCameraAccess,
+    refreshDevices,
+  }
 }

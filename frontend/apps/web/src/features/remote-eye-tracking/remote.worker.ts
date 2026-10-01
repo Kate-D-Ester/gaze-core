@@ -18,7 +18,7 @@ self.onmessage = async (event: MessageEvent<RemoteRequest>) => {
         type: "ready",
         method:
           request.mode === "ir"
-            ? "Pupil–corneal reflection"
+            ? "IR pupils + face pose / close-up reflection"
             : "Appearance gaze + face pose",
       })
     } catch (error) {

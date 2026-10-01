@@ -70,8 +70,8 @@ test("changing the camera concept replaces its instructions and motion reference
       )!
       .click()
   )
-  expect(host.textContent).toContain("Eye reference tracking")
-  expect(host.textContent).toContain("pupil and corneal reflection")
+  expect(host.textContent).toContain("Live head tracking")
+  expect(host.textContent).toContain("Eyes and pupil thresholds are automatic")
   await act(async () =>
     buttons()
       .find((button) => button.textContent === "Change setup")!
@@ -107,4 +107,21 @@ test("resizing before choosing a setup leaves all camera cards available", async
   expect(host.querySelector(".remote-workspace")?.hasAttribute("hidden")).toBe(
     true
   )
+})
+
+// A camera list must be reachable without connecting the default camera first.
+test("camera selection and permission unlock are available before tracking starts", async () => {
+  await render("/trials/remote-eye-tracking")
+  await act(async () =>
+    buttons()
+      .find(
+        (b) => b.getAttribute("aria-label") === "IR webcam-based eye tracker"
+      )!
+      .click()
+  )
+  expect(host.querySelector('select[aria-label="Camera"]')).not.toBeNull()
+  expect(
+    buttons().some((b) => b.getAttribute("aria-label") === "Discover cameras")
+  ).toBe(true)
+  expect(host.querySelector("video")?.srcObject).toBeNull()
 })

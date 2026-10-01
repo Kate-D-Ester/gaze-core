@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createIrProcessor } from "../../apps/web/src/features/remote-eye-tracking/ir-processor"
+import { face } from "./face-fixture"
 import type { RemoteSettings } from "../../apps/web/src/features/remote-eye-tracking/types"
 
 // Bun has no worker canvas. This adapter supplies real cropped pixel data to the real OpenCV processor.
@@ -75,7 +76,7 @@ const settings: RemoteSettings = {
 }
 
 test("IR processing converts normalized ROI measurements to original frame coordinates", async () => {
-  const processor = await createIrProcessor()
+  const processor = await createIrProcessor({ faceLocator: null })
   try {
     const observation = await processor.process(bitmap(), 100, settings)
     expect(observation.feature).not.toBeNull()
@@ -101,7 +102,7 @@ test("IR processing converts normalized ROI measurements to original frame coord
 })
 
 test("an IR frame without its current reflection clears calibrated input immediately", async () => {
-  const processor = await createIrProcessor()
+  const processor = await createIrProcessor({ faceLocator: null })
   try {
     expect(
       (await processor.process(bitmap(), 100, settings)).feature
@@ -117,7 +118,7 @@ test("an IR frame without its current reflection clears calibrated input immedia
 })
 
 test("invalid ROI and disposed processors return no feature", async () => {
-  const processor = await createIrProcessor()
+  const processor = await createIrProcessor({ faceLocator: null })
   const invalid = await processor.process(bitmap(), 100, {
     ...settings,
     roi: { ...settings.roi, width: 0 },
@@ -126,4 +127,114 @@ test("invalid ROI and disposed processors return no feature", async () => {
   expect(invalid.quality).toBe(0)
   processor.dispose()
   expect((await processor.process(bitmap(), 140, settings)).feature).toBeNull()
+})
+
+function fullFaceFrame(pupils = true, bright = false): ImageBitmap {
+  const width = 1920,
+    height = 1440,
+    pixels = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      let value = bright ? 70 : 175
+      for (const cx of [749, 1171]) {
+        if (pupils && (x - cx) ** 2 / 11 ** 2 + (y - 605) ** 2 / 9 ** 2 <= 1)
+          value = bright ? 235 : 25
+      }
+      const index = (y * width + x) * 4
+      pixels[index] = pixels[index + 1] = pixels[index + 2] = value
+      pixels[index + 3] = 255
+    }
+  return { width, height, pixels } as Pixels
+}
+const automaticSettings: RemoteSettings = {
+  roi: { x: 0, y: 0, width: 1, height: 1 },
+  threshold: 0,
+}
+function locator(result = face()) {
+  return {
+    detect: (_frame: ImageBitmap, _timestamp: number) => result,
+    dispose: () => {},
+  }
+}
+test("automatic full-face IR finds real small pupils without glints at source resolution", async () => {
+  const processor = await createIrProcessor({ faceLocator: locator() })
+  try {
+    const result = await processor.process(
+      fullFaceFrame(),
+      100,
+      automaticSettings
+    )
+    expect(result.feature).not.toBeNull()
+    expect(result.eyes).toHaveLength(2)
+    expect(result.eyes[0].center[0]).toBeCloseTo(749, 0)
+    expect(result.eyes[1].center[0]).toBeCloseTo(1171, 0)
+    expect(result.pose?.kind).toBe("face")
+    expect(result.quality).toBeGreaterThan(0.45)
+    expect(result.glints).toEqual([])
+    expect(result.eyeRegions).toHaveLength(2)
+  } finally {
+    processor.dispose()
+  }
+})
+test("full-face pupil loss cannot fall back to inferred iris centers or old gaze", async () => {
+  const processor = await createIrProcessor({ faceLocator: locator() })
+  try {
+    expect(
+      (await processor.process(fullFaceFrame(), 100, automaticSettings)).feature
+    ).not.toBeNull()
+    const missing = await processor.process(
+      fullFaceFrame(false),
+      140,
+      automaticSettings
+    )
+    expect(missing.feature).toBeNull()
+    expect(missing.basePoint).toBeNull()
+    expect(missing.eyes).toHaveLength(0)
+  } finally {
+    processor.dispose()
+  }
+})
+test("full-face IR accepts bright pupils with automatic thresholding", async () => {
+  const processor = await createIrProcessor({ faceLocator: locator() })
+  try {
+    const result = await processor.process(
+      fullFaceFrame(true, true),
+      100,
+      automaticSettings
+    )
+    expect(result.feature).not.toBeNull()
+    expect(result.eyes[0].center[0]).toBeCloseTo(749, 0)
+    expect(result.pose?.kind).toBe("face")
+  } finally {
+    processor.dispose()
+  }
+})
+test("missing reflections preserve the detected close-up pupil for setup feedback", async () => {
+  const processor = await createIrProcessor({ faceLocator: null })
+  try {
+    const result = await processor.process(bitmap(false), 100, settings)
+    expect(result.feature).toBeNull()
+    expect(result.eyes).toHaveLength(1)
+    expect(result.eyes[0].center[0]).toBeCloseTo(390, 0)
+    expect(result.reason).toContain("reflection")
+  } finally {
+    processor.dispose()
+  }
+})
+
+test("IR face localization does not require the RGB model's iris estimate", async () => {
+  const landmarks = face()
+  for (let i = 468; i < 478; i++) landmarks.faceLandmarks[0][i].x = 2
+  const processor = await createIrProcessor({ faceLocator: locator(landmarks) })
+  try {
+    const result = await processor.process(
+      fullFaceFrame(),
+      100,
+      automaticSettings
+    )
+    expect(result.feature).not.toBeNull()
+    expect(result.eyes[0].center[0]).toBeCloseTo(749, 0)
+  } finally {
+    processor.dispose()
+  }
 })

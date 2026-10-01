@@ -20,6 +20,9 @@ export type RemoteObservation = {
   quality: number
   reason: string | null
   eyes: { center: Point; radius: number }[]
+  /** Measured IR eye crops and reflections for setup feedback. */
+  eyeRegions?: Rect[]
+  glints?: Point[]
   faceBox: Rect | null
   pose: HeadPose | null
   basePoint: Point | null

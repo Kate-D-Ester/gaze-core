@@ -76,7 +76,8 @@ export function SetupHelp({ preparation }: { preparation?: string }) {
         </p>
         <p>
           Tracking stays on this device. Results are calibrated 2D screen gaze;
-          validate accuracy for your setup. IR needs a clear pupil and corneal
+          validate accuracy for your setup. IR eye regions and thresholds are
+          automatic. Close-up reflection tracking needs a clear corneal
           reflection.
         </p>
         <p>Research trial. Commercial model rights need verification.</p>

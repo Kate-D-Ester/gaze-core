@@ -13,6 +13,8 @@ import {
   Focus,
   Gauge,
   Layers3,
+  LockKeyhole,
+  Sparkles,
   LoaderCircle,
   Maximize2,
   Move3D,
@@ -28,6 +30,7 @@ import {
   Smartphone,
   Square,
   SwitchCamera,
+  X,
 } from "lucide-react"
 import {
   Hint,
@@ -77,8 +80,9 @@ const MODES = [
     title: "IR webcam-based eye tracker",
     short: "IR camera",
     icon: ScanEye,
-    hint: "Requires a visible pupil and corneal reflection.",
-    preparation: "Frame one eye with a clear pupil and corneal reflection.",
+    hint: "Automatically locate eyes and measure IR pupils.",
+    preparation:
+      "Keep your face visible. Eyes and pupil thresholds are automatic.",
   },
 ]
 const STEPS = [
@@ -166,6 +170,8 @@ export function RemoteEyeTrackingPage() {
     latest,
     start: startTracker,
     stop: stopTracker,
+    requestCameraAccess,
+    refreshDevices,
   } = useRemoteTracker(settings, () => {
     clearCalibration()
     setStep(1)
@@ -280,7 +286,7 @@ export function RemoteEyeTrackingPage() {
       coordinates:
         "Normalized screen position; no physical 3D gaze ray or angular accuracy is inferred.",
       headTracking:
-        mode === "ir"
+        calibration?.poseKind === "eye-reference"
           ? "Corneal-reference translation and apparent scale; rotation is unavailable."
           : "Face rotation, normalized image position, and apparent scale; included per sample.",
     }
@@ -309,8 +315,18 @@ export function RemoteEyeTrackingPage() {
   if (tracker.status === "loading") StartIcon = LoaderCircle
   const signalLabel =
     observationStatus(observation?.reason) ?? "Waiting for camera"
-  const headLabel =
-    mode === "ir" ? "Eye reference tracking" : "Live head tracking"
+  const referenceTracking =
+    mode === "ir" &&
+    (observation?.pose?.kind === "eye-reference" ||
+      observation?.method === "IR pupil / corneal reflection" ||
+      roi.width < 1 ||
+      roi.height < 1)
+  let DiscoveryIcon = LockKeyhole
+  if (tracker.cameraAccess === "granted") DiscoveryIcon = RefreshCcw
+  if (tracker.cameraAccess === "requesting") DiscoveryIcon = LoaderCircle
+  const headLabel = referenceTracking
+    ? "Eye reference tracking"
+    : "Live head tracking"
   return (
     <main className="eye-app remote-app">
       <header className="eye-header">
@@ -468,7 +484,7 @@ export function RemoteEyeTrackingPage() {
                       strokeWidth="3"
                     />
                   ))}
-                  {mode === "ir" && (
+                  {mode === "ir" && (roi.width !== 1 || roi.height !== 1) && (
                     <rect
                       x={roi.x * observation.width}
                       y={roi.y * observation.height}
@@ -479,6 +495,32 @@ export function RemoteEyeTrackingPage() {
                       strokeWidth="3"
                     />
                   )}
+                </svg>
+              )}
+              {mode === "ir" && observation?.eyeRegions && (
+                <svg
+                  className="remote-preview-overlay"
+                  viewBox={`0 0 ${observation.width} ${observation.height}`}
+                  aria-hidden="true"
+                >
+                  {observation.eyeRegions.map((region, index) => (
+                    <rect
+                      key={index}
+                      {...region}
+                      fill="none"
+                      stroke="#edd7a4"
+                      strokeWidth="2"
+                    />
+                  ))}
+                  {observation.glints?.map((point, index) => (
+                    <circle
+                      key={index}
+                      cx={point[0]}
+                      cy={point[1]}
+                      r={3}
+                      fill="#edd7a4"
+                    />
+                  ))}
                 </svg>
               )}
               {tracker.status !== "ready" && (
@@ -514,7 +556,7 @@ export function RemoteEyeTrackingPage() {
               </Hint>
               <HeadReadout
                 pose={observation?.pose ?? null}
-                reference={mode === "ir"}
+                reference={referenceTracking}
               />
             </div>
           </section>
@@ -532,38 +574,86 @@ export function RemoteEyeTrackingPage() {
             {step === 1 && (
               <>
                 <h2>Camera</h2>
-                <p>Allow camera access.</p>
-                {tracker.devices.length > 0 && (
-                  <label className="remote-field">
-                    <span className="remote-field-label">
-                      <Camera size={14} />
-                      Camera
-                    </span>
-                    <select
-                      value={deviceId}
-                      onChange={(event) => {
-                        setDeviceId(event.target.value)
-                        stopTracker()
-                        clearCalibration()
-                      }}
-                    >
-                      <option value="">
-                        Default {mode === "mobile" ? "front camera" : "camera"}
+                <p>
+                  {tracker.cameraAccess === "granted"
+                    ? "Select a camera."
+                    : "Allow access to choose a camera."}
+                </p>
+                <label className="remote-field">
+                  <span className="remote-field-label">
+                    <Camera size={14} />
+                    Camera
+                  </span>
+                  <select
+                    aria-label="Camera"
+                    disabled={
+                      tracker.cameraAccess === "requesting" ||
+                      tracker.status === "loading"
+                    }
+                    value={deviceId}
+                    onChange={(event) => {
+                      setDeviceId(event.target.value)
+                      stopTracker()
+                      clearCalibration()
+                    }}
+                  >
+                    <option value="">
+                      Default {mode === "mobile" ? "front camera" : "camera"}
+                    </option>
+                    {tracker.devices.map((device, i) => (
+                      <option
+                        key={device.deviceId || i}
+                        value={device.deviceId}
+                        disabled={!device.deviceId}
+                      >
+                        {device.label || `Camera ${i + 1}`}
                       </option>
-                      {tracker.devices.map((device, i) => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                          {device.label || `Camera ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    ))}
+                  </select>
+                </label>
+                {tracker.cameraAccess === "requesting" && (
+                  <p className="remote-muted">
+                    Allow camera access in your browser.
+                  </p>
+                )}
+                {tracker.cameraError && (
+                  <div className="remote-alert error" role="alert">
+                    {tracker.cameraError}
+                  </div>
                 )}
                 <div className="remote-actions">
+                  <IconButton
+                    label={
+                      tracker.cameraAccess === "granted"
+                        ? "Refresh cameras"
+                        : "Discover cameras"
+                    }
+                    icon={DiscoveryIcon}
+                    disabled={
+                      tracker.cameraAccess === "requesting" ||
+                      tracker.status === "loading"
+                    }
+                    onClick={() => {
+                      void (tracker.cameraAccess === "granted"
+                        ? refreshDevices()
+                        : requestCameraAccess())
+                    }}
+                  />
+                  {tracker.cameraAccess === "requesting" && (
+                    <IconButton
+                      label="Cancel camera access"
+                      icon={X}
+                      onClick={stop}
+                    />
+                  )}
                   <IconButton
                     label={startLabel}
                     icon={StartIcon}
                     primary={!ready}
-                    disabled={tracker.status === "loading"}
+                    disabled={
+                      tracker.status === "loading" ||
+                      tracker.cameraAccess === "requesting"
+                    }
                     onClick={start}
                   />
                   {(ready || tracker.status === "loading") && (
@@ -588,7 +678,7 @@ export function RemoteEyeTrackingPage() {
                 <h2>Position</h2>
                 <p>
                   {mode === "ir"
-                    ? "Frame one eye and its reflection."
+                    ? "Keep your face visible. Eye regions are automatic."
                     : "Keep both eyes visible. Move your head gently."}
                 </p>
                 {mode === "ir" && (
@@ -598,14 +688,14 @@ export function RemoteEyeTrackingPage() {
                         label={
                           selecting
                             ? "Cancel region selection"
-                            : "Choose eye region"
+                            : "Select close-up eye region"
                         }
                         icon={Focus}
                         aria-pressed={selecting}
                         onClick={() => setSelecting((value) => !value)}
                       />
                       <IconButton
-                        label="Reset region"
+                        label="Automatic eye regions"
                         icon={RefreshCcw}
                         onClick={() => {
                           setRoi(FULL_ROI)
@@ -616,23 +706,38 @@ export function RemoteEyeTrackingPage() {
                     {selecting && (
                       <p className="remote-muted">Drag around one eye.</p>
                     )}
-                    <label className="remote-field">
-                      <span className="remote-field-label">
-                        <SlidersHorizontal size={14} />
-                        Threshold{" "}
-                        <span>{threshold === 0 ? "Auto" : threshold}</span>
-                      </span>
+                    <label className="remote-checkbox">
                       <input
-                        type="range"
-                        min="0"
-                        max="255"
-                        value={threshold}
+                        type="checkbox"
+                        aria-label="Automatic threshold"
+                        checked={threshold === 0}
                         onChange={(event) => {
-                          setThreshold(Number(event.target.value))
+                          setThreshold(event.target.checked ? 0 : 80)
                           clearCalibration()
                         }}
                       />
+                      <Sparkles size={16} />
+                      <span>Auto threshold</span>
                     </label>
+                    {threshold !== 0 && (
+                      <label className="remote-field">
+                        <span className="remote-field-label">
+                          <SlidersHorizontal size={14} />
+                          Threshold <span>{threshold}</span>
+                        </span>
+                        <input
+                          aria-label="Pupil threshold"
+                          type="range"
+                          min="1"
+                          max="255"
+                          value={threshold}
+                          onChange={(event) => {
+                            setThreshold(Number(event.target.value))
+                            clearCalibration()
+                          }}
+                        />
+                      </label>
+                    )}
                   </div>
                 )}
                 <div className="remote-check">

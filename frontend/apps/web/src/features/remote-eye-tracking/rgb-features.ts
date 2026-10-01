@@ -38,7 +38,8 @@ const reject = (reason: string): RgbFaceInspection => ({ valid: false, reason })
 export function inspectRgbFace(
   result: RgbFaceResult,
   width: number,
-  height: number
+  height: number,
+  { requireIris = true }: { requireIris?: boolean } = {}
 ): RgbFaceInspection {
   if (!(width > 0 && height > 0 && Number.isFinite(width + height)))
     return reject("invalid-frame")
@@ -47,7 +48,9 @@ export function inspectRgbFace(
   const normalized = result.faceLandmarks[0]
   if (
     normalized.length < 478 ||
-    normalized.some((p) => !Number.isFinite(p.x + p.y + p.z))
+    normalized
+      .slice(0, requireIris ? 478 : 468)
+      .some((p) => !Number.isFinite(p.x + p.y + p.z))
   ) {
     return reject("invalid-landmarks")
   }
@@ -65,10 +68,14 @@ export function inspectRgbFace(
   const eyeReferences: Point[] = []
   let quality = 1
   for (const indices of EYE_INDICES) {
-    const center = landmarks[indices.iris]
-    const iris = landmarks.slice(indices.iris + 1, indices.iris + 5)
     const a = landmarks[indices.corners[0]],
       b = landmarks[indices.corners[1]]
+    const center: Point = requireIris
+      ? landmarks[indices.iris]
+      : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+    const iris = requireIris
+      ? landmarks.slice(indices.iris + 1, indices.iris + 5)
+      : []
     if (
       [center, ...iris, a, b].some(
         ([x, y]) => x < 0 || x >= width || y < 0 || y >= height
@@ -77,7 +84,9 @@ export function inspectRgbFace(
       return reject("eyes-out-of-frame")
     }
     const eyeWidth = distance(a, b)
-    const radius = iris.reduce((sum, p) => sum + distance(p, center), 0) / 4
+    const radius = requireIris
+      ? iris.reduce((sum, p) => sum + distance(p, center), 0) / 4
+      : eyeWidth * 0.12
     if (eyeWidth < 12 || radius < 2) return reject("eyes-too-small")
     const [p1, p2, p3, p4, p5, p6] = indices.lids.map((i) => landmarks[i])
     const ear = (distance(p2, p6) + distance(p3, p5)) / (2 * distance(p1, p4))
@@ -136,8 +145,9 @@ export function inspectRgbFace(
   ]
   const scale = distance(eyeReferences[0], eyeReferences[1]) / width
   if (scale < 0.025 || !Number.isFinite(scale)) return reject("eyes-too-small")
-  const xs = landmarks.map((p) => p[0]),
-    ys = landmarks.map((p) => p[1])
+  const facePoints = requireIris ? landmarks : landmarks.slice(0, 468)
+  const xs = facePoints.map((p) => p[0]),
+    ys = facePoints.map((p) => p[1])
   const x = Math.min(...xs),
     y = Math.min(...ys)
   const faceBox = {
