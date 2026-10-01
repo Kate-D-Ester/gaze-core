@@ -57,7 +57,9 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
   const buttons = () => [...host.querySelectorAll("button")]
   const click = async (text: string) =>
     act(async () => {
-      const button = buttons().find((b) => b.textContent?.includes(text))
+      const button = buttons().find((b) =>
+        (b.getAttribute("aria-label") ?? b.textContent)?.includes(text)
+      )
       expect(button).toBeDefined()
       expect(button!.disabled).toBe(false)
       button!.click()
@@ -188,15 +190,19 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     await click("Start 9-target calibration")
     for (let i = 0; i < 400 && host.querySelector(".remote-calibration"); i++)
       await tick()
-    expect(host.textContent).toContain("Measure this setup")
+    expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
+      "Validation"
+    )
     expect(host.textContent).toContain("162 synchronized samples")
     await click("Validate gaze")
     for (let i = 0; i < 250 && host.querySelector(".remote-calibration"); i++)
       await tick()
     expect(host.textContent).toContain("Mean target error")
-    expect(host.textContent).toContain("5 unseen targets")
+    expect(host.textContent).toContain("5 targets")
     await act(async () => window.dispatchEvent(new Event("resize")))
-    expect(host.textContent).toContain("Teach the tracker your screen")
+    expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
+      "Calibration"
+    )
     expect(host.textContent).not.toContain("Mean target error")
     expect(
       buttons().some((b) =>

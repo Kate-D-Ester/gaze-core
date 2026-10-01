@@ -1,3 +1,5 @@
+import { X, RefreshCcw } from "lucide-react"
+import { IconButton } from "./remote-controls"
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import {
   CALIBRATION_TARGETS,
@@ -121,9 +123,7 @@ export function RemoteCalibrationOverlay({
         <span>
           {title} · {progress.index + 1}/{targets.length}
         </span>
-        <button className="remote-button secondary" onClick={onCancel}>
-          Cancel
-        </button>
+        <IconButton label="Cancel capture" icon={X} onClick={onCancel} />
       </div>
       <div
         className="remote-target"
@@ -134,30 +134,22 @@ export function RemoteCalibrationOverlay({
       <div className="remote-calibration-help" aria-live="polite">
         <strong>
           {movingPass
-            ? "Look at the dot. Gently turn or shift your head."
-            : "Follow the dot with your eyes."}
+            ? "Follow the dot. Move your head gently."
+            : "Follow the dot."}
         </strong>
-        <p>
-          {progress.reason} · {progress.count}/18 samples
-        </p>
-        {movingPass && (
-          <p>
-            Use small, comfortable movements. Each frame keeps its own head
-            position.
-          </p>
-        )}
+        <p>{progress.count}/18</p>
+        {!["Keep looking at the dot", "Look at the dot"].includes(
+          progress.reason
+        ) && <p>{progress.reason}</p>}
         {progress.timedOut && (
           <>
-            <p>
-              Not enough clear samples. Improve the lighting or camera framing,
-              then retry.
-            </p>
-            <button
-              className="remote-button"
+            <p>Not enough samples. Adjust lighting and retry.</p>
+            <IconButton
+              label="Retry capture"
+              icon={RefreshCcw}
+              primary
               onClick={() => setRetry((value) => value + 1)}
-            >
-              Retry capture
-            </button>
+            />
           </>
         )}
       </div>

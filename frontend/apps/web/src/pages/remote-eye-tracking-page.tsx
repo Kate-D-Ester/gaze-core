@@ -5,12 +5,35 @@ import {
   ArrowRight,
   Camera,
   Check,
+  CheckCircle2,
+  Crosshair,
   Download,
   Eye,
+  EyeOff,
+  Focus,
+  Gauge,
+  Layers3,
+  LoaderCircle,
+  Maximize2,
+  Move3D,
+  MoveHorizontal,
+  MoveVertical,
+  Play,
+  RefreshCcw,
+  RotateCw,
   ScanEye,
+  ScanFace,
   ShieldCheck,
+  SlidersHorizontal,
   Smartphone,
+  Square,
+  SwitchCamera,
 } from "lucide-react"
+import {
+  Hint,
+  IconButton,
+  SetupHelp,
+} from "@/features/remote-eye-tracking/remote-controls"
 import { RemoteCalibrationOverlay } from "@/features/remote-eye-tracking/calibration-overlay"
 import {
   evaluateRemoteValidation,
@@ -36,77 +59,76 @@ const MODES = [
   {
     id: "mobile" as const,
     title: "Mobile eye tracker",
+    short: "Mobile",
     icon: Smartphone,
-    label: "Selfie camera",
-    description:
-      "Track on your phone with its front camera. Calibrate for the way you hold the device and move your head.",
-    technique: "Appearance gaze + phone pose interactions",
-    preparation:
-      "Rest your phone on a support. Face the selfie camera, with both eyes visible and even front lighting.",
+    hint: "Track with your phone’s selfie camera.",
+    preparation: "Rest your phone on a support. Keep both eyes visible.",
   },
   {
     id: "webcam" as const,
     title: "Webcam-based eye tracker",
+    short: "Webcam",
     icon: Camera,
-    label: "Laptop or USB camera",
-    description:
-      "Use your computer camera to estimate screen gaze, with continuous head position and rotation tracking.",
-    technique: "Appearance gaze + face and eye geometry",
-    preparation:
-      "Place the camera above your screen. Keep both eyes visible, avoid glare on glasses, and use even front lighting.",
+    hint: "Use a laptop or USB webcam.",
+    preparation: "Place the camera above your screen. Keep both eyes visible.",
   },
   {
     id: "ir" as const,
     title: "IR webcam-based eye tracker",
+    short: "IR camera",
     icon: ScanEye,
-    label: "IR camera + corneal reflection",
-    description:
-      "Use a compatible IR eye image to track the pupil relative to a corneal reflection and compensate for reference motion.",
-    technique: "Pupil–corneal reflection + reference compensation",
-    preparation:
-      "Select an IR camera that shows a dark pupil and one clear corneal reflection. Frame one eye, then select its region below.",
+    hint: "Requires a visible pupil and corneal reflection.",
+    preparation: "Frame one eye with a clear pupil and corneal reflection.",
   },
 ]
 const STEPS = [
-  "Choose",
-  "Camera",
-  "Position",
-  "Calibrate",
-  "Validate",
-  "Results",
+  { label: "Choose", icon: SwitchCamera },
+  { label: "Camera", icon: Camera },
+  { label: "Position", icon: ScanFace },
+  { label: "Calibrate", icon: Crosshair },
+  { label: "Validate", icon: CheckCircle2 },
+  { label: "Results", icon: Gauge },
 ]
 const FULL_ROI: Rect = { x: 0, y: 0, width: 1, height: 1 }
 function degrees(value: number | null) {
   return value === null ? "—" : `${Math.round((value * 180) / Math.PI)}°`
 }
-function HeadReadout({ pose }: { pose: HeadPose | null }) {
-  if (!pose)
-    return (
-      <p className="remote-muted">
-        Waiting for a clear {"head or eye reference"}…
-      </p>
-    )
-  const isFace = pose.kind === "face"
+function percentage(value: number | undefined, precision = 0) {
+  return value === undefined ? "—" : `${(value * 100).toFixed(precision)}%`
+}
+function HeadReadout({
+  pose,
+  reference,
+}: {
+  pose: HeadPose | null
+  reference: boolean
+}) {
+  const isFace = !reference
+  const values = [
+    {
+      label: isFace ? "Yaw" : "Reference X",
+      icon: MoveHorizontal,
+      value: isFace ? degrees(pose?.yaw ?? null) : percentage(pose?.x),
+    },
+    {
+      label: isFace ? "Pitch" : "Reference Y",
+      icon: MoveVertical,
+      value: isFace ? degrees(pose?.pitch ?? null) : percentage(pose?.y),
+    },
+    {
+      label: isFace ? "Roll" : "Eye scale",
+      icon: isFace ? RotateCw : Maximize2,
+      value: isFace ? degrees(pose?.roll ?? null) : percentage(pose?.scale, 1),
+    },
+  ]
   return (
     <div className="remote-head-readout">
-      <div>
-        <span>{isFace ? "Yaw" : "Reference X"}</span>
-        <strong>
-          {isFace ? degrees(pose.yaw) : `${Math.round(pose.x * 100)}%`}
-        </strong>
-      </div>
-      <div>
-        <span>{isFace ? "Pitch" : "Reference Y"}</span>
-        <strong>
-          {isFace ? degrees(pose.pitch) : `${Math.round(pose.y * 100)}%`}
-        </strong>
-      </div>
-      <div>
-        <span>{isFace ? "Roll" : "Eye scale"}</span>
-        <strong>
-          {isFace ? degrees(pose.roll) : `${(pose.scale * 100).toFixed(1)}%`}
-        </strong>
-      </div>
+      {values.map((item) => (
+        <Hint key={item.label} label={`${item.label}: ${item.value}`}>
+          <item.icon size={15} aria-hidden="true" />
+          <strong>{item.value}</strong>
+        </Hint>
+      ))}
     </div>
   )
 }
@@ -170,9 +192,7 @@ export function RemoteEyeTrackingPage() {
       if (!mode) return
       clearCalibration()
       setStep(ready ? 3 : 1)
-      setNotice(
-        "The screen or camera context changed. Calibrate again before using screen gaze."
-      )
+      setNotice(ready ? "Screen changed. Calibrate again." : "")
     }
     const hidden = () => {
       if (document.hidden && mode) {
@@ -217,9 +237,7 @@ export function RemoteEyeTrackingPage() {
     if (capture === "calibrate" && mode) {
       const fitted = fitRemoteCalibration(mode, collected)
       if (!fitted) {
-        setNotice(
-          "Calibration could not separate gaze reliably. Check framing and lighting, then repeat the targets with small head movements."
-        )
+        setNotice("Calibration failed. Adjust framing or lighting and retry.")
         return
       }
       setCalibration(fitted)
@@ -237,7 +255,7 @@ export function RemoteEyeTrackingPage() {
       )
       if (!result || result.targetCount !== 5) {
         setNotice(
-          "Validation needs clear samples at all five targets. Return to the calibrated head range and retry."
+          "Validation incomplete. Return to your calibrated position and retry."
         )
         return
       }
@@ -283,14 +301,16 @@ export function RemoteEyeTrackingPage() {
     ]
   }
   const diagonal = Math.hypot(viewport.width, viewport.height)
-  let assessment = "Measured on this setup"
-  if (validation && diagonal)
-    assessment =
-      validation.meanPixels > diagonal * 0.08
-        ? "Recalibration recommended"
-        : "Use the measured error to size your gaze targets"
+  const needsCalibration =
+    validation && diagonal > 0 && validation.meanPixels > diagonal * 0.08
   let startLabel = ready ? "Restart camera" : "Start camera"
-  if (tracker.status === "loading") startLabel = "Starting…"
+  if (tracker.status === "loading") startLabel = "Starting camera"
+  let StartIcon = ready ? RefreshCcw : Play
+  if (tracker.status === "loading") StartIcon = LoaderCircle
+  const signalLabel =
+    observationStatus(observation?.reason) ?? "Waiting for camera"
+  const headLabel =
+    mode === "ir" ? "Eye reference tracking" : "Live head tracking"
   return (
     <main className="eye-app remote-app">
       <header className="eye-header">
@@ -300,102 +320,88 @@ export function RemoteEyeTrackingPage() {
           </span>
           GazeCore<span className="eye-version">V3</span>
         </Link>
-        <span className="eye-local">
-          <ShieldCheck size={15} />
-          On-device processing
-        </span>
+        <div className="remote-header-tools">
+          <Hint label="On-device processing">
+            <ShieldCheck size={18} />
+          </Hint>
+          <SetupHelp preparation={selected?.preparation} />
+        </div>
       </header>
       <div className="remote-content">
-        <Link className="remote-back" to="/trials">
-          <ArrowLeft size={15} /> All trials
-        </Link>
         <div className="remote-title">
-          <div>
-            <p className="remote-eyebrow">REMOTE TRACKING</p>
-            <h1>Remote eye tracking</h1>
-            <p>
-              Choose your camera. Calibrate your eyes and head. Measure your
-              screen gaze.
-            </p>
-          </div>
-          <span className="remote-trial-tag">Research trial</span>
-        </div>
-        <ol className="remote-steps" aria-label="Setup progress">
-          {STEPS.map((label, index) => (
-            <li
-              key={label}
-              aria-current={step === index ? "step" : undefined}
-              className={index <= step ? "active" : ""}
+          <div className="remote-page-heading">
+            <Link
+              className="remote-icon-button"
+              to="/trials"
+              aria-label="All trials"
             >
-              <span>{index < step ? <Check size={12} /> : index + 1}</span>
-              {label}
-            </li>
-          ))}
-        </ol>
+              <ArrowLeft size={18} />
+              <span className="remote-tooltip" aria-hidden="true">
+                All trials
+              </span>
+            </Link>
+            <h1>Remote eye tracking</h1>
+          </div>
+          <ol className="remote-steps" aria-label="Setup progress">
+            {STEPS.map((item, index) => (
+              <li
+                key={item.label}
+                aria-current={step === index ? "step" : undefined}
+                className={index <= step ? "active" : ""}
+              >
+                <Hint label={`${index + 1}. ${item.label}`}>
+                  {index < step ? <Check size={17} /> : <item.icon size={18} />}
+                </Hint>
+              </li>
+            ))}
+          </ol>
+        </div>
         {step === 0 && (
-          <>
-            <div className="remote-intro">
-              <h2>Find your setup</h2>
-              <p>
-                Each camera uses a tailored tracking method and its own
-                calibration.
-              </p>
-            </div>
+          <div className="remote-picker">
+            <p>Choose a camera</p>
             <div className="remote-cards">
               {MODES.map((item) => (
                 <button
+                  type="button"
                   className="remote-mode-card"
                   key={item.id}
+                  aria-label={item.title}
                   onClick={() => choose(item.id)}
                 >
-                  <span className="remote-mode-icon">
-                    <item.icon size={26} />
-                  </span>
-                  <span className="remote-mode-label">{item.label}</span>
-                  <h2>{item.title}</h2>
-                  <p>{item.description}</p>
-                  <span className="remote-mode-technique">
-                    {item.technique}
-                  </span>
-                  <span className="remote-card-action">
-                    Set up tracker <ArrowRight size={17} />
+                  <item.icon size={34} strokeWidth={1.5} aria-hidden="true" />
+                  <h2>{item.short}</h2>
+                  <span className="remote-tooltip" aria-hidden="true">
+                    {item.hint}
                   </span>
                 </button>
               ))}
             </div>
-            <div className="remote-note">
-              <ShieldCheck size={18} />
-              <p>
-                Camera frames stay on this device. Accuracy depends on the
-                camera, lighting, and calibration; the validation step measures
-                your setup.
-              </p>
-            </div>
-          </>
+          </div>
         )}
         {step > 0 && selected && (
           <div className="remote-setup-heading">
-            <div>
-              <span className="remote-mode-label">{selected.label}</span>
-              <h2>{selected.title}</h2>
-            </div>
-            <button
-              className="remote-button secondary"
+            <span>
+              <selected.icon size={18} />
+              {selected.short}
+            </span>
+            <IconButton
+              label="Change setup"
+              icon={SwitchCamera}
               onClick={() => {
                 stopTracker()
                 clearCalibration()
                 setStep(0)
                 setMode(null)
               }}
-            >
-              Change setup
-            </button>
+            />
           </div>
         )}
         <div className="remote-workspace" hidden={step === 0}>
           <section className="remote-camera-panel" aria-label="Camera preview">
             <div className="remote-panel-title">
-              <span>Camera preview</span>
+              <Hint label="Camera preview">
+                <Camera size={16} />
+              </Hint>
               <span className="remote-camera-status">
                 <span className={`status-light ${ready ? "on" : ""}`} />
                 {ready ? `${tracker.fps.toFixed(0)} fps` : tracker.status}
@@ -477,22 +483,25 @@ export function RemoteEyeTrackingPage() {
               )}
               {tracker.status !== "ready" && (
                 <div className="remote-preview-placeholder">
-                  <Camera size={32} />
+                  {tracker.status === "loading" ? (
+                    <LoaderCircle size={30} className="remote-spin" />
+                  ) : (
+                    <Camera size={30} />
+                  )}
                   <span>
-                    {tracker.status === "loading"
-                      ? "Starting camera and loading local models…"
-                      : "Your camera preview will appear here"}
+                    {tracker.status === "loading" ? "Starting…" : "Camera off"}
                   </span>
                 </div>
               )}
             </div>
             <div className="remote-preview-footer">
-              <span className={valid ? "remote-good" : "remote-muted"}>
-                {valid
-                  ? "Eye signal available"
-                  : (observationStatus(observation?.reason) ??
-                    "Waiting for camera")}
-              </span>
+              <Hint label={valid ? "Eye signal available" : signalLabel}>
+                <Eye
+                  size={15}
+                  className={valid ? "remote-good" : "remote-muted"}
+                />
+                <span>{valid ? "Ready" : "No signal"}</span>
+              </Hint>
               <span>
                 {observation
                   ? `${observation.width} × ${observation.height}`
@@ -500,17 +509,13 @@ export function RemoteEyeTrackingPage() {
               </span>
             </div>
             <div className="remote-head-panel">
-              <h3>
-                {mode === "ir"
-                  ? "Eye reference tracking"
-                  : "Live head tracking"}
-              </h3>
-              <HeadReadout pose={observation?.pose ?? null} />
-              <p className="remote-muted">
-                {mode === "ir"
-                  ? "Translation and apparent scale come from the corneal reflection. Full head rotation requires a face view or additional calibrated hardware."
-                  : "Rotation, image position, and apparent face size are recorded with every eye sample."}
-              </p>
+              <Hint label={headLabel}>
+                <Move3D size={18} />
+              </Hint>
+              <HeadReadout
+                pose={observation?.pose ?? null}
+                reference={mode === "ir"}
+              />
             </div>
           </section>
           <section className="remote-controls">
@@ -526,16 +531,14 @@ export function RemoteEyeTrackingPage() {
             )}
             {step === 1 && (
               <>
-                <p className="remote-eyebrow">CAMERA ACCESS</p>
-                <h2>Connect your camera</h2>
-                <p>{selected?.preparation}</p>
-                <p className="remote-muted">
-                  Allow camera access when prompted. On a phone, open this page
-                  over HTTPS to use the selfie camera.
-                </p>
+                <h2>Camera</h2>
+                <p>Allow camera access.</p>
                 {tracker.devices.length > 0 && (
                   <label className="remote-field">
-                    Camera
+                    <span className="remote-field-label">
+                      <Camera size={14} />
+                      Camera
+                    </span>
                     <select
                       value={deviceId}
                       onChange={(event) => {
@@ -556,63 +559,69 @@ export function RemoteEyeTrackingPage() {
                   </label>
                 )}
                 <div className="remote-actions">
-                  <button
-                    className="remote-button"
+                  <IconButton
+                    label={startLabel}
+                    icon={StartIcon}
+                    primary={!ready}
                     disabled={tracker.status === "loading"}
                     onClick={start}
-                  >
-                    {startLabel}
-                  </button>
+                  />
                   {(ready || tracker.status === "loading") && (
-                    <button className="remote-button secondary" onClick={stop}>
-                      Stop camera
-                    </button>
+                    <IconButton
+                      label="Stop camera"
+                      icon={Square}
+                      onClick={stop}
+                    />
                   )}
+                  <IconButton
+                    label="Check your position"
+                    icon={ArrowRight}
+                    primary={ready}
+                    disabled={!ready}
+                    onClick={() => setStep(2)}
+                  />
                 </div>
-                <button
-                  className="remote-button full"
-                  disabled={!ready}
-                  onClick={() => setStep(2)}
-                >
-                  Check your position <ArrowRight size={16} />
-                </button>
               </>
             )}
             {step === 2 && (
               <>
-                <p className="remote-eyebrow">POSITION CHECK</p>
-                <h2>
-                  {mode === "ir"
-                    ? "Frame one eye clearly"
-                    : "Let the camera see both eyes"}
-                </h2>
-                <p>{selected?.preparation}</p>
+                <h2>Position</h2>
                 <p>
-                  Move your head slightly and check that the live readout
-                  updates. During calibration, keep looking at each dot while
-                  changing your head position gently.
+                  {mode === "ir"
+                    ? "Frame one eye and its reflection."
+                    : "Keep both eyes visible. Move your head gently."}
                 </p>
                 {mode === "ir" && (
                   <div className="remote-ir-controls">
-                    <button
-                      className="remote-button secondary"
-                      onClick={() => setSelecting((value) => !value)}
-                    >
-                      {selecting
-                        ? "Drag around one eye in the preview"
-                        : "Choose eye region"}
-                    </button>
-                    <button
-                      className="remote-button secondary"
-                      onClick={() => {
-                        setRoi(FULL_ROI)
-                        clearCalibration()
-                      }}
-                    >
-                      Reset region
-                    </button>
+                    <div className="remote-actions">
+                      <IconButton
+                        label={
+                          selecting
+                            ? "Cancel region selection"
+                            : "Choose eye region"
+                        }
+                        icon={Focus}
+                        aria-pressed={selecting}
+                        onClick={() => setSelecting((value) => !value)}
+                      />
+                      <IconButton
+                        label="Reset region"
+                        icon={RefreshCcw}
+                        onClick={() => {
+                          setRoi(FULL_ROI)
+                          clearCalibration()
+                        }}
+                      />
+                    </div>
+                    {selecting && (
+                      <p className="remote-muted">Drag around one eye.</p>
+                    )}
                     <label className="remote-field">
-                      Pupil threshold · {threshold === 0 ? "Auto" : threshold}
+                      <span className="remote-field-label">
+                        <SlidersHorizontal size={14} />
+                        Threshold{" "}
+                        <span>{threshold === 0 ? "Auto" : threshold}</span>
+                      </span>
                       <input
                         type="range"
                         min="0"
@@ -624,190 +633,179 @@ export function RemoteEyeTrackingPage() {
                         }}
                       />
                     </label>
-                    <p className="remote-muted">
-                      A regular camera with an IR filter alone may not show the
-                      reflection this method needs.
-                    </p>
                   </div>
                 )}
                 <div className="remote-check">
                   <span className={`status-light ${valid ? "on" : ""}`} />
-                  {valid
-                    ? "Eyes and motion reference detected"
-                    : "Waiting for a clear eye signal"}
+                  {valid ? "Eyes detected" : signalLabel}
                 </div>
-                <button
-                  className="remote-button full"
+                <IconButton
+                  label="Continue to calibration"
+                  icon={ArrowRight}
+                  primary
                   disabled={!valid}
                   onClick={() => setStep(3)}
-                >
-                  Continue to calibration <ArrowRight size={16} />
-                </button>
+                />
               </>
             )}
             {step === 3 && (
               <>
-                <p className="remote-eyebrow">PERSONAL CALIBRATION</p>
-                <h2>Teach the tracker your screen</h2>
-                <p>
-                  Look at nine targets. Each target records multiple eye samples
-                  and their matching head positions, even when your head moves.
-                </p>
+                <h2>Calibration</h2>
+                <p>Follow the dot.</p>
                 <label className="remote-checkbox">
                   <input
                     type="checkbox"
+                    aria-label="Include head movement"
                     checked={extended}
                     onChange={(event) => setExtended(event.target.checked)}
                   />
-                  <span>
-                    <strong>Include another head position</strong>
-                    <small>
-                      Repeat the targets with gentle head turns or shifts.
-                      Recommended for remote tracking.
-                    </small>
-                  </span>
+                  <Move3D size={18} />
+                  <span>Head movement</span>
                 </label>
-                <p className="remote-muted">
-                  Keep the camera and screen in place. Turn your head a little
-                  while your eyes stay on the dot; comfortable movements are
-                  enough.
-                </p>
-                <button
-                  className="remote-button full"
-                  disabled={!valid}
-                  onClick={() => {
-                    setCapture("calibrate")
-                    setShowGaze(false)
-                  }}
-                >
-                  Start {extended ? "18" : "9"}-target calibration{" "}
-                  <ArrowRight size={16} />
-                </button>
+                <div className="remote-actions">
+                  <Hint label={`${extended ? 18 : 9} calibration targets`}>
+                    <Crosshair size={16} />
+                    <span>{extended ? 18 : 9}</span>
+                  </Hint>
+                  <IconButton
+                    label={`Start ${extended ? 18 : 9}-target calibration`}
+                    icon={Play}
+                    primary
+                    disabled={!valid}
+                    onClick={() => {
+                      setCapture("calibrate")
+                      setShowGaze(false)
+                    }}
+                  />
+                </div>
               </>
             )}
             {step === 4 && (
               <>
-                <p className="remote-eyebrow">INDEPENDENT VALIDATION</p>
-                <h2>Measure this setup</h2>
-                <p>
-                  Follow five new targets. We compare the predicted gaze with
-                  the target positions to measure error in screen pixels.
-                </p>
+                <h2>Validation</h2>
+                <p>Follow 5 new targets.</p>
                 {calibration && (
                   <div className="remote-summary">
-                    <span>{calibration.sampleCount} synchronized samples</span>
-                    <span>{calibration.targetCount} screen locations</span>
-                    <span>Head positions retained per frame</span>
+                    <Hint
+                      label={`${calibration.sampleCount} synchronized samples`}
+                    >
+                      <Layers3 size={16} />
+                      <span>{calibration.sampleCount}</span>
+                    </Hint>
+                    <Hint label={`${calibration.targetCount} screen locations`}>
+                      <Crosshair size={16} />
+                      <span>{calibration.targetCount}</span>
+                    </Hint>
                   </div>
                 )}
-                <button
-                  className="remote-button full"
-                  disabled={!valid || !activeCalibration}
-                  onClick={() => setCapture("validate")}
-                >
-                  Validate gaze <ArrowRight size={16} />
-                </button>
-                <button
-                  className="remote-button secondary full"
-                  onClick={() => {
-                    clearCalibration()
-                    setStep(3)
-                  }}
-                >
-                  Repeat calibration
-                </button>
+                <div className="remote-actions">
+                  <IconButton
+                    label="Validate gaze"
+                    icon={Play}
+                    primary
+                    disabled={!valid || !activeCalibration}
+                    onClick={() => setCapture("validate")}
+                  />
+                  <IconButton
+                    label="Repeat calibration"
+                    icon={RefreshCcw}
+                    onClick={() => {
+                      clearCalibration()
+                      setStep(3)
+                    }}
+                  />
+                </div>
               </>
             )}
             {step === 5 && validation && (
               <>
-                <p className="remote-eyebrow">YOUR RESULTS</p>
-                <h2>{assessment}</h2>
+                <h2>Results</h2>
+                {needsCalibration && (
+                  <p className="remote-muted">Recalibration recommended.</p>
+                )}
                 <div className="remote-metrics">
-                  <div>
+                  <Hint label="Mean target error">
                     <strong>
                       {validation.meanPixels.toFixed(0)}
                       <small> px</small>
                     </strong>
-                    <span>Mean target error</span>
-                  </div>
-                  <div>
+                    <span>Mean</span>
+                  </Hint>
+                  <Hint label="95th percentile error">
                     <strong>
                       {validation.p95Pixels.toFixed(0)}
                       <small> px</small>
                     </strong>
-                    <span>95th percentile error</span>
-                  </div>
-                  <div>
+                    <span>P95</span>
+                  </Hint>
+                  <Hint label="Within-target jitter">
                     <strong>
                       {validation.jitterPixels.toFixed(0)}
                       <small> px</small>
                     </strong>
-                    <span>Within-target jitter</span>
-                  </div>
+                    <span>Jitter</span>
+                  </Hint>
                 </div>
                 <p className="remote-muted">
-                  {validation.targetCount} unseen targets ·{" "}
-                  {validation.sampleCount} samples · {viewport.width} ×{" "}
-                  {viewport.height} screen. These measurements apply to this
-                  session and camera position.
+                  {validation.targetCount} targets · {validation.sampleCount}{" "}
+                  samples
                 </p>
                 {!supported && (
                   <div className="remote-alert" role="status">
-                    Your head is outside the calibrated range. Gaze output is
-                    paused. Add the new head position with labeled targets.
+                    Head moved beyond calibration. Recalibrate.
                   </div>
                 )}
                 <div className="remote-live-status">
                   <span className={`status-light ${point ? "on" : ""}`} />
                   {point
-                    ? `Screen gaze ${(point[0] * 100).toFixed(1)}%, ${(point[1] * 100).toFixed(1)}%`
-                    : "Gaze paused — return to a clear, calibrated position"}
+                    ? `${(point[0] * 100).toFixed(1)}%, ${(point[1] * 100).toFixed(1)}%`
+                    : "Paused"}
                 </div>
                 <div className="remote-actions">
-                  <button
-                    className="remote-button"
+                  <IconButton
+                    label={showGaze ? "Hide gaze dot" : "Show live gaze"}
+                    icon={showGaze ? EyeOff : Eye}
+                    primary
+                    aria-pressed={showGaze}
                     onClick={() => setShowGaze((value) => !value)}
-                  >
-                    {showGaze ? "Hide gaze dot" : "Show live gaze"}
-                  </button>
-                  <button
-                    className="remote-button secondary"
+                  />
+                  <IconButton
+                    label="Export results"
+                    icon={Download}
                     onClick={exportResults}
-                  >
-                    <Download size={15} />
-                    Export results
-                  </button>
+                  />
+                  <IconButton
+                    label="Recalibrate with head movement"
+                    icon={RefreshCcw}
+                    onClick={() => {
+                      setExtended(true)
+                      clearCalibration()
+                      setStep(3)
+                    }}
+                  />
                 </div>
-                <button
-                  className="remote-button secondary full"
-                  onClick={() => {
-                    setExtended(true)
-                    clearCalibration()
-                    setStep(3)
-                  }}
-                >
-                  Recalibrate with head movement
-                </button>
                 {calibration && (
                   <details className="remote-details">
-                    <summary>Calibrated head range</summary>
+                    <summary aria-label="Calibrated head range">
+                      <Move3D size={16} />
+                      Head range
+                    </summary>
                     {calibration.poseKind === "face" && (
                       <p>
-                        Yaw {degrees(calibration.poseBounds.min[0]!)} to{" "}
+                        Yaw {degrees(calibration.poseBounds.min[0]!)}–
                         {degrees(calibration.poseBounds.max[0]!)} · Pitch{" "}
-                        {degrees(calibration.poseBounds.min[1]!)} to{" "}
+                        {degrees(calibration.poseBounds.min[1]!)}–
                         {degrees(calibration.poseBounds.max[1]!)}
                       </p>
                     )}
                     <p>
-                      Image X{" "}
-                      {(calibration.poseBounds.min[3]! * 100).toFixed(0)}–
+                      X {(calibration.poseBounds.min[3]! * 100).toFixed(0)}–
                       {(calibration.poseBounds.max[3]! * 100).toFixed(0)}% · Y{" "}
                       {(calibration.poseBounds.min[4]! * 100).toFixed(0)}–
                       {(calibration.poseBounds.max[4]! * 100).toFixed(0)}%
                     </p>
                     <p>
-                      Apparent scale{" "}
+                      Scale{" "}
                       {(Math.exp(calibration.poseBounds.min[5]!) * 100).toFixed(
                         1
                       )}
@@ -815,8 +813,7 @@ export function RemoteEyeTrackingPage() {
                       {(Math.exp(calibration.poseBounds.max[5]!) * 100).toFixed(
                         1
                       )}
-                      %. Moving the camera or changing screen orientation
-                      requires a new calibration.
+                      %
                     </p>
                   </details>
                 )}
@@ -824,68 +821,20 @@ export function RemoteEyeTrackingPage() {
             )}
             {step > 1 && (
               <div className="remote-bottom-actions">
-                <button
-                  className="remote-text-button"
+                <IconButton
+                  label="Previous step"
+                  icon={ArrowLeft}
                   onClick={() => {
                     setCapture(null)
                     setShowGaze(false)
                     setStep(step - 1)
                   }}
-                >
-                  <ArrowLeft size={14} />
-                  Previous step
-                </button>
-                <button className="remote-text-button" onClick={stop}>
-                  Stop camera
-                </button>
+                />
+                <IconButton label="Stop camera" icon={Square} onClick={stop} />
               </div>
             )}
           </section>
         </div>
-        <details className="remote-research">
-          <summary>How the three methods work</summary>
-          <p>
-            Mobile and webcam modes use a pretrained appearance gaze model, with
-            synchronized face pose and iris geometry. Their calibration features
-            adapt to phone position or desktop head movement. IR mode uses
-            pupil–corneal reflection displacement and current reference
-            position/scale. A single eye view cannot supply full head rotation.
-          </p>
-          <p>
-            The output is calibrated 2D screen gaze. Physical 3D gaze vectors
-            and angular accuracy require camera, screen, and optical geometry
-            measurements. Browser camera performance must be validated on the
-            actual hardware.
-          </p>
-          <p>
-            Research:{" "}
-            <a
-              href="https://arxiv.org/html/2508.19544v1"
-              target="_blank"
-              rel="noreferrer"
-            >
-              WebEyeTrack
-            </a>{" "}
-            ·{" "}
-            <a
-              href="https://arxiv.org/html/2508.10268v1"
-              target="_blank"
-              rel="noreferrer"
-            >
-              MobilePoG head movement calibration
-            </a>{" "}
-            ·{" "}
-            <a
-              href="https://www.nature.com/articles/s41467-020-18360-5"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Smartphone gaze research
-            </a>
-            . RGB weights are included for this research trial; commercial model
-            rights need separate verification.
-          </p>
-        </details>
       </div>
       {capture && ready && (
         <RemoteCalibrationOverlay
@@ -895,9 +844,7 @@ export function RemoteEyeTrackingPage() {
           onComplete={finishCapture}
           onCancel={() => {
             setCapture(null)
-            setNotice(
-              "Capture canceled. Keep the screen orientation fixed and try again."
-            )
+            setNotice("Capture canceled. Keep the screen fixed and retry.")
           }}
         />
       )}

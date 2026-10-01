@@ -41,15 +41,21 @@ test("the remote route is public and offers all three camera choices before requ
     "Webcam-based eye tracker",
     "IR webcam-based eye tracker",
   ])
-    expect(host.textContent).toContain(title)
+    expect(
+      buttons().some((button) => button.getAttribute("aria-label") === title)
+    ).toBe(true)
   expect(host.querySelector("video")?.srcObject).toBeNull()
   await act(async () =>
     buttons()
-      .find((button) => button.textContent?.includes("Mobile eye tracker"))!
+      .find(
+        (button) => button.getAttribute("aria-label") === "Mobile eye tracker"
+      )!
       .click()
   )
   expect(
-    host.querySelector("button.remote-button.full")?.hasAttribute("disabled")
+    host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Check your position"]'
+    )?.disabled
   ).toBe(true)
   expect(host.textContent).toContain("HTTPS")
   expect(host.textContent).toContain("Live head tracking")
@@ -58,15 +64,14 @@ test("changing the camera concept replaces its instructions and motion reference
   await render("/trials/remote-eye-tracking")
   await act(async () =>
     buttons()
-      .find((button) =>
-        button.textContent?.includes("IR webcam-based eye tracker")
+      .find(
+        (button) =>
+          button.getAttribute("aria-label") === "IR webcam-based eye tracker"
       )!
       .click()
   )
   expect(host.textContent).toContain("Eye reference tracking")
-  expect(host.textContent).toContain(
-    "dark pupil and one clear corneal reflection"
-  )
+  expect(host.textContent).toContain("pupil and corneal reflection")
   await act(async () =>
     buttons()
       .find((button) => button.textContent === "Change setup")!
@@ -77,8 +82,9 @@ test("changing the camera concept replaces its instructions and motion reference
   ).toHaveLength(3)
   await act(async () =>
     buttons()
-      .find((button) =>
-        button.textContent?.includes("Webcam-based eye tracker")
+      .find(
+        (button) =>
+          button.getAttribute("aria-label") === "Webcam-based eye tracker"
       )!
       .click()
   )
