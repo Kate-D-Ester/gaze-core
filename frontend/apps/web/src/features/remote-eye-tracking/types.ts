@@ -13,6 +13,8 @@ export type HeadPose = {
   scale: number
 }
 export type RemoteObservation = {
+  /** Recorded frames are for inspection and have no synchronized screen labels. */
+  source?: "camera" | "video"
   timestamp: number
   width: number
   height: number
@@ -44,6 +46,8 @@ export type RemoteRequest =
       type: "frame"
       frame: ImageBitmap
       timestamp: number
+      /** Recording time in milliseconds, independent of playback speed and wall time. */
+      mediaTimestamp?: number
       settings: RemoteSettings
     }
 export type RemoteResponse =

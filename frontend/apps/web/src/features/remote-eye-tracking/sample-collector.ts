@@ -14,6 +14,7 @@ export class TargetCollector {
   add(observation: RemoteObservation | null, now: number): boolean {
     if (
       !observation ||
+      observation.source === "video" ||
       this.complete ||
       observation.timestamp < this.started + 700 ||
       observation.timestamp <= this.lastTimestamp ||

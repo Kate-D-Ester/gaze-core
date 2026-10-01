@@ -5,6 +5,7 @@ import { IrEyeTracker } from "./ir-eye-tracker"
 import {
   buildIrFaceFeatures,
   irEyeRegions,
+  irEyeAperture,
   IR_EYE_CORNERS,
 } from "./ir-face-features"
 import { inspectRgbFace, type RgbFaceResult } from "./rgb-features"
@@ -16,7 +17,9 @@ export interface IrFaceLocator {
   dispose(): void
 }
 async function loadFaceLocator(): Promise<IrFaceLocator> {
-  const { landmarker, canvas } = await createLandmarker()
+  const { landmarker, canvas } = await createLandmarker({
+    outputFaceBlendshapes: false,
+  })
   return {
     detect: (frame, timestamp) => landmarker.detectForVideo(frame, timestamp),
     dispose() {
@@ -93,7 +96,7 @@ export async function createIrProcessor(
     timestamp: number,
     threshold: number,
     tracker: IrEyeTracker,
-    eyeFrame?: { center: Point; span: number; angle: number }
+    eyeFrame?: { center: Point; span: number; angle: number; aperture: Point[] }
   ) {
     const scale = Math.min(
       1,
@@ -140,6 +143,10 @@ export async function createIrProcessor(
         maxRadius: eyeFrame ? eyeFrame.span * 0.22 * scale : undefined,
         centerRadius: eyeFrame ? eyeFrame.span * 0.42 * scale : undefined,
         expectedCenter: eyeCoordinates?.origin,
+        centerRegion: eyeFrame?.aperture.map(([x, y]) => [
+          (x - roi.x) * scale,
+          (y - roi.y) * scale,
+        ]),
       },
       eyeCoordinates
     )
@@ -221,6 +228,7 @@ export async function createIrProcessor(
                   center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
                   span,
                   angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
+                  aperture: irEyeAperture(geometry, i),
                 }
               )
             })

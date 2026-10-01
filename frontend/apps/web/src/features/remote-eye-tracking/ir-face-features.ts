@@ -10,6 +10,20 @@ const LIDS = [
   [385, 387, 373, 380],
 ]
 
+/** Canthi and lids delimit the current opening; these are bounds, never a pupil estimate. */
+export function irEyeAperture(geometry: RgbFaceGeometry, eye: number): Point[] {
+  const [a, b] = IR_EYE_CORNERS[eye].map((index) => geometry.landmarks[index])
+  const along = (point: Point) =>
+    (point[0] - a[0]) * (b[0] - a[0]) + (point[1] - a[1]) * (b[1] - a[1])
+  const lids = LIDS[eye].map((index) => geometry.landmarks[index])
+  return [
+    a,
+    ...lids.slice(0, 2).sort((p, q) => along(p) - along(q)),
+    b,
+    ...lids.slice(2).sort((p, q) => along(q) - along(p)),
+  ]
+}
+
 /** Eye proposals only: pupil centers are measured from camera pixels, never copied from iris landmarks. */
 export function irEyeRegions(
   geometry: RgbFaceGeometry,

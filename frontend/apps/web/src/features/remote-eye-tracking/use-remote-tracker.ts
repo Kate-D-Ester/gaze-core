@@ -21,6 +21,8 @@ export function useRemoteTracker(
     cameraError: "",
     observation: null,
     fps: 0,
+    source: null,
+    sourceName: "",
   })
   useEffect(() => {
     const video = videoRef.current
@@ -55,6 +57,11 @@ export function useRemoteTracker(
       sessionRef.current?.start(mode, deviceId),
     []
   )
+  const startVideo = useCallback(
+    (mode: RemoteMode, file: File) =>
+      sessionRef.current?.startVideo(mode, file),
+    []
+  )
   const stop = useCallback(() => sessionRef.current?.stop(), [])
   const requestCameraAccess = useCallback(
     () => sessionRef.current?.requestCameraAccess(),
@@ -69,6 +76,7 @@ export function useRemoteTracker(
     videoRef,
     latest,
     start,
+    startVideo,
     stop,
     requestCameraAccess,
     refreshDevices,

@@ -211,3 +211,83 @@ recording or human gaze-accuracy measurement was available during this correctio
 Final verification: **261 Bun tests passed across 26 files**, with 0 failures.
 Full frontend lint, TypeScript/production build and whitespace checks passed.
 The local tracker route returned HTTP 200 on port 4003.
+
+## Reference-video pupil pipeline (2026-10-02)
+
+The two supplied 1280 × 720, 30 fps recordings were decoded and processed through
+real browser/OpenCV/MediaPipe inference, sequentially at each source frame time.
+Both complete clips were checked: 1,217 frames (40.57 s) and 1,200 frames (40 s).
+Recordings and per-frame biometric outputs remain local in the ignored
+`frontend/node_modules/.cache/ir-reference-videos/` directory; none are bundled or
+committed. No audio was used.
+
+The pipeline now bounds candidates **before** ranking/recovery using the current
+canthi/lid opening and pupil radius. Automatic threshold seeds come from this
+opening rather than the darker surrounding lashes. Fresh native-pixel evidence
+wins; when it fails, a 3 × 3 denoise and bounded percentile contrast transform
+run only on the small eye crop, without resizing. Native and enhanced tracks keep
+separate polarity, shape, and intensity histories, each remapped by current head
+translation/scale/roll. Raw pixels still determine saturation and reflection
+identity. Missing image evidence clears the result.
+
+Bright sclera can resemble a bright pupil. Full-face auto acquisition therefore
+checks a bright candidate against an independently measured enclosing dark iris,
+or conservative uniform dark surroundings when its iris rim is outside the crop.
+Established partial pupils retain their validated rim identity. A genuine pupil
+containing a much smaller corneal glint is distinguished from an ellipse fitted
+to the glint itself. Close-up and explicit-polarity behavior remain available.
+An experimental opening-wide brightness veto was rejected: a separate shadow
+can be darker than a genuine, independently supported pupil. Regression cases
+cover both mild and strong uneven illumination without that veto.
+
+[ElSe (Fuhl et al., 2015)](https://arxiv.org/pdf/1511.06575) informed the use of
+normalization, filtered edge/ellipse evidence and plausibility checks. This is an
+extension of the shared existing detector, not a port or reproduction of ElSe's
+published accuracy. The two videos were used for engineering evaluation; no new
+learned model was trained on them.
+
+| Recording | Frames | Both pupils before → after | Any pupil before → after | Face frames after | Median processing | p95 processing |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Off-axis lighting (`01-53-37`) | 1,217 | 0 → 479 | 173 → 1,033 | 1,213 | 32.5 ms | 44.2 ms |
+| Light directed at eyes (`01-55-24`) | 1,200 | 474 → 865 | 917 → 1,081 | 1,200 | 30.4 ms | 43.5 ms |
+
+These are **reported-detection counts, not labeled accuracy or visible-pupil
+recall**. Visual crop/overlay inspection exposed bright-surface false positives
+and led to the iris-support correction. Residual misses and occasional incorrect
+fits remain in blur, glare, occlusion and faint rims; every visible pupil has not
+been established as correctly detected. There are no synchronized screen-target
+labels in these recordings, so they cannot establish calibrated gaze accuracy.
+Do not compare these counts with held-out pixel/angular screen error.
+
+To inspect a recording, open `/trials/remote-eye-tracking`, select IR, and use the
+file-video icon beside **Change setup**. The file stays in a local object URL;
+no camera permission or upload is needed. Native controls play/pause/seek. Paused
+ROI/threshold changes reprocess the selected frame. Seek and settings resets clear
+worker history and stale results; model setup can briefly pause playback. Stop,
+source replacement, media failure and unmount release the object URL and worker.
+Results expire after one second without a new frame. Recorded observations are
+excluded from screen calibration and target collection; live camera calibration
+continues to use labeled screen targets and independently measured head pose.
+Interactive replay processes the latest available frame with one inference in
+flight; the exhaustive evaluation used sequential decoding, not real-time replay.
+
+No new runtime dependencies or vision model downloads were added. IR disables
+unused face blendshape output, retains two-face rejection and head matrices, and
+keeps heavy models lazy. Small-eye filtering is bounded, and processing stays off
+the UI thread. Production Nginx configuration now enables gzip for scripts, WASM
+and binary model assets using [the standard gzip module](https://nginx.org/en/docs/http/ngx_http_gzip_module.html).
+The cold IR vision assets measured approximately 26.83 MB raw / 10.50 MB gzip;
+this is an asset-size measurement, not a verified deployed transfer. Nginx was
+not installed locally, so deployed `Content-Encoding` still needs checking.
+OpenCV currently reserves a 128 MiB WASM heap. This build is therefore not a
+minimal-memory universal-phone implementation; real iOS/Android startup, sustained
+throughput and memory measurements remain necessary.
+
+Final verification: **296 Bun tests passed across 29 files**, zero failures;
+full frontend lint and TypeScript/production build passed. Independent code review
+found and verified fixes for repeated scrubbing intent, paused settings refresh
+and the uneven-illumination rejection. No new concrete regressions remained in
+the final review.
+The actual production build replayed a private 3 s excerpt, displayed measured
+pupils and head pose at approximately 28 processed fps, and cleared output at end.
+The original development route remains available on port 4003.

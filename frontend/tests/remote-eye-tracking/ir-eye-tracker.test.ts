@@ -211,3 +211,113 @@ test("an independently validated full fit refreshes its glare ceiling from curre
   expect(fresh.pupilReflectionLimit).toBeGreaterThan(125)
   expect(fresh.pupilReflectionLimit).toBeLessThan(200)
 })
+
+function faintEye(cx: number, visible = true) {
+  const width = 96,
+    height = 48,
+    gray = new Uint8Array(width * height)
+  let random = 17
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      random = (Math.imul(random, 1664525) + 1013904223) >>> 0
+      const noise = (random % 5) - 2
+      const inside = visible && ((x - cx) / 8) ** 2 + ((y - 23) / 6) ** 2 <= 1
+      gray[y * width + x] =
+        145 + Math.round(x * 0.04) + noise - (inside ? 7 : 0)
+    }
+  return gray
+}
+const opening = [
+  [14, 23],
+  [28, 12],
+  [67, 12],
+  [82, 23],
+  [67, 34],
+  [28, 34],
+] as [number, number][]
+test("automatic full-face IR tracks a faint moving pupil without a manual cutoff", () => {
+  const tracker = new IrEyeTracker(cv)
+  for (let i = 0; i < 12; i++) {
+    const x = 43 + i
+    const result = tracker.process(faintEye(x), 96, 48, 0, i * 40, {
+      centerRegion: opening,
+      expectedCenter: [48, 23],
+      centerRadius: 26,
+      maxRadius: 12,
+    })
+    expect(result.pupil).not.toBeNull()
+    expect(
+      Math.hypot(result.pupil!.center[0] - x, result.pupil!.center[1] - 23)
+    ).toBeLessThan(2)
+  }
+  expect(
+    tracker.process(faintEye(43, false), 96, 48, 0, 480, {
+      centerRegion: opening,
+      maxRadius: 12,
+    }).pupil
+  ).toBeNull()
+})
+
+test("native full-face evidence remains unchanged when enhancement is available", () => {
+  const native = new IrEyeTracker(cv),
+    automatic = new IrEyeTracker(cv)
+  const frame = pupil()
+  const plain = native.process(frame, width, height, 0, 0)
+  const bounded = automatic.process(frame, width, height, 0, 0, {
+    centerRegion: [
+      [50, 50],
+      [270, 50],
+      [270, 200],
+      [50, 200],
+    ],
+  })
+  expect(bounded.pupil).toEqual(plain.pupil)
+})
+
+test("a brighter scleral patch cannot hide a faint dark pupil in a full-face eye", () => {
+  const gray = faintEye(43)
+  for (let y = 0; y < 48; y++)
+    for (let x = 0; x < 96; x++)
+      if (((x - 70) / 8) ** 2 + ((y - 23) / 6) ** 2 <= 1) gray[y * 96 + x] = 190
+  const tracker = new IrEyeTracker(cv)
+  const result = tracker.process(gray, 96, 48, 0, 0, {
+    centerRegion: opening,
+    expectedCenter: [48, 23],
+    centerRadius: 30,
+    maxRadius: 12,
+  })
+  expect(result.pupil).not.toBeNull()
+  expect(
+    Math.hypot(result.pupil!.center[0] - 43, result.pupil!.center[1] - 23)
+  ).toBeLessThan(2)
+})
+
+test.each([
+  [60, 180, 126],
+  [150, 190, 165],
+  [150, 180, 160],
+])(
+  "a remote shadow cannot veto a locally supported full-face pupil (%s)",
+  (shadow, background, intensity) => {
+    const gray = new Uint8Array(96 * 48)
+    for (let y = 0; y < 48; y++)
+      for (let x = 0; x < 96; x++)
+        gray[y * 96 + x] =
+          x < 42
+            ? shadow
+            : ((x - 63) / 8) ** 2 + ((y - 23) / 6) ** 2 <= 1
+              ? intensity
+              : background
+    const tracker = new IrEyeTracker(cv)
+    const result = tracker.process(gray, 96, 48, 0, 0, {
+      centerRegion: opening,
+      expectedCenter: [48, 23],
+      centerRadius: 30,
+      maxRadius: 12,
+    })
+    expect(result.pupil).not.toBeNull()
+    expect(
+      Math.hypot(result.pupil!.center[0] - 63, result.pupil!.center[1] - 23)
+    ).toBeLessThan(2)
+  }
+)

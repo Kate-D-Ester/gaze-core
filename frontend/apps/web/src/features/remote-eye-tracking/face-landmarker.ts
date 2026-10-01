@@ -2,7 +2,9 @@ import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision"
 
 const ASSETS = "/models/remote-eye-tracking"
 
-export async function createLandmarker(): Promise<{
+export async function createLandmarker({
+  outputFaceBlendshapes = true,
+}: { outputFaceBlendshapes?: boolean } = {}): Promise<{
   landmarker: FaceLandmarker
   canvas: OffscreenCanvas
   delegate: "GPU" | "CPU"
@@ -44,7 +46,7 @@ export async function createLandmarker(): Promise<{
           minFaceDetectionConfidence: 0.6,
           minFacePresenceConfidence: 0.6,
           minTrackingConfidence: 0.6,
-          outputFaceBlendshapes: true,
+          outputFaceBlendshapes,
           outputFacialTransformationMatrixes: true,
         }
       )

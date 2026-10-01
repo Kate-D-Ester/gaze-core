@@ -41,11 +41,14 @@ self.onmessage = async (event: MessageEvent<RemoteRequest>) => {
   try {
     respond({
       type: "result",
-      observation: await processor.process(
-        request.frame,
-        request.timestamp,
-        request.settings
-      ),
+      observation: {
+        ...(await processor.process(
+          request.frame,
+          request.mediaTimestamp ?? request.timestamp,
+          request.settings
+        )),
+        timestamp: request.timestamp,
+      },
     })
   } catch (error) {
     respond({

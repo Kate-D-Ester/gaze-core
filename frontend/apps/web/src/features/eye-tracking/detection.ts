@@ -12,7 +12,7 @@ import type {
   PupilRimIdentity,
   PupilRimSample,
 } from "./detection.types"
-import { finite } from "./geometry"
+import { finite, pointInPolygon } from "./geometry"
 
 const maxContourCandidates = 24
 const maxContourPoints = 256
@@ -72,7 +72,8 @@ function darkestPatch(
   gray: Uint8Array,
   width: number,
   height: number,
-  minimumIntensity = 0
+  minimumIntensity = 0,
+  centerRegion?: Point[]
 ): DarkestPatch | null {
   const size = Math.max(3, Math.round(Math.min(width, height) / 24)),
     half = Math.floor(size / 2),
@@ -81,6 +82,7 @@ function darkestPatch(
     result: DarkestPatch | null = null
   for (let y = half + 2; y < height - half - 2; y += stride)
     for (let x = half + 2; x < width - half - 2; x += stride) {
+      if (centerRegion && !pointInPolygon([x, y], centerRegion)) continue
       let sum = 0,
         sum2 = 0,
         n = 0,
@@ -1443,7 +1445,7 @@ export function detectSpatialPupil(
       ? options.previous
       : null
   const partialPatch = partialReference
-    ? darkestPatch(gray, width, height)
+    ? darkestPatch(gray, width, height, 0, options.centerRegion)
     : null
   const partialAppearance = partialReference
     ? pupilContrast(gray, width, height, partialReference)
@@ -1552,6 +1554,16 @@ export function detectSpatialPupil(
           reference: partialReference,
         }
       : null
+  const withinBounds = (ellipse: Ellipse) =>
+    (options.centerRegion === undefined ||
+      pointInPolygon(ellipse.center, options.centerRegion)) &&
+    (options.maxRadius === undefined || ellipse.major <= options.maxRadius) &&
+    (options.expectedCenter === undefined ||
+      options.centerRadius === undefined ||
+      Math.hypot(
+        ellipse.center[0] - options.expectedCenter[0],
+        ellipse.center[1] - options.expectedCenter[1]
+      ) <= options.centerRadius)
   const compatibleScale = (ellipse: Ellipse) =>
     manual ||
     compatiblePupilScale(
@@ -1639,6 +1651,7 @@ export function detectSpatialPupil(
     )
     if (
       tracked &&
+      withinBounds(tracked.ellipse) &&
       compatibleScale(tracked.ellipse) &&
       (tracked.shapeObserved !== false || canRetainShape)
     ) {
@@ -1668,7 +1681,8 @@ export function detectSpatialPupil(
       }
     }
   }
-  const patch = partialPatch ?? darkestPatch(gray, width, height)
+  const patch =
+    partialPatch ?? darkestPatch(gray, width, height, 0, options.centerRegion)
   if (!patch) return result
   result.seed = patch.point
   // Prefer the observed dark core without ruling out a pupil brighter than a lash
@@ -1697,7 +1711,7 @@ export function detectSpatialPupil(
   // Keep the strict hypotheses, then search the brighter scene population.
   const foregroundPatch =
     !manual && patch.value < otsu * 0.3 && hasBlackPadding(gray, width, height)
-      ? darkestPatch(gray, width, height, otsu + 1)
+      ? darkestPatch(gray, width, height, otsu + 1, options.centerRegion)
       : null
   const globalThresholds = manual
     ? [cutoff(thresholdOffset)]
@@ -1761,7 +1775,8 @@ export function detectSpatialPupil(
       points: Point[],
       refined: Point[]
     ) => {
-      if (!validEllipse(ellipse, width, height)) return
+      if (!validEllipse(ellipse, width, height) || !withinBounds(ellipse))
+        return
       const anchor = options.trackingAnchor
       // The major axis changes little during a saccade. Keep its scale through
       // a blink so a tiny iris feature cannot establish a new pupil identity.
@@ -1982,7 +1997,8 @@ export function detectSpatialPupil(
             fitted.minor,
             fitted.angle,
           ]) ||
-          fitted.minor <= 0
+          fitted.minor <= 0 ||
+          !withinBounds(fitted)
         )
           return
         const tolerance = Math.max(1.5, fitted.minor * 0.06),
@@ -2333,6 +2349,7 @@ export function detectSpatialPupil(
       )
       if (
         relocated &&
+        withinBounds(relocated.ellipse) &&
         compatibleScale(relocated.ellipse) &&
         compatibleAppearance(
           relocated.ellipse,

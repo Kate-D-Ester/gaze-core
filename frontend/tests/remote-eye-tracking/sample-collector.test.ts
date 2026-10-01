@@ -52,3 +52,14 @@ test("blinks and invalid frames do not advance a target; sufficient valid sample
   expect(collector.complete).toBe(true)
   expect(collector.samples).toHaveLength(18)
 })
+
+test("unlabeled recorded observations cannot train or validate screen calibration", () => {
+  const collector = new TargetCollector([0.5, 0.5], 0, 0)
+  expect(
+    collector.add({ ...observation(800, 0.1), source: "video" }, 800)
+  ).toBe(false)
+  expect(collector.samples).toHaveLength(0)
+  expect(
+    collector.add({ ...observation(900, 0.1), source: "camera" }, 900)
+  ).toBe(true)
+})

@@ -1,3 +1,4 @@
+import { prepareIrEye } from "./ir-preprocessing"
 import { PupilTracker } from "../eye-tracking/pupil-tracker"
 import type { CV } from "../eye-tracking/opencv.types"
 import type { Point } from "./types"
@@ -12,7 +13,7 @@ import {
 export type IrEyeCoordinates = { origin: Point; scale: number; angle: number }
 
 /** Pupil history survives missing glints; references still require a current reflection. */
-export class IrEyeTracker {
+class IrEyeTrack {
   private readonly tracking: IrTrackingState
   private reference: IrReference | null = null
   private coordinates: IrEyeCoordinates | undefined
@@ -36,7 +37,8 @@ export class IrEyeTracker {
     threshold: number,
     timestamp: number,
     options: IrEyeOptions = {},
-    coordinates?: IrEyeCoordinates
+    coordinates?: IrEyeCoordinates,
+    originalGray: Uint8Array = gray
   ) {
     const dimensions = `${width},${height}`
     if (this.coordinates && coordinates) {
@@ -91,11 +93,61 @@ export class IrEyeTracker {
       timestamp,
       this.reference,
       options,
-      this.tracking
+      this.tracking,
+      originalGray
     )
     if (result.reference) this.reference = result.reference
     else if (this.reference && timestamp - this.reference.timestamp > 250)
       this.reference = null
     return result
+  }
+}
+
+/** Keep native and enhanced intensity histories separate; fresh native evidence wins. */
+export class IrEyeTracker {
+  private readonly native: IrEyeTrack
+  private readonly enhanced: IrEyeTrack
+  constructor(cv: CV) {
+    this.native = new IrEyeTrack(cv)
+    this.enhanced = new IrEyeTrack(cv)
+  }
+  reset() {
+    this.native.reset()
+    this.enhanced.reset()
+  }
+  process(
+    gray: Uint8Array,
+    width: number,
+    height: number,
+    threshold: number,
+    timestamp: number,
+    options: IrEyeOptions = {},
+    coordinates?: IrEyeCoordinates
+  ) {
+    const native = this.native.process(
+      gray,
+      width,
+      height,
+      threshold,
+      timestamp,
+      options,
+      coordinates
+    )
+    if (native.pupil || threshold !== 0 || !options.centerRegion) return native
+    const prepared = prepareIrEye(gray, width, height)
+    if (!prepared) {
+      this.enhanced.reset()
+      return native
+    }
+    return this.enhanced.process(
+      prepared,
+      width,
+      height,
+      threshold,
+      timestamp,
+      options,
+      coordinates,
+      gray
+    )
   }
 }

@@ -343,3 +343,74 @@ test("a centered compact reflection cannot replace a larger dark pupil", () => {
   expect(Math.abs(result.pupil!.major - 22)).toBeLessThan(1)
   expect(result.glint).not.toBeNull()
 })
+
+test("contrast recovery preserves raw bright-pupil saturation rejection", () => {
+  const saturated = brightEye(null, 252)
+  const prepared = brightEye(null, 200)
+  const result = detectIrEye(
+    cv,
+    prepared,
+    width,
+    height,
+    0,
+    0,
+    null,
+    { polarity: "bright" },
+    undefined,
+    saturated
+  )
+  expect(result.pupil).toBeNull()
+  expect(result.reference).toBeNull()
+})
+
+test("contrast recovery finds reflections from raw pixels even when enhancement clips them", () => {
+  const raw = brightEye()
+  const prepared = brightEye(null)
+  const result = detectIrEye(
+    cv,
+    prepared,
+    width,
+    height,
+    0,
+    0,
+    null,
+    { polarity: "bright" },
+    undefined,
+    raw
+  )
+  expect(result.pupil).not.toBeNull()
+  expect(result.glint).not.toBeNull()
+  expect(result.glint![0]).toBeCloseTo(154, 1)
+  expect(result.glint![1]).toBeCloseTo(114, 1)
+})
+
+test("a full-face bright pupil inside its iris retains its small centered corneal reflection", () => {
+  const pixels = nestedEye(70, 70, 11, 200)
+  for (let y = 0; y < nestedHeight; y++)
+    for (let x = 0; x < nestedWidth; x++)
+      if ((x - 72) ** 2 + (y - 34) ** 2 <= 2 ** 2)
+        pixels[y * nestedWidth + x] = 252
+  const result = detectIrEye(
+    cv,
+    pixels,
+    nestedWidth,
+    nestedHeight,
+    0,
+    0,
+    null,
+    {
+      maxRadius: 14,
+      expectedCenter: [70, 36],
+      centerRadius: 24,
+      centerRegion: [
+        [8, 8],
+        [132, 8],
+        [132, 64],
+        [8, 64],
+      ],
+    }
+  )
+  expect(result.pupil).not.toBeNull()
+  expect(Math.abs(result.pupil!.major - 11)).toBeLessThan(1)
+  expect(result.glint).not.toBeNull()
+})

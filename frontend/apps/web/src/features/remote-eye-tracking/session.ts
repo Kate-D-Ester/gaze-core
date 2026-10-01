@@ -12,6 +12,8 @@ export type SessionState = {
   cameraAccess: "idle" | "requesting" | "granted" | "error"
   cameraError: string
   fps: number
+  source: "camera" | "video" | null
+  sourceName: string
 }
 export type SessionEnvironment = {
   getStream: (constraints: MediaStreamConstraints) => Promise<MediaStream>
@@ -21,6 +23,8 @@ export type SessionEnvironment = {
   capture: (video: HTMLVideoElement) => Promise<ImageBitmap>
   requestFrame: (callback: FrameRequestCallback) => number
   cancelFrame: (id: number) => void
+  createObjectURL?: (file: File) => string
+  revokeObjectURL?: (url: string) => void
 }
 const initialState = (): SessionState => ({
   status: "idle",
@@ -30,6 +34,8 @@ const initialState = (): SessionState => ({
   cameraAccess: "idle",
   cameraError: "",
   fps: 0,
+  source: null,
+  sourceName: "",
 })
 function cameraDevices(): MediaDevices {
   const devices = globalThis.navigator?.mediaDevices
@@ -64,6 +70,8 @@ function browserEnvironment(video: HTMLVideoElement): SessionEnvironment {
         type: "module",
       }),
     capture: (video) => createImageBitmap(video),
+    createObjectURL: (file) => URL.createObjectURL(file),
+    revokeObjectURL: (url) => URL.revokeObjectURL(url),
     requestFrame: (callback) =>
       typeof video.requestVideoFrameCallback === "function"
         ? video.requestVideoFrameCallback((now) => callback(now))
@@ -88,7 +96,7 @@ function cameraError(error: unknown): string {
     ? error.message
     : "Camera could not start. Please try again."
 }
-/** Owns one camera, one worker, and at most one frame. Epochs discard late permission/inference responses. */
+/** Owns one local media source, one worker, and at most one frame. Epochs discard late asynchronous responses. */
 export class RemoteSession {
   private env: SessionEnvironment
   private state = initialState()
@@ -102,7 +110,11 @@ export class RemoteSession {
   private frameId = 0
   private busy = false
   private modelReady = false
-  private cameraReady = false
+  private mediaReady = false
+  private objectUrl: string | null = null
+  private resumeReplay = false
+  private removeMediaEvents: (() => void) | undefined
+  private resetReplay: (() => void) | undefined
   private lastResult = 0
   private lastVideoTime = -1
   private freshnessTimer: ReturnType<typeof setTimeout> | null = null
@@ -205,10 +217,19 @@ export class RemoteSession {
     this.stop()
   }
   setSettings(settings: RemoteSettings): void {
+    const previous = this.settings
+    if (
+      previous.threshold === settings.threshold &&
+      previous.roi.x === settings.roi.x &&
+      previous.roi.y === settings.roi.y &&
+      previous.roi.width === settings.roi.width &&
+      previous.roi.height === settings.roi.height
+    )
+      return
     this.settings = settings
+    this.resetReplay?.()
   }
-  stop(): void {
-    this.generation++
+  private clearTracking(): void {
     this.env.cancelFrame(this.frameId)
     if (this.initTimer) clearTimeout(this.initTimer)
     if (this.frameTimer) clearTimeout(this.frameTimer)
@@ -217,20 +238,37 @@ export class RemoteSession {
     this.initTimer = this.frameTimer = null
     this.worker?.terminate()
     this.worker = null
+    this.modelReady = this.busy = false
+    this.lastResult = 0
+    this.lastVideoTime = -1
+  }
+  stop(): void {
+    this.generation++
+    this.clearTracking()
+    this.removeMediaEvents?.()
+    this.removeMediaEvents = undefined
+    this.resetReplay = undefined
     this.stream?.getTracks().forEach((track) => track.stop())
     this.stream = null
     this.permissionStream?.getTracks().forEach((track) => track.stop())
     this.permissionStream = null
     this.video.pause()
     this.video.srcObject = null
-    this.modelReady = this.cameraReady = this.busy = false
-    this.lastResult = 0
-    this.lastVideoTime = -1
+    if (this.objectUrl) {
+      this.video.removeAttribute("src")
+      this.video.load()
+      const revoke = this.env.revokeObjectURL ?? URL.revokeObjectURL
+      revoke(this.objectUrl)
+      this.objectUrl = null
+    }
+    this.mediaReady = this.resumeReplay = false
     this.update({
       status: "idle",
       observation: null,
       error: "",
       fps: 0,
+      source: null,
+      sourceName: "",
       cameraAccess:
         this.state.cameraAccess === "requesting"
           ? "idle"
@@ -241,57 +279,68 @@ export class RemoteSession {
     this.stop()
     this.update({ status: "error", error: message })
   }
+  private startWorker(mode: RemoteMode, generation: number): void {
+    this.update({ status: "loading" })
+    const worker = this.env.worker()
+    this.worker = worker
+    worker.onmessage = (event: MessageEvent<RemoteResponse>) => {
+      if (generation !== this.generation) return
+      const message = event.data
+      if (message.type === "ready") {
+        this.modelReady = true
+        this.activate(generation)
+      } else if (message.type === "error") this.fail(message.message)
+      else {
+        this.busy = false
+        if (this.frameTimer) clearTimeout(this.frameTimer)
+        this.frameTimer = null
+        if (
+          this.state.source === "video" &&
+          (this.video.seeking || this.video.ended)
+        )
+          return
+        const now = performance.now()
+        const fps = this.lastResult ? 1000 / (now - this.lastResult) : 0
+        this.lastResult = now
+        const observation =
+          now - message.observation.timestamp < 1000
+            ? { ...message.observation, source: this.state.source ?? "camera" }
+            : null
+        if (this.freshnessTimer) clearTimeout(this.freshnessTimer)
+        this.freshnessTimer = setTimeout(
+          () => {
+            if (generation === this.generation)
+              this.update({ observation: null })
+          },
+          Math.max(0, 1000 - (now - message.observation.timestamp))
+        )
+        this.update({
+          observation,
+          fps: this.state.fps ? this.state.fps * 0.8 + fps * 0.2 : fps,
+        })
+      }
+    }
+    worker.onerror = () => {
+      if (generation === this.generation)
+        this.fail("Tracking worker failed. Reload or restart tracking.")
+    }
+    worker.postMessage({ type: "init", mode })
+    this.initTimer = setTimeout(() => {
+      if (generation === this.generation)
+        this.fail(
+          this.state.source === "video"
+            ? "Video or model setup timed out. Choose a supported local video and reload the page."
+            : "Camera or model setup timed out. Check camera permission and reload the page."
+        )
+    }, 45000)
+  }
   async start(mode: RemoteMode, deviceId?: string): Promise<void> {
     if (this.disposed) return
     this.stop()
     const generation = this.generation
-    this.update({ status: "loading" })
+    this.update({ source: "camera" })
     try {
-      const worker = this.env.worker()
-      this.worker = worker
-      worker.onmessage = (event: MessageEvent<RemoteResponse>) => {
-        if (generation !== this.generation) return
-        const message = event.data
-        if (message.type === "ready") {
-          this.modelReady = true
-          this.activate(generation)
-        } else if (message.type === "error") this.fail(message.message)
-        else {
-          this.busy = false
-          if (this.frameTimer) clearTimeout(this.frameTimer)
-          this.frameTimer = null
-          const now = performance.now()
-          const fps = this.lastResult ? 1000 / (now - this.lastResult) : 0
-          this.lastResult = now
-          const observation =
-            now - message.observation.timestamp < 1000
-              ? message.observation
-              : null
-          if (this.freshnessTimer) clearTimeout(this.freshnessTimer)
-          this.freshnessTimer = setTimeout(
-            () => {
-              if (generation === this.generation)
-                this.update({ observation: null })
-            },
-            Math.max(0, 1000 - (now - message.observation.timestamp))
-          )
-          this.update({
-            observation,
-            fps: this.state.fps ? this.state.fps * 0.8 + fps * 0.2 : fps,
-          })
-        }
-      }
-      worker.onerror = () => {
-        if (generation === this.generation)
-          this.fail("Tracking worker failed. Reload or restart the camera.")
-      }
-      worker.postMessage({ type: "init", mode })
-      this.initTimer = setTimeout(() => {
-        if (generation === this.generation)
-          this.fail(
-            "Camera or model setup timed out. Check camera permission and reload the page."
-          )
-      }, 45000)
+      this.startWorker(mode, generation)
       let source: MediaTrackConstraints =
         mode === "mobile" ? { facingMode: { ideal: "user" } } : {}
       if (deviceId) source = { deviceId: { exact: deviceId } }
@@ -321,7 +370,7 @@ export class RemoteSession {
       this.video.srcObject = stream
       await this.video.play()
       if (generation !== this.generation) return
-      this.cameraReady = true
+      this.mediaReady = true
       this.activate(generation)
       this.update({ cameraAccess: "granted", cameraError: "" })
       void this.refreshDevices()
@@ -329,12 +378,94 @@ export class RemoteSession {
       if (generation === this.generation) this.fail(cameraError(error))
     }
   }
+  async startVideo(mode: RemoteMode, file: File): Promise<void> {
+    if (this.disposed) return
+    this.stop()
+    const generation = this.generation
+    this.update({ source: "video", sourceName: file.name })
+    try {
+      const url = (this.env.createObjectURL ?? URL.createObjectURL)(file)
+      this.objectUrl = url
+      const current = () => !this.disposed && this.objectUrl === url
+      this.resumeReplay = true
+      const listen = (name: string, listener: () => void) => {
+        this.video.addEventListener(name, listener)
+        return () => this.video.removeEventListener(name, listener)
+      }
+      const restart = () => {
+        if (!current() || this.worker) return
+        try {
+          this.mediaReady = this.video.readyState >= 2
+          this.startWorker(mode, this.generation)
+        } catch (error) {
+          this.fail(cameraError(error))
+        }
+      }
+      let ignoredPauses = 0
+      const pausePlayback = () => {
+        if (!this.video.paused) ignoredPauses++
+        this.video.pause()
+      }
+      const reset = () => {
+        if (!current()) return
+        this.resumeReplay ||= !this.video.paused
+        pausePlayback()
+        this.generation++
+        this.clearTracking()
+        this.update({ observation: null, fps: 0, status: "loading" })
+        if (!this.video.seeking) restart()
+      }
+      this.resetReplay = reset
+      const removers = [
+        listen("seeking", reset),
+        listen("seeked", restart),
+        listen("play", () => {
+          if (!current() || this.video.paused || this.video.seeking) return
+          if (!this.modelReady) this.resumeReplay = true
+          restart()
+        }),
+        listen("pause", () => {
+          if (!current()) return
+          if (ignoredPauses) ignoredPauses--
+          else if (this.video.paused) this.resumeReplay = false
+        }),
+        listen("ended", () => {
+          if (!current()) return
+          this.generation++
+          this.clearTracking()
+          this.update({ observation: null, fps: 0 })
+        }),
+        listen("error", () => {
+          if (current())
+            this.fail(
+              "This video could not be played. Choose a supported local video file."
+            )
+        }),
+      ]
+      this.removeMediaEvents = () => removers.forEach((remove) => remove())
+      this.startWorker(mode, generation)
+      this.video.src = url
+      await this.video.play()
+      if (!current() || generation !== this.generation) return
+      pausePlayback()
+      this.mediaReady = this.video.readyState >= 2
+      this.activate(this.generation)
+    } catch (error) {
+      if (generation === this.generation) this.fail(cameraError(error))
+    }
+  }
   private activate(generation: number): void {
-    if (!this.cameraReady || !this.modelReady || this.state.status === "ready")
+    if (!this.mediaReady || !this.modelReady || this.state.status === "ready")
       return
     if (this.initTimer) clearTimeout(this.initTimer)
     this.initTimer = null
     this.update({ status: "ready" })
+    if (this.resumeReplay) {
+      this.resumeReplay = false
+      void this.video.play().catch((error) => {
+        if (generation === this.generation) this.fail(cameraError(error))
+      })
+    }
     const tick = () => {
       if (generation !== this.generation) return
       if (
@@ -344,6 +475,8 @@ export class RemoteSession {
         this.update({ observation: null })
       if (
         !this.busy &&
+        !this.video.seeking &&
+        !this.video.ended &&
         this.video.readyState >= 2 &&
         this.video.videoWidth > 0 &&
         this.video.currentTime !== this.lastVideoTime
@@ -353,12 +486,18 @@ export class RemoteSession {
       }
       this.frameId = this.env.requestFrame(tick)
     }
-    this.frameId = this.env.requestFrame(tick)
+    // A paused seek already presents its selected frame; no future video callback is guaranteed.
+    if (this.state.source === "video" && this.video.paused) tick()
+    else this.frameId = this.env.requestFrame(tick)
   }
   private async sendFrame(generation: number): Promise<void> {
     this.busy = true
     try {
       const timestamp = performance.now()
+      const mediaTimestamp =
+        this.state.source === "video"
+          ? this.video.currentTime * 1000
+          : undefined
       const frame = await this.env.capture(this.video)
       if (generation !== this.generation || !this.worker) {
         frame.close()
@@ -366,7 +505,13 @@ export class RemoteSession {
       }
       try {
         this.worker.postMessage(
-          { type: "frame", frame, timestamp, settings: this.settings },
+          {
+            type: "frame",
+            frame,
+            timestamp,
+            mediaTimestamp,
+            settings: this.settings,
+          },
           [frame]
         )
       } catch (error) {
@@ -375,7 +520,7 @@ export class RemoteSession {
       }
       this.frameTimer = setTimeout(() => {
         if (generation === this.generation)
-          this.fail("Tracking stopped responding. Restart the camera.")
+          this.fail("Tracking stopped responding. Restart tracking.")
       }, 10000)
     } catch (error) {
       if (generation === this.generation) this.fail(cameraError(error))

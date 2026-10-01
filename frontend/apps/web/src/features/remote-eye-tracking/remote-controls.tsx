@@ -1,5 +1,5 @@
-import type { ComponentProps, ReactNode } from "react"
-import { Info, type LucideIcon } from "lucide-react"
+import { useRef, type ComponentProps, type ReactNode } from "react"
+import { FileVideo, Info, type LucideIcon } from "lucide-react"
 
 export function Hint({
   label,
@@ -48,6 +48,35 @@ export function IconButton({
     </button>
   )
 }
+/** The file remains a browser-local source; it is never uploaded. */
+export function LocalVideoButton({
+  onSelect,
+}: {
+  onSelect: (file: File) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept="video/*,.mp4,.mov,.m4v,.webm,.ogv"
+        aria-label="Choose a local video"
+        hidden
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0]
+          event.currentTarget.value = ""
+          if (file) onSelect(file)
+        }}
+      />
+      <IconButton
+        label="Inspect a local video"
+        icon={FileVideo}
+        onClick={() => input.current?.click()}
+      />
+    </>
+  )
+}
 /** Tap-to-open help remains available on touch screens where hover is unavailable. */
 export function SetupHelp({ preparation }: { preparation?: string }) {
   return (
@@ -79,6 +108,11 @@ export function SetupHelp({ preparation }: { preparation?: string }) {
           validate accuracy for your setup. IR eye regions and thresholds are
           automatic. Close-up reflection tracking needs a clear corneal
           reflection.
+        </p>
+        <p>
+          Open a local video to inspect pupils and head pose. Playback and
+          seeking stay on this device. Recorded frames cannot calibrate screen
+          gaze.
         </p>
         <p>Research trial. Commercial model rights need verification.</p>
         <div className="remote-help-links">

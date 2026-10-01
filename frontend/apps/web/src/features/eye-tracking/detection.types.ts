@@ -12,6 +12,11 @@ export type CvOwnedObject = {
 export type PupilDetectionOptions = {
   thresholdMode?: "auto" | "manual"
   expectedCenter?: Point
+  /** Hard anatomical bounds apply before candidate ranking and to temporal recovery. */
+  maxRadius?: number
+  centerRadius?: number
+  /** Current visible eye opening; exclude lids, canthi and skin candidates. */
+  centerRegion?: Point[]
   previous?: Ellipse | null
   previousAgeMs?: number
   previousShapeAgeMs?: number

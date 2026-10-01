@@ -12,6 +12,8 @@ export type IrEyeOptions = {
   expectedCenter?: Point
   /** Separate center travel from the maximum pupil size. */
   centerRadius?: number
+  /** Visible opening from the current face landmarks, in crop coordinates. */
+  centerRegion?: Point[]
 }
 
 export type IrTrackingState = {
@@ -32,7 +34,7 @@ export type IrEyeDetection = {
   reason: string | null
   reference: IrReference | null
 }
-type Glint = { center: Point; quality: number }
+type Glint = { center: Point; quality: number; radius: number }
 type IrPupilCandidate = {
   pupil: Ellipse
   intensity: number
@@ -40,6 +42,40 @@ type IrPupilCandidate = {
   detection: Detection
 }
 const referenceLifetimeMs = 250
+
+/** Median raw pupil interior keeps enhancement from changing glint/saturation identity. */
+function interiorIntensity(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  pupil: Ellipse
+): number {
+  const values: number[] = [],
+    c = Math.cos(pupil.angle),
+    s = Math.sin(pupil.angle)
+  const radius = Math.ceil(pupil.major)
+  for (
+    let y = Math.max(0, Math.floor(pupil.center[1] - radius));
+    y < Math.min(height, pupil.center[1] + radius);
+    y++
+  )
+    for (
+      let x = Math.max(0, Math.floor(pupil.center[0] - radius));
+      x < Math.min(width, pupil.center[0] + radius);
+      x++
+    ) {
+      const dx = x - pupil.center[0],
+        dy = y - pupil.center[1]
+      if (
+        ((c * dx + s * dy) / pupil.major) ** 2 +
+          ((-s * dx + c * dy) / pupil.minor) ** 2 <
+        0.64
+      )
+        values.push(gray[y * width + x])
+    }
+  values.sort((a, b) => a - b)
+  return values[Math.floor(values.length / 2)] ?? 255
+}
 
 function compactGlints(
   gray: Uint8Array,
@@ -147,6 +183,7 @@ function compactGlints(
       if (contrast < 35) continue
       candidates.push({
         center,
+        radius: Math.max(boxWidth, boxHeight) / 2,
         quality: Math.min(1, contrast / 90) * Math.min(1, fill / 0.65),
       })
     }
@@ -211,9 +248,10 @@ function isNestedPupil(
   if (
     smaller.bright &&
     compactGlints(gray, width, height, outer, larger.intensity, 60).some(
-      ({ center }) =>
+      ({ center, radius }) =>
+        inner.major <= radius * 1.6 &&
         Math.hypot(center[0] - inner.center[0], center[1] - inner.center[1]) <=
-        Math.max(2, inner.minor * 0.5)
+          Math.max(2, inner.minor * 0.5)
     )
   )
     return false
@@ -246,6 +284,84 @@ function isNestedPupil(
   return true
 }
 
+function removeUnsupportedBrightPupils(
+  cv: CV,
+  candidates: IrPupilCandidate[],
+  gray: Uint8Array,
+  originalGray: Uint8Array,
+  width: number,
+  height: number,
+  options: IrEyeOptions
+): void {
+  // Bright sclera and lid reflections also have a reversed contrast boundary.
+  // A fresh full-face bright pupil must sit in an independently measured dark iris.
+  // Uniform dark surroundings also permit a bright pupil whose iris rim lies outside the crop.
+  let outer: IrPupilCandidate | null | undefined
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const candidate = candidates[i]
+    if (!candidate.bright || candidate.detection.shapeObserved === false)
+      continue
+    const surroundings: number[] = []
+    const pupil = candidate.pupil,
+      c = Math.cos(pupil.angle),
+      s = Math.sin(pupil.angle)
+    for (let y = 0; y < height; y += 2)
+      for (let x = 0; x < width; x += 2) {
+        const dx = x - pupil.center[0],
+          dy = y - pupil.center[1]
+        if (
+          ((c * dx + s * dy) / pupil.major) ** 2 +
+            ((-s * dx + c * dy) / pupil.minor) ** 2 >
+          4
+        )
+          surroundings.push(originalGray[y * width + x])
+      }
+    surroundings.sort((a, b) => a - b)
+    const median = surroundings[Math.floor(surroundings.length / 2)] ?? 255
+    const spread =
+      (surroundings[Math.floor(surroundings.length * 0.8)] ?? 255) -
+      (surroundings[Math.floor(surroundings.length * 0.2)] ?? 0)
+    if (
+      surroundings.length >= 32 &&
+      median < 100 &&
+      spread <= 12 &&
+      candidate.intensity - median >= 20
+    )
+      continue
+    if (outer === undefined) {
+      const fit = detectSpatialPupil(cv, gray, width, height, 0, {
+        thresholdMode: "auto",
+        expectedCenter: options.expectedCenter,
+        centerRadius: options.centerRadius,
+        centerRegion: options.centerRegion,
+        maxRadius:
+          options.maxRadius === undefined ? undefined : options.maxRadius * 2,
+        includePreviewMasks: false,
+      })
+      outer =
+        fit.ellipse && fit.ellipse.confidence >= 0.82
+          ? {
+              pupil: fit.ellipse,
+              intensity: interiorIntensity(
+                originalGray,
+                width,
+                height,
+                fit.ellipse
+              ),
+              bright: false,
+              detection: fit,
+            }
+          : null
+    }
+    if (
+      !outer ||
+      candidate.intensity - outer.intensity < 20 ||
+      !isNestedPupil(candidate, outer, originalGray, width, height)
+    )
+      candidates.splice(i, 1)
+  }
+}
+
 /** Fresh pupil and corneal-reflection evidence is required for a PCCR reference.
  * Zero threshold selects auto; manual dark cutoffs are maxima on original pixels,
  * while manual bright cutoffs are minima on original pixels.
@@ -259,7 +375,8 @@ export function detectIrEye(
   timestamp: number,
   previous: IrReference | null = null,
   options: IrEyeOptions = {},
-  tracking?: IrTrackingState
+  tracking?: IrTrackingState,
+  originalGray: Uint8Array = gray
 ): IrEyeDetection {
   const reject = (
     reason: string,
@@ -277,6 +394,7 @@ export function detectIrEye(
     width < 24 ||
     height < 24 ||
     gray.length !== width * height ||
+    originalGray.length !== gray.length ||
     !Number.isFinite(timestamp)
   )
     return reject("Select a larger valid eye region")
@@ -322,6 +440,9 @@ export function detectIrEye(
     const detectionOptions = {
       thresholdMode: cutoff === 0 ? ("auto" as const) : ("manual" as const),
       expectedCenter,
+      maxRadius: options.maxRadius,
+      centerRadius,
+      centerRegion: options.centerRegion,
       includePreviewMasks: false,
     }
     const detection = samePolarity
@@ -364,12 +485,26 @@ export function detectIrEye(
         ? tracking.pupils.intensity
         : undefined) ??
       pixels[centerIndex]
-    const originalIntensity = bright ? 255 - intensity : intensity
+    const measuredIntensity = bright ? 255 - intensity : intensity
+    const originalIntensity =
+      originalGray === gray
+        ? measuredIntensity
+        : interiorIntensity(originalGray, width, height, pupil)
     // A near-saturated interior can be a specular highlight with an elliptical
     // outline. It cannot independently establish a reliable bright pupil.
     if (bright && originalIntensity >= 245) continue
     candidates.push({ pupil, intensity: originalIntensity, bright, detection })
   }
+  if (options.centerRegion && (options.polarity ?? "auto") === "auto")
+    removeUnsupportedBrightPupils(
+      cv,
+      candidates,
+      gray,
+      originalGray,
+      width,
+      height,
+      { ...options, centerRadius }
+    )
   // A strong iris rim can outrank a smaller bright pupil in the dark branch.
   // Resolve nested opposite-polarity evidence before temporal preference.
   const observed =
@@ -377,7 +512,7 @@ export function detectIrEye(
       candidates.some(
         (other) =>
           candidate !== other &&
-          isNestedPupil(candidate, other, gray, width, height)
+          isNestedPupil(candidate, other, originalGray, width, height)
       )
     ) ?? candidates[0]
   if (!observed) {
@@ -413,7 +548,14 @@ export function detectIrEye(
     tracking.polarity = polarity
   }
   const glint = associateGlint(
-    compactGlints(gray, width, height, pupil, pupilIntensity, bright ? 35 : 60),
+    compactGlints(
+      originalGray,
+      width,
+      height,
+      pupil,
+      pupilIntensity,
+      bright ? 35 : 60
+    ),
     pupil,
     recent
   )

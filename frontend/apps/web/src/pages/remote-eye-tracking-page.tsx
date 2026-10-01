@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Focus,
+  FileVideo,
   Gauge,
   Layers3,
   LockKeyhole,
@@ -35,6 +36,7 @@ import {
 import {
   Hint,
   IconButton,
+  LocalVideoButton,
   SetupHelp,
 } from "@/features/remote-eye-tracking/remote-controls"
 import { RemoteCalibrationOverlay } from "@/features/remote-eye-tracking/calibration-overlay"
@@ -169,6 +171,7 @@ export function RemoteEyeTrackingPage() {
     videoRef,
     latest,
     start: startTracker,
+    startVideo,
     stop: stopTracker,
     requestCameraAccess,
     refreshDevices,
@@ -177,6 +180,7 @@ export function RemoteEyeTrackingPage() {
     setStep(1)
   })
   const selected = MODES.find((item) => item.id === mode)
+  const replaying = tracker.source === "video"
   const ready = tracker.status === "ready"
   const observation = tracker.observation
   const valid =
@@ -184,7 +188,7 @@ export function RemoteEyeTrackingPage() {
     !!observation?.feature &&
     !observation.reason &&
     observation.quality >= 0.45
-  const activeCalibration = ready ? calibration : null
+  const activeCalibration = ready && !replaying ? calibration : null
   const supported =
     !activeCalibration ||
     poseSupported(activeCalibration, observation?.pose ?? null)
@@ -197,8 +201,11 @@ export function RemoteEyeTrackingPage() {
     const invalidate = () => {
       if (!mode) return
       clearCalibration()
-      setStep(ready ? 3 : 1)
-      setNotice(ready ? "Screen changed. Calibrate again." : "")
+      let nextStep = 1
+      if (replaying) nextStep = 2
+      else if (ready) nextStep = 3
+      setStep(nextStep)
+      setNotice(ready && !replaying ? "Screen changed. Calibrate again." : "")
     }
     const hidden = () => {
       if (document.hidden && mode) {
@@ -212,7 +219,7 @@ export function RemoteEyeTrackingPage() {
       window.removeEventListener("resize", invalidate)
       document.removeEventListener("visibilitychange", hidden)
     }
-  }, [ready, mode])
+  }, [ready, mode, replaying])
   function choose(next: RemoteMode) {
     stopTracker()
     clearCalibration()
@@ -229,6 +236,14 @@ export function RemoteEyeTrackingPage() {
     setNotice("")
     void startTracker(mode, deviceId || undefined)
   }
+  function inspectVideo(file: File) {
+    if (!mode) return
+    clearCalibration()
+    setSelecting(false)
+    setNotice("")
+    void startVideo(mode, file)
+    setStep(2)
+  }
   function stop() {
     stopTracker()
     clearCalibration()
@@ -240,6 +255,7 @@ export function RemoteEyeTrackingPage() {
   ) {
     setCapture(null)
     setShowGaze(false)
+    if (replaying) return
     if (capture === "calibrate" && mode) {
       const fitted = fitRemoteCalibration(mode, collected)
       if (!fitted) {
@@ -314,7 +330,8 @@ export function RemoteEyeTrackingPage() {
   let StartIcon = ready ? RefreshCcw : Play
   if (tracker.status === "loading") StartIcon = LoaderCircle
   const signalLabel =
-    observationStatus(observation?.reason) ?? "Waiting for camera"
+    observationStatus(observation?.reason) ??
+    (replaying ? "Waiting for a video frame" : "Waiting for camera")
   const referenceTracking =
     mode === "ir" &&
     (observation?.pose?.kind === "eye-reference" ||
@@ -324,9 +341,14 @@ export function RemoteEyeTrackingPage() {
   let DiscoveryIcon = LockKeyhole
   if (tracker.cameraAccess === "granted") DiscoveryIcon = RefreshCcw
   if (tracker.cameraAccess === "requesting") DiscoveryIcon = LoaderCircle
-  const headLabel = referenceTracking
-    ? "Eye reference tracking"
-    : "Live head tracking"
+  let headLabel = replaying ? "Recorded head tracking" : "Live head tracking"
+  if (referenceTracking) headLabel = "Eye reference tracking"
+  let positionHelp = "Keep both eyes visible. Move your head gently."
+  if (mode === "ir")
+    positionHelp = "Keep your face visible. Eye regions are automatic."
+  if (replaying)
+    positionHelp =
+      "Inspect pupils and head pose. Use the video controls to play, pause, or seek."
   return (
     <main className="eye-app remote-app">
       <header className="eye-header">
@@ -359,7 +381,7 @@ export function RemoteEyeTrackingPage() {
             <h1>Remote eye tracking</h1>
           </div>
           <ol className="remote-steps" aria-label="Setup progress">
-            {STEPS.map((item, index) => (
+            {(replaying ? STEPS.slice(0, 3) : STEPS).map((item, index) => (
               <li
                 key={item.label}
                 aria-current={step === index ? "step" : undefined}
@@ -400,23 +422,35 @@ export function RemoteEyeTrackingPage() {
               <selected.icon size={18} />
               {selected.short}
             </span>
-            <IconButton
-              label="Change setup"
-              icon={SwitchCamera}
-              onClick={() => {
-                stopTracker()
-                clearCalibration()
-                setStep(0)
-                setMode(null)
-              }}
-            />
+            <div className="remote-actions">
+              <LocalVideoButton onSelect={inspectVideo} />
+              {replaying && (
+                <IconButton label="Stop video" icon={Square} onClick={stop} />
+              )}
+              <IconButton
+                label="Change setup"
+                icon={SwitchCamera}
+                onClick={() => {
+                  stopTracker()
+                  clearCalibration()
+                  setStep(0)
+                  setMode(null)
+                }}
+              />
+            </div>
           </div>
         )}
         <div className="remote-workspace" hidden={step === 0}>
           <section className="remote-camera-panel" aria-label="Camera preview">
             <div className="remote-panel-title">
-              <Hint label="Camera preview">
-                <Camera size={16} />
+              <Hint
+                label={
+                  replaying
+                    ? `Local video: ${tracker.sourceName}`
+                    : "Camera preview"
+                }
+              >
+                {replaying ? <FileVideo size={16} /> : <Camera size={16} />}
               </Hint>
               <span className="remote-camera-status">
                 <span className={`status-light ${ready ? "on" : ""}`} />
@@ -424,7 +458,7 @@ export function RemoteEyeTrackingPage() {
               </span>
             </div>
             <div
-              className={`remote-preview ${mode === "ir" ? "" : "mirrored"} ${selecting ? "selecting" : ""}`}
+              className={`remote-preview ${mode === "ir" || replaying ? "" : "mirrored"} ${selecting ? "selecting" : ""}`}
               style={{
                 aspectRatio: observation
                   ? `${observation.width}/${observation.height}`
@@ -457,7 +491,10 @@ export function RemoteEyeTrackingPage() {
                 ref={videoRef}
                 playsInline
                 muted
-                aria-label="Local camera feed"
+                controls={replaying}
+                aria-label={
+                  replaying ? "Local video recording" : "Local camera feed"
+                }
               />
               {observation && (
                 <svg
@@ -524,7 +561,10 @@ export function RemoteEyeTrackingPage() {
                 </svg>
               )}
               {tracker.status !== "ready" && (
-                <div className="remote-preview-placeholder">
+                <div
+                  className="remote-preview-placeholder"
+                  style={replaying ? { pointerEvents: "none" } : undefined}
+                >
                   {tracker.status === "loading" ? (
                     <LoaderCircle size={30} className="remote-spin" />
                   ) : (
@@ -675,12 +715,8 @@ export function RemoteEyeTrackingPage() {
             )}
             {step === 2 && (
               <>
-                <h2>Position</h2>
-                <p>
-                  {mode === "ir"
-                    ? "Keep your face visible. Eye regions are automatic."
-                    : "Keep both eyes visible. Move your head gently."}
-                </p>
+                <h2>{replaying ? "Recording" : "Position"}</h2>
+                <p>{positionHelp}</p>
                 {mode === "ir" && (
                   <div className="remote-ir-controls">
                     <div className="remote-actions">
@@ -748,9 +784,17 @@ export function RemoteEyeTrackingPage() {
                   label="Continue to calibration"
                   icon={ArrowRight}
                   primary
-                  disabled={!valid}
-                  onClick={() => setStep(3)}
+                  disabled={!valid || replaying}
+                  onClick={() => {
+                    if (!replaying) setStep(3)
+                  }}
                 />
+                {replaying && (
+                  <p className="remote-muted">
+                    Recorded frames have no screen targets, so screen
+                    calibration is unavailable.
+                  </p>
+                )}
               </>
             )}
             {step === 3 && (
@@ -941,7 +985,7 @@ export function RemoteEyeTrackingPage() {
           </section>
         </div>
       </div>
-      {capture && ready && (
+      {capture && ready && !replaying && (
         <RemoteCalibrationOverlay
           latest={latest}
           extended={extended}
