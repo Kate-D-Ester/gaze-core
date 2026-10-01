@@ -170,3 +170,44 @@ production build passed. A Chromium browser check initialized the actual IR work
 and local face model, rejected a blank frame, and processed synthetic pupil/glint
 pixels using automatic thresholding. The real IR camera check remained pending
 browser camera permission; no physical-camera gaze accuracy is claimed.
+
+
+## Continuous IR pupil tracking correction (2026-10-01)
+
+IR now uses the same stateful pupil pipeline as `/trials`, extracted into one
+shared `PupilTracker` used by the normal engine and each IR eye. Full-face IR keeps
+two independent tracks; close-up history no longer disappears with a missing
+glint. Initial acquisition validates a full pupil, while subsequent frames can
+measure current visible rim arcs with the previously observed shape. The detector
+refreshes shape periodically, confirms unsupported relocations, and performs
+bounded reacquisition. Missing pixels still clear the current result immediately;
+history seeds new measurements rather than supplying stale gaze.
+
+Current eye-corner geometry remaps the IR history through crop translation,
+head scale and roll. Pupil size bounds are separate from allowed eye travel.
+The IR face localizer permits partially open eyes and leaves actual pupil
+acceptance to source-resolution pixels; fully closed geometry still clears input.
+The RGB/mobile blink rules are unchanged.
+
+Bright-pupil tracking retains accepted full-rim brightness and a glare ceiling
+while an eyelid hides the pupil center. This prevents a visible lower cap or a
+saturated lid from becoming a smaller displaced full pupil. A newly visible,
+independently supported full rim refreshes exposure, including simultaneous pupil
+motion. A bounded exposure recovery profile must preserve both axes; a strong
+photometric score alone cannot overwrite a partial track. The close-up PCCR
+requirement for a fresh reflection remains in place.
+
+Regression coverage includes moving dark/bright pupils without glints, binocular
+partial occlusion, bright pupils inside a separately dark iris and lid, head
+scale/roll, blink and history expiry, polarity reversal, and combined exposure
+and eye movement. Real OpenCV runs on synthetic pixels; these checks are separate
+from physical-camera calibration accuracy.
+
+The production IR module worker also passed a Chromium check of **80 synthetic
+frames**, covering moving pupils, partial eyelids, missing glints, blink clearing,
+bright-pupil cap rejection and immediate exposure recovery. No live IR camera
+recording or human gaze-accuracy measurement was available during this correction.
+
+Final verification: **261 Bun tests passed across 26 files**, with 0 failures.
+Full frontend lint, TypeScript/production build and whitespace checks passed.
+The local tracker route returned HTTP 200 on port 4003.

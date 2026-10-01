@@ -238,3 +238,183 @@ test("IR face localization does not require the RGB model's iris estimate", asyn
     processor.dispose()
   }
 })
+
+function movingEye(
+  cx: number,
+  cy: number,
+  occluded = false,
+  bright = false,
+  lidIntensity = 12
+): ImageBitmap {
+  const width = 320,
+    height = 240
+  const pixels = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      let value = ((x - cx) / 30) ** 2 + ((y - cy) / 20) ** 2 <= 1 ? 126 : 170
+      if (occluded && y < cy + 1) value = lidIntensity
+      if (bright) value = 255 - value
+      const index = (y * width + x) * 4
+      pixels[index] = pixels[index + 1] = pixels[index + 2] = value
+      pixels[index + 3] = 255
+    }
+  return { width, height, pixels } as Pixels
+}
+
+test.each([false, true])(
+  "IR keeps measuring an occluded moving pupil without glints (bright=%s)",
+  async (bright) => {
+    const processor = await createIrProcessor({ faceLocator: null })
+    try {
+      for (let i = 0; i < 4; i++) {
+        const result = await processor.process(
+          movingEye(160, 120, false, bright),
+          i * 40,
+          automaticSettings
+        )
+        expect(result.eyes).toHaveLength(1)
+      }
+      for (let i = 4; i < 24; i++) {
+        const cx = 160 + Math.round(8 * Math.sin(i / 8))
+        const cy = 120 + Math.round(4 * Math.cos(i / 8))
+        const result = await processor.process(
+          movingEye(cx, cy, true, bright),
+          i * 40,
+          automaticSettings
+        )
+        expect(result.eyes).toHaveLength(1)
+        expect(Math.abs(result.eyes[0].center[0] - cx)).toBeLessThan(2)
+        expect(Math.abs(result.eyes[0].center[1] - cy)).toBeLessThan(2)
+        expect(result.eyes[0].radius).toBeGreaterThan(27)
+        expect(result.feature).toBeNull()
+      }
+      const blank = movingEye(160, 120) as Pixels
+      blank.pixels.fill(170)
+      const lost = await processor.process(blank, 1000, automaticSettings)
+      expect(lost.eyes).toHaveLength(0)
+      expect(lost.feature).toBeNull()
+      const recovered = await processor.process(
+        movingEye(164, 121, false, bright),
+        1040,
+        automaticSettings
+      )
+      expect(recovered.eyes).toHaveLength(1)
+      expect(Math.abs(recovered.eyes[0].center[0] - 164)).toBeLessThan(2)
+    } finally {
+      processor.dispose()
+    }
+  }
+)
+
+function partialFaceFrame(dx = 0, dy = 0, occluded = false): ImageBitmap {
+  const width = 1920,
+    height = 1440
+  const pixels = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      let value = 170
+      for (const cx of [749 + dx, 1171 + dx]) {
+        if (((x - cx) / 15) ** 2 + ((y - 605 - dy) / 11) ** 2 <= 1) value = 126
+        if (occluded && Math.abs(x - cx) < 55 && y > 570 + dy && y < 606 + dy)
+          value = 12
+      }
+      const index = (y * width + x) * 4
+      pixels[index] = pixels[index + 1] = pixels[index + 2] = value
+      pixels[index + 3] = 255
+    }
+  return { width, height, pixels } as Pixels
+}
+
+test("full-face IR tracks both partially occluded pupils independently without reflections", async () => {
+  const processor = await createIrProcessor({ faceLocator: locator() })
+  try {
+    for (let i = 0; i < 4; i++) {
+      const result = await processor.process(
+        partialFaceFrame(),
+        i * 40,
+        automaticSettings
+      )
+      expect(result.feature).not.toBeNull()
+    }
+    for (let i = 4; i < 12; i++) {
+      const dx = Math.round(4 * Math.sin(i / 4)),
+        dy = Math.round(2 * Math.cos(i / 4))
+      const result = await processor.process(
+        partialFaceFrame(dx, dy, true),
+        i * 40,
+        automaticSettings
+      )
+      expect(result.feature).not.toBeNull()
+      expect(result.eyes).toHaveLength(2)
+      expect(Math.abs(result.eyes[0].center[0] - 749 - dx)).toBeLessThan(2)
+      expect(Math.abs(result.eyes[1].center[0] - 1171 - dx)).toBeLessThan(2)
+      expect(result.glints).toEqual([])
+    }
+  } finally {
+    processor.dispose()
+  }
+})
+
+test("a saturated eyelid does not erase the fresh tracked bright-pupil arcs", async () => {
+  const processor = await createIrProcessor({ faceLocator: null })
+  try {
+    for (let i = 0; i < 4; i++)
+      await processor.process(
+        movingEye(160, 120, false, true),
+        i * 40,
+        automaticSettings
+      )
+    const result = await processor.process(
+      movingEye(160, 120, true, true, 0),
+      160,
+      automaticSettings
+    )
+    expect(result.eyes).toHaveLength(1)
+    expect(Math.abs(result.eyes[0].center[0] - 160)).toBeLessThan(2)
+    expect(Math.abs(result.eyes[0].center[1] - 120)).toBeLessThan(2)
+  } finally {
+    processor.dispose()
+  }
+})
+
+test("IR measures pupils in a partially open eye despite the RGB blink classifier", async () => {
+  const result = face()
+  for (const index of [158, 160, 385, 387])
+    result.faceLandmarks[0][index].y = 0.426
+  for (const index of [144, 153, 373, 380])
+    result.faceLandmarks[0][index].y = 0.414
+  result.faceBlendshapes = [
+    { categories: [{ categoryName: "eyeBlinkLeft", score: 0.7 }] },
+  ]
+  const processor = await createIrProcessor({ faceLocator: locator(result) })
+  try {
+    const observation = await processor.process(
+      fullFaceFrame(),
+      100,
+      automaticSettings
+    )
+    expect(observation.feature).not.toBeNull()
+    expect(observation.eyes).toHaveLength(2)
+    expect(observation.pose?.kind).toBe("face")
+  } finally {
+    processor.dispose()
+  }
+})
+
+test("an actually closed IR eye still clears pupil features", async () => {
+  const result = face()
+  for (const index of [158, 160, 144, 153, 385, 387, 373, 380])
+    result.faceLandmarks[0][index].y = 0.42
+  const processor = await createIrProcessor({ faceLocator: locator(result) })
+  try {
+    const observation = await processor.process(
+      fullFaceFrame(),
+      100,
+      automaticSettings
+    )
+    expect(observation.feature).toBeNull()
+    expect(observation.eyes).toHaveLength(0)
+  } finally {
+    processor.dispose()
+  }
+})

@@ -1,6 +1,7 @@
 import { detectSpatialPupil } from "../eye-tracking/detection"
 import type { CV } from "../eye-tracking/opencv.types"
-import type { Ellipse } from "../eye-tracking/eye-tracking.types"
+import type { PupilTracker } from "../eye-tracking/pupil-tracker"
+import type { Detection, Ellipse } from "../eye-tracking/eye-tracking.types"
 import type { HeadPose, Point } from "./types"
 
 export type IrEyeOptions = {
@@ -9,6 +10,13 @@ export type IrEyeOptions = {
   maxRadius?: number
   /** Restrict pupil centers to a maxRadius neighborhood (or one quarter crop diagonal). */
   expectedCenter?: Point
+  /** Separate center travel from the maximum pupil size. */
+  centerRadius?: number
+}
+
+export type IrTrackingState = {
+  pupils: PupilTracker
+  polarity?: "dark" | "bright"
 }
 
 export type IrReference = {
@@ -25,7 +33,12 @@ export type IrEyeDetection = {
   reference: IrReference | null
 }
 type Glint = { center: Point; quality: number }
-type IrPupilCandidate = { pupil: Ellipse; intensity: number; bright: boolean }
+type IrPupilCandidate = {
+  pupil: Ellipse
+  intensity: number
+  bright: boolean
+  detection: Detection
+}
 const referenceLifetimeMs = 250
 
 function compactGlints(
@@ -245,7 +258,8 @@ export function detectIrEye(
   threshold: number,
   timestamp: number,
   previous: IrReference | null = null,
-  options: IrEyeOptions = {}
+  options: IrEyeOptions = {},
+  tracking?: IrTrackingState
 ): IrEyeDetection {
   const reject = (
     reason: string,
@@ -284,11 +298,13 @@ export function detectIrEye(
         expectedCenter[1] >= height))
   )
     return reject("Invalid pupil bounds")
-  const centerRadius = Number.isFinite(maxRadius)
-    ? maxRadius
-    : Math.hypot(width, height) * 0.25
+  const centerRadius =
+    options.centerRadius ??
+    (Number.isFinite(maxRadius) ? maxRadius : Math.hypot(width, height) * 0.25)
+  if (!(centerRadius > 0) || !Number.isFinite(centerRadius))
+    return reject("Invalid pupil bounds")
   const preferredPolarities =
-    recent?.polarity === "bright"
+    (tracking?.polarity ?? recent?.polarity) === "bright"
       ? (["bright", "dark"] as const)
       : (["dark", "bright"] as const)
   const polarities =
@@ -302,29 +318,37 @@ export function detectIrEye(
     // ellipse, interior, and fresh-shape validation (PuRe section 3.4).
     const pixels = bright ? gray.map((value) => 255 - value) : gray
     const pupilCutoff = bright && cutoff !== 0 ? 255 - cutoff : cutoff
-    const detection = detectSpatialPupil(
-      cv,
-      pixels,
-      width,
-      height,
-      pupilCutoff,
-      {
-        thresholdMode: cutoff === 0 ? "auto" : "manual",
-        previous:
-          (recent?.polarity ?? "dark") === polarity ? recent?.pupil : undefined,
-        previousAgeMs: age,
-        expectedCenter,
-        includePreviewMasks: false,
-        refreshShape: true,
-      }
-    )
+    const samePolarity = tracking && tracking.polarity === polarity
+    const detectionOptions = {
+      thresholdMode: cutoff === 0 ? ("auto" as const) : ("manual" as const),
+      expectedCenter,
+      includePreviewMasks: false,
+    }
+    const detection = samePolarity
+      ? tracking.pupils.detect(
+          pixels,
+          width,
+          height,
+          pupilCutoff,
+          timestamp,
+          detectionOptions
+        )
+      : detectSpatialPupil(cv, pixels, width, height, pupilCutoff, {
+          ...detectionOptions,
+          previous:
+            !tracking && (recent?.polarity ?? "dark") === polarity
+              ? recent?.pupil
+              : undefined,
+          previousAgeMs: age,
+          refreshShape: true,
+        })
     const pupil = detection.ellipse
     if (
       !pupil ||
-      pupil.confidence < 0.82 ||
+      pupil.confidence < (samePolarity ? 0.72 : 0.82) ||
       pupil.minor / pupil.major < 0.35 ||
       pupil.major > maxRadius ||
-      detection.shapeObserved === false ||
+      (!samePolarity && detection.shapeObserved === false) ||
       (expectedCenter &&
         Math.hypot(
           pupil.center[0] - expectedCenter[0],
@@ -334,12 +358,17 @@ export function detectIrEye(
       continue
     const centerIndex =
       Math.round(pupil.center[1]) * width + Math.round(pupil.center[0])
-    const intensity = detection.pupilIntensity ?? pixels[centerIndex]
+    const intensity =
+      detection.pupilIntensity ??
+      (samePolarity && detection.shapeObserved === false
+        ? tracking.pupils.intensity
+        : undefined) ??
+      pixels[centerIndex]
     const originalIntensity = bright ? 255 - intensity : intensity
     // A near-saturated interior can be a specular highlight with an elliptical
     // outline. It cannot independently establish a reliable bright pupil.
     if (bright && originalIntensity >= 245) continue
-    candidates.push({ pupil, intensity: originalIntensity, bright })
+    candidates.push({ pupil, intensity: originalIntensity, bright, detection })
   }
   // A strong iris rim can outrank a smaller bright pupil in the dark branch.
   // Resolve nested opposite-polarity evidence before temporal preference.
@@ -351,8 +380,38 @@ export function detectIrEye(
           isNestedPupil(candidate, other, gray, width, height)
       )
     ) ?? candidates[0]
-  if (!observed) return reject("Pupil obscured or eye closed")
-  const { pupil, intensity: pupilIntensity, bright } = observed
+  if (!observed) {
+    tracking?.pupils.accept(
+      {
+        ellipse: null,
+        seed: null,
+        contour: [],
+        refined: [],
+        previews: [],
+        selected: -1,
+        reason: "Pupil not found",
+      },
+      timestamp,
+      width,
+      height
+    )
+    return reject("Pupil obscured or eye closed")
+  }
+  const { intensity: pupilIntensity, bright } = observed
+  let pupil = observed.pupil
+  if (tracking) {
+    const polarity = bright ? "bright" : "dark"
+    if (tracking.polarity !== polarity) tracking.pupils.reset()
+    const accepted = tracking.pupils.accept(
+      observed.detection,
+      timestamp,
+      width,
+      height
+    )
+    if (!accepted.ellipse) return reject(accepted.reason)
+    pupil = accepted.ellipse
+    tracking.polarity = polarity
+  }
   const glint = associateGlint(
     compactGlints(gray, width, height, pupil, pupilIntensity, bright ? 35 : 60),
     pupil,

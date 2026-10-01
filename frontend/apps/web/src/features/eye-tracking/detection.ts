@@ -698,12 +698,9 @@ function trackPupilRim(
     s = Math.sin(previous.angle),
     samples: PupilRimSample[] = [],
     profile = new Float64Array(band * 2 + 1),
-    reflectionLimit = pupilContrast(
-      gray,
-      width,
-      height,
-      previous
-    ).reflectionLimit,
+    reflectionLimit =
+      identity?.reflectionLimit ??
+      pupilContrast(gray, width, height, previous).reflectionLimit,
     rejectInteriorPeaks =
       reacquiring &&
       shapeReference &&
@@ -1448,13 +1445,90 @@ export function detectSpatialPupil(
   const partialPatch = partialReference
     ? darkestPatch(gray, width, height)
     : null
+  const partialAppearance = partialReference
+    ? pupilContrast(gray, width, height, partialReference)
+    : null
+  // Only an independently supported complete current rim may refresh exposure.
+  // A cap hidden beneath the lid must retain the last full-rim glare ceiling.
+  const currentFullAppearance = (() => {
+    if (
+      !partialReference ||
+      !partialAppearance ||
+      partialAppearance.contrast < 12 ||
+      partialAppearance.homogeneity < 0.6 ||
+      partialAppearance.coreCutoff !== null
+    )
+      return null
+    if (
+      boundaryEvidence(
+        gray,
+        width,
+        height,
+        partialReference,
+        partialAppearance.reflectionLimit
+      ).support >= 0.75
+    )
+      return partialAppearance
+    if (
+      partialAppearance.reflectionLimit <= (options.pupilReflectionLimit ?? 255)
+    )
+      return null
+    // Exposure and eye movement can occur together. Allow one bounded profile
+    // with current brightness, requiring a full rim that preserves both axes.
+    const refreshed = trackPupilRim(
+      cv,
+      gray,
+      width,
+      height,
+      partialReference,
+      options.trackingAnchor ?? partialReference,
+      false,
+      null,
+      {
+        minimumIntensity: Math.max(
+          0,
+          (partialAppearance.pupilIntensityLow ?? 0) - 8
+        ),
+        maximumIntensity: Math.min(
+          255,
+          (partialAppearance.pupilIntensity ?? 0) + 16
+        ),
+        reflectionLimit: partialAppearance.reflectionLimit,
+        reference: partialReference,
+      }
+    )
+    if (!refreshed || refreshed.shapeObserved === false) return null
+    const ellipse = refreshed.ellipse
+    if (
+      ellipse.major / partialReference.major < 0.9 ||
+      ellipse.major / partialReference.major > 1.15 ||
+      ellipse.minor / partialReference.minor < 0.9 ||
+      ellipse.minor / partialReference.minor > 1.15
+    )
+      return null
+    const appearance = pupilContrast(gray, width, height, ellipse)
+    return strongPupilEvidence(
+      ellipse,
+      appearance,
+      boundaryEvidence(gray, width, height, ellipse, appearance.reflectionLimit)
+    )
+      ? appearance
+      : null
+  })()
   const learnedIntensity =
     options.pupilIntensity !== undefined &&
     Number.isFinite(options.pupilIntensity)
       ? options.pupilIntensity
       : undefined
-  let lowerIntensity = learnedIntensity ?? partialPatch?.value ?? 0
+  const currentIntensity =
+    currentFullAppearance?.pupilIntensity ?? learnedIntensity
+  let lowerIntensity =
+    currentFullAppearance?.pupilIntensityLow ??
+    currentIntensity ??
+    partialPatch?.value ??
+    0
   if (
+    !currentFullAppearance &&
     options.pupilIntensityLow !== undefined &&
     Number.isFinite(options.pupilIntensityLow)
   )
@@ -1465,12 +1539,16 @@ export function detectSpatialPupil(
           minimumIntensity: Math.max(0, lowerIntensity - 8),
           maximumIntensity: Math.min(
             255,
-            learnedIntensity !== undefined
-              ? learnedIntensity + 16
+            currentIntensity !== undefined
+              ? currentIntensity + 16
               : partialPatch.value + 25
           ),
-          reflectionLimit: pupilContrast(gray, width, height, partialReference)
-            .reflectionLimit,
+          // A partially covered interior can no longer estimate iris brightness.
+          // Retain its accepted full-rim glare ceiling instead of admitting the lid.
+          reflectionLimit:
+            currentFullAppearance?.reflectionLimit ??
+            options.pupilReflectionLimit ??
+            partialAppearance!.reflectionLimit,
           reference: partialReference,
         }
       : null
@@ -1507,6 +1585,10 @@ export function detectSpatialPupil(
         tracked.shapeObserved !== false
           ? appearance.pupilIntensityLow
           : undefined,
+      pupilReflectionLimit:
+        tracked.shapeObserved !== false
+          ? appearance.reflectionLimit
+          : undefined,
       strongEvidence:
         tracked.shapeObserved !== false &&
         strongPupilEvidence(
@@ -1517,7 +1599,7 @@ export function detectSpatialPupil(
             width,
             height,
             tracked.ellipse,
-            appearance.reflectionLimit
+            identity?.reflectionLimit ?? appearance.reflectionLimit
           )
         ),
       ellipse: tracked.ellipse,
@@ -1699,7 +1781,7 @@ export function detectSpatialPupil(
         width,
         height,
         ellipse,
-        appearance.reflectionLimit
+        identity?.reflectionLimit ?? appearance.reflectionLimit
       )
       if (boundary.support < 0.55) return
       const contrast = Math.max(
@@ -2284,7 +2366,10 @@ export function detectSpatialPupil(
       recoverBestProposal()
     }
     const winner = currentBest()
-    if (identity && weakTracked?.shapeObserved === false) {
+    if (
+      weakTracked?.shapeObserved === false &&
+      (identity || options.trackingAnchorConfirmed)
+    ) {
       const appearance =
         winner && pupilContrast(gray, width, height, winner.ellipse)
       if (
@@ -2298,7 +2383,7 @@ export function detectSpatialPupil(
             width,
             height,
             winner.ellipse,
-            appearance.reflectionLimit
+            identity?.reflectionLimit ?? appearance.reflectionLimit
           )
         )
       )
@@ -2320,12 +2405,13 @@ export function detectSpatialPupil(
           width,
           height,
           winner.ellipse,
-          appearance.reflectionLimit
+          identity?.reflectionLimit ?? appearance.reflectionLimit
         )
       result.strongEvidence =
         !manual && strongPupilEvidence(winner.ellipse, appearance, boundary)
       result.pupilIntensity = appearance.pupilIntensity
       result.pupilIntensityLow = appearance.pupilIntensityLow
+      result.pupilReflectionLimit = appearance.reflectionLimit
       const preview = result.previews[winner.index]
       if (preview.method === "edges") {
         preview.threshold = pupilContrast(

@@ -1,6 +1,7 @@
 import { loadOpenCv } from "../eye-tracking/opencv"
 import { createLandmarker } from "./face-landmarker"
-import { buildIrFeatures, detectIrEye, type IrReference } from "./ir-features"
+import { buildIrFeatures } from "./ir-features"
+import { IrEyeTracker } from "./ir-eye-tracker"
 import {
   buildIrFaceFeatures,
   irEyeRegions,
@@ -76,8 +77,13 @@ export async function createIrProcessor(
     locator?.dispose()
     throw new Error("The IR worker could not create its image canvas")
   }
-  let previous: IrReference | null = null,
-    regionKey = "",
+  const closeup = new IrEyeTracker(cv)
+  const eyeTrackers = [new IrEyeTracker(cv), new IrEyeTracker(cv)]
+  const resetTracking = () => {
+    closeup.reset()
+    eyeTrackers.forEach((eye) => eye.reset())
+  }
+  let regionKey = "",
     disposed = false,
     lastTimestamp = -Infinity
   let pipeline: "face" | "closeup" | null = null
@@ -86,8 +92,8 @@ export async function createIrProcessor(
     roi: Rect,
     timestamp: number,
     threshold: number,
-    maxRadius?: number,
-    expectedCenter?: Point
+    tracker: IrEyeTracker,
+    eyeFrame?: { center: Point; span: number; angle: number }
   ) {
     const scale = Math.min(
       1,
@@ -114,23 +120,28 @@ export async function createIrProcessor(
       gray[i] = Math.round(
         0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]
       )
-    const detected = detectIrEye(
-      cv,
+    const eyeCoordinates = eyeFrame
+      ? {
+          origin: [
+            (eyeFrame.center[0] - roi.x) * scale,
+            (eyeFrame.center[1] - roi.y) * scale,
+          ] as Point,
+          scale: eyeFrame.span * scale,
+          angle: eyeFrame.angle,
+        }
+      : undefined
+    const detected = tracker.process(
       gray,
       width,
       height,
       threshold,
       timestamp,
-      maxRadius ? null : previous,
       {
-        maxRadius: maxRadius === undefined ? undefined : maxRadius * scale,
-        expectedCenter: expectedCenter
-          ? [
-              (expectedCenter[0] - roi.x) * scale,
-              (expectedCenter[1] - roi.y) * scale,
-            ]
-          : undefined,
-      }
+        maxRadius: eyeFrame ? eyeFrame.span * 0.22 * scale : undefined,
+        centerRadius: eyeFrame ? eyeFrame.span * 0.42 * scale : undefined,
+        expectedCenter: eyeCoordinates?.origin,
+      },
+      eyeCoordinates
     )
     const scaleX = roi.width / width,
       scaleY = roi.height / height
@@ -172,13 +183,13 @@ export async function createIrProcessor(
       })
       if (disposed) return empty("IR processor stopped")
       if (!roi || !Number.isFinite(timestamp) || timestamp <= lastTimestamp) {
-        previous = null
+        resetTracking()
         return empty("Waiting for a fresh valid IR frame")
       }
       lastTimestamp = timestamp
       const key = `${frame.width},${frame.height},${roi.x},${roi.y},${roi.width},${roi.height},${settings.threshold}`
       if (key !== regionKey) {
-        previous = null
+        resetTracking()
         pipeline = null
         regionKey = key
       }
@@ -189,7 +200,7 @@ export async function createIrProcessor(
             locator.detect(frame, timestamp),
             frame.width,
             frame.height,
-            { requireIris: false }
+            { requireIris: false, allowPartialEyes: true }
           )
           if (geometry.valid) {
             pipeline = "face"
@@ -205,8 +216,12 @@ export async function createIrProcessor(
                 region,
                 timestamp,
                 settings.threshold,
-                span * 0.22,
-                [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+                eyeTrackers[i],
+                {
+                  center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
+                  span,
+                  angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
+                }
               )
             })
             const pupils = observed.map((result) => result?.pupil ?? null)
@@ -255,7 +270,8 @@ export async function createIrProcessor(
           frame,
           roi,
           timestamp,
-          settings.threshold
+          settings.threshold,
+          closeup
         )
         if (
           automatic &&
@@ -269,9 +285,6 @@ export async function createIrProcessor(
           )
         }
         if (pupil && automatic) pipeline = "closeup"
-        if (detected.reference) previous = detected.reference
-        else if (previous && timestamp - previous.timestamp > 250)
-          previous = null
         const feedback = {
           eyes: pupil ? [{ center: pupil.center, radius: pupil.major }] : [],
           glints: glint ? [glint] : [],
@@ -303,7 +316,7 @@ export async function createIrProcessor(
           processingMs: performance.now() - started,
         }
       } catch {
-        previous = null
+        resetTracking()
         return empty(
           "IR frame processing failed; check the source and eye region"
         )
@@ -312,7 +325,7 @@ export async function createIrProcessor(
     dispose() {
       if (disposed) return
       disposed = true
-      previous = null
+      resetTracking()
       locator?.dispose()
       canvas.width = canvas.height = 1
     },

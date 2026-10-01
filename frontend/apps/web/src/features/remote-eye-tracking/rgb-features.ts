@@ -39,7 +39,10 @@ export function inspectRgbFace(
   result: RgbFaceResult,
   width: number,
   height: number,
-  { requireIris = true }: { requireIris?: boolean } = {}
+  {
+    requireIris = true,
+    allowPartialEyes = false,
+  }: { requireIris?: boolean; allowPartialEyes?: boolean } = {}
 ): RgbFaceInspection {
   if (!(width > 0 && height > 0 && Number.isFinite(width + height)))
     return reject("invalid-frame")
@@ -55,12 +58,16 @@ export function inspectRgbFace(
     return reject("invalid-landmarks")
   }
   const landmarks: Point[] = normalized.map((p) => [p.x * width, p.y * height])
-  const blink = result.faceBlendshapes[0]?.categories.some(
-    (category) =>
-      (category.categoryName === "eyeBlinkLeft" ||
-        category.categoryName === "eyeBlinkRight") &&
-      category.score > 0.5
-  )
+  // The IR pipeline validates visible pupil pixels; RGB blink predictions can
+  // reject partially open NIR eyes before their measured rim is examined.
+  const blink =
+    !allowPartialEyes &&
+    result.faceBlendshapes[0]?.categories.some(
+      (category) =>
+        (category.categoryName === "eyeBlinkLeft" ||
+          category.categoryName === "eyeBlinkRight") &&
+        category.score > 0.5
+    )
   if (blink) return reject("blink")
 
   const eyes: RgbFaceGeometry["eyes"] = []
@@ -90,7 +97,8 @@ export function inspectRgbFace(
     if (eyeWidth < 12 || radius < 2) return reject("eyes-too-small")
     const [p1, p2, p3, p4, p5, p6] = indices.lids.map((i) => landmarks[i])
     const ear = (distance(p2, p6) + distance(p3, p5)) / (2 * distance(p1, p4))
-    if (!Number.isFinite(ear) || ear < 0.2) return reject("blink")
+    if (!Number.isFinite(ear) || ear < (allowPartialEyes ? 0.08 : 0.2))
+      return reject("blink")
     const dx = (b[0] - a[0]) / eyeWidth,
       dy = (b[1] - a[1]) / eyeWidth
     const ix = center[0] - (a[0] + b[0]) / 2,
@@ -101,7 +109,12 @@ export function inspectRgbFace(
     )
     eyes.push({ center, radius })
     eyeReferences.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
-    quality = Math.min(quality, radius / 4, eyeWidth / 30, ear / 0.3)
+    quality = Math.min(
+      quality,
+      radius / 4,
+      eyeWidth / 30,
+      ear / (allowPartialEyes ? 0.15 : 0.3)
+    )
   }
 
   const matrix = result.facialTransformationMatrixes[0]

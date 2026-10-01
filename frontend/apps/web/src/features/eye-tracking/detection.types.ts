@@ -19,6 +19,8 @@ export type PupilDetectionOptions = {
   pupilIntensity?: number
   /** Lower interior quantile; distinguishes pupil variation from darker lashes. */
   pupilIntensityLow?: number
+  /** Full-rim exterior brightness; prevents an occluding highlight becoming a pupil edge. */
+  pupilReflectionLimit?: number
   /** Periodically compare an inferred shape with independent full-ROI detection. */
   refreshShape?: boolean
   /** Last independently detected shape; limits gradual drift during rim tracking. */
