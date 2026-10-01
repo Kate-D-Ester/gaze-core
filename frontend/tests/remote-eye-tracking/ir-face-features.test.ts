@@ -3,6 +3,7 @@ import { inspectRgbFace } from "../../apps/web/src/features/remote-eye-tracking/
 import {
   buildIrFaceFeatures,
   irEyeRegions,
+  irEyeSearchBounds,
 } from "../../apps/web/src/features/remote-eye-tracking/ir-face-features"
 import { face } from "./face-fixture"
 function geometry(result = face(), width = 640, height = 480) {
@@ -67,4 +68,38 @@ test("automatic IR crops contain both eye corners while preserving source pixel 
   expect(boxes[0].height).toBeGreaterThanOrEqual(24)
   const large = irEyeRegions(geometry(face(), 1920, 1440), 1920, 1440)
   expect(large[0].width).toBeGreaterThan(150)
+})
+
+test("valid iris geometry bounds the pupil search without supplying gaze coordinates", () => {
+  const g = geometry()
+  const bounds = irEyeSearchBounds(g, 0)
+  expect(bounds).not.toBeNull()
+  expect(bounds!.center).toEqual(g.landmarks[468])
+  expect(bounds!.maxRadius).toBeLessThanOrEqual(g.eyes[0].radius * 1.25)
+  const actual = pupils(3, 1)
+  expect(buildIrFaceFeatures(g, actual)!.feature[0]).not.toEqual(
+    buildIrFaceFeatures(g, pupils())!.feature[0]
+  )
+})
+test("invalid or off-aperture IR iris predictions leave the raw eye-opening search available", () => {
+  const g = geometry()
+  g.landmarks[468] = [0, 0]
+  expect(irEyeSearchBounds(g, 0)).toBeNull()
+  g.landmarks[468] = [NaN, 201.6]
+  expect(irEyeSearchBounds(g, 0)).toBeNull()
+})
+
+test("collapsed or one-sided iris rings cannot constrain the raw pupil search", () => {
+  const g = geometry()
+  g.landmarks[468] = [257.6, 201.6]
+  for (let i = 469; i <= 472; i++) g.landmarks[i] = [262.72, 201.6]
+  expect(irEyeSearchBounds(g, 0)).toBeNull()
+})
+
+test("collinear opposed iris points cannot narrow the real pupil search", () => {
+  const g = geometry()
+  g.landmarks[468] = [257.6, 201.6]
+  g.landmarks[469] = g.landmarks[470] = [262.72, 201.6]
+  g.landmarks[471] = g.landmarks[472] = [252.48, 201.6]
+  expect(irEyeSearchBounds(g, 0)).toBeNull()
 })

@@ -14,6 +14,8 @@ export type IrEyeOptions = {
   centerRadius?: number
   /** Visible opening from the current face landmarks, in crop coordinates. */
   centerRegion?: Point[]
+  /** Recovery transforms must prove a fresh rim in the original pixels. */
+  requireRawRim?: boolean
 }
 
 export type IrTrackingState = {
@@ -284,6 +286,105 @@ function isNestedPupil(
   return true
 }
 
+/** An illumination residual can create a dark halo; iris evidence must exist in raw pixels. */
+function rawRimSupported(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  iris: Ellipse,
+  bright = false,
+  minimumContrast = 3,
+  partial = false
+): boolean {
+  const reflectionCutoff = interiorIntensity(gray, width, height, iris) + 35
+  const sample = (x: number, y: number): number | null => {
+    const px = Math.floor(x),
+      py = Math.floor(y),
+      fx = x - px,
+      fy = y - py
+    if (px < 1 || py < 1 || px >= width - 2 || py >= height - 2) return null
+    let sum = 0
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const index = (py + dy) * width + px + dx
+        // A dark rim cannot be licensed by crossing into specular glare.
+        if (
+          !bright &&
+          Math.max(
+            gray[index],
+            gray[index + 1],
+            gray[index + width],
+            gray[index + width + 1]
+          ) >= reflectionCutoff
+        )
+          return null
+        sum +=
+          (gray[index] * (1 - fx) + gray[index + 1] * fx) * (1 - fy) +
+          (gray[index + width] * (1 - fx) + gray[index + width + 1] * fx) * fy
+      }
+    return sum / 9
+  }
+  const median = (values: number[]) => {
+    values.sort((a, b) => a - b)
+    return values[Math.floor(values.length / 2)] ?? 0
+  }
+  const horizontal: number[] = [],
+    vertical: number[] = []
+  const distance = iris.major * 1.8
+  for (let i = -4; i <= 4; i++) {
+    const offset = (i * iris.major) / 4
+    const left = sample(iris.center[0] - distance, iris.center[1] + offset),
+      right = sample(iris.center[0] + distance, iris.center[1] + offset),
+      top = sample(iris.center[0] + offset, iris.center[1] - distance),
+      bottom = sample(iris.center[0] + offset, iris.center[1] + distance)
+    if (left !== null && right !== null)
+      horizontal.push((right - left) / (2 * distance))
+    if (top !== null && bottom !== null)
+      vertical.push((bottom - top) / (2 * distance))
+  }
+  const noise: number[] = []
+  const stride = Math.max(1, Math.floor(Math.sqrt(gray.length / 512)))
+  for (let y = 1; y < height - 1; y += stride)
+    for (let x = 1; x < width - 1; x += stride) {
+      const i = y * width + x
+      // Second differences cancel a linear lighting gradient. The median tolerates
+      // real eye edges and reflections;1.65 converts Gaussian absolute deviations.
+      noise.push(Math.abs(gray[i - 1] - 2 * gray[i] + gray[i + 1]))
+      noise.push(Math.abs(gray[i - width] - 2 * gray[i] + gray[i + width]))
+    }
+  minimumContrast = Math.max(minimumContrast, (0.6 * median(noise)) / 1.65)
+  const gx = median(horizontal),
+    gy = median(vertical)
+  const c = Math.cos(iris.angle),
+    s = Math.sin(iris.angle),
+    quadrants = [0, 0, 0, 0]
+  let valid = 0,
+    supported = 0
+  for (let i = 0; i < 48; i++) {
+    const angle = (i * Math.PI) / 24,
+      x = c * iris.major * Math.cos(angle) - s * iris.minor * Math.sin(angle),
+      y = s * iris.major * Math.cos(angle) + c * iris.minor * Math.sin(angle),
+      inside = sample(iris.center[0] + x * 0.8, iris.center[1] + y * 0.8),
+      outside = sample(iris.center[0] + x * 1.2, iris.center[1] + y * 1.2)
+    if (inside === null || outside === null) continue
+    valid++
+    const contrast = outside - inside,
+      corrected = contrast - 0.4 * (gx * x + gy * y)
+    if (
+      (bright ? -contrast : contrast) >= minimumContrast &&
+      (bright ? -corrected : corrected) >= minimumContrast * 0.6
+    ) {
+      supported++
+      quadrants[Math.floor(i / 12)]++
+    }
+  }
+  return (
+    valid >= 24 &&
+    supported >= Math.max(16, valid * (partial ? 0.3 : 0.4)) &&
+    quadrants.filter((n) => n >= 3).length >= (partial ? 2 : 3)
+  )
+}
+
 function removeUnsupportedBrightPupils(
   cv: CV,
   candidates: IrPupilCandidate[],
@@ -355,6 +456,8 @@ function removeUnsupportedBrightPupils(
     }
     if (
       !outer ||
+      (gray !== originalGray &&
+        !rawRimSupported(originalGray, width, height, outer.pupil)) ||
       candidate.intensity - outer.intensity < 20 ||
       !isNestedPupil(candidate, outer, originalGray, width, height)
     )
@@ -493,6 +596,19 @@ export function detectIrEye(
     // A near-saturated interior can be a specular highlight with an elliptical
     // outline. It cannot independently establish a reliable bright pupil.
     if (bright && originalIntensity >= 245) continue
+    if (
+      options.requireRawRim &&
+      !rawRimSupported(
+        originalGray,
+        width,
+        height,
+        pupil,
+        bright,
+        1,
+        detection.shapeObserved === false
+      )
+    )
+      continue
     candidates.push({ pupil, intensity: originalIntensity, bright, detection })
   }
   if (options.centerRegion && (options.polarity ?? "auto") === "auto")

@@ -418,3 +418,24 @@ test("an actually closed IR eye still clears pupil features", async () => {
     processor.dispose()
   }
 })
+
+test("an eye-corner texture patch cannot replace a full-face pupil inside valid iris bounds", async () => {
+  const processor = await createIrProcessor({ faceLocator: locator() })
+  const frame = fullFaceFrame(false) as Pixels
+  for (let y = 590; y < 620; y++)
+    for (let x = 685; x < 715; x++)
+      if (((x - 700) / 9) ** 2 + ((y - 605) / 7) ** 2 <= 1) {
+        const index = (y * frame.width + x) * 4
+        frame.pixels[index] =
+          frame.pixels[index + 1] =
+          frame.pixels[index + 2] =
+            126
+      }
+  try {
+    const result = await processor.process(frame, 100, automaticSettings)
+    expect(result.eyes).toHaveLength(0)
+    expect(result.feature).toBeNull()
+  } finally {
+    processor.dispose()
+  }
+})

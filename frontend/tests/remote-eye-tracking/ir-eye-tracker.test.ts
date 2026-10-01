@@ -321,3 +321,266 @@ test.each([
     ).toBeLessThan(2)
   }
 )
+
+test.each([3, 5, 7])(
+  "full-face IR follows a small pupil through local illumination and glare (%s)",
+  (contrast) => {
+    const tracker = new IrEyeTracker(cv)
+    for (let i = 0; i < 12; i++) {
+      const x = 43 + i,
+        gray = new Uint8Array(96 * 48)
+      let random = 17
+      for (let y = 0; y < 48; y++)
+        for (let px = 0; px < 96; px++) {
+          random = (Math.imul(random, 1664525) + 1013904223) >>> 0
+          const inside = ((px - x) / 7) ** 2 + ((y - 23) / 5) ** 2 <= 1
+          gray[y * 96 + px] = Math.round(
+            125 +
+              px * 0.25 +
+              y * 0.1 +
+              (random % 5) -
+              2 -
+              (inside ? contrast : 0)
+          )
+          if ((px - x - 2) ** 2 + (y - 24) ** 2 <= 2) gray[y * 96 + px] = 230
+        }
+      const result = tracker.process(gray, 96, 48, 0, i * 40, {
+        centerRegion: opening,
+        expectedCenter: [48, 23],
+        centerRadius: 30,
+        maxRadius: 12,
+      })
+      expect(result.pupil).not.toBeNull()
+      expect(
+        Math.hypot(result.pupil!.center[0] - x, result.pupil!.center[1] - 23)
+      ).toBeLessThan(2)
+      expect(result.pupil!.major).toBeGreaterThan(5)
+      expect(result.pupil!.major).toBeLessThan(9)
+    }
+  }
+)
+
+test.each([3, 5, 8])(
+  "local illumination recovery cannot turn isolated glare into a pupil (%s)",
+  (radius) => {
+    const tracker = new IrEyeTracker(cv)
+    for (let i = 0; i < 12; i++) {
+      const gray = new Uint8Array(96 * 48),
+        x = 43 + i
+      let random = 17
+      for (let y = 0; y < 48; y++)
+        for (let px = 0; px < 96; px++) {
+          random = (Math.imul(random, 1664525) + 1013904223) >>> 0
+          gray[y * 96 + px] = Math.round(
+            125 + px * 0.25 + y * 0.1 + (random % 5) - 2
+          )
+          if ((px - x - 2) ** 2 + (y - 24) ** 2 <= radius ** 2)
+            gray[y * 96 + px] = 230
+        }
+      expect(
+        tracker.process(gray, 96, 48, 0, i * 40, {
+          centerRegion: opening,
+          expectedCenter: [48, 23],
+          centerRadius: 30,
+          maxRadius: 12,
+        }).pupil
+      ).toBeNull()
+    }
+  }
+)
+
+function slopedEye(
+  slope: number,
+  visible: boolean,
+  glareRadius: number,
+  noiseRange = 5,
+  seed = 17,
+  verticalSlope = 0.1
+) {
+  const gray = new Uint8Array(96 * 48)
+  let random = seed
+  for (let y = 0; y < 48; y++)
+    for (let x = 0; x < 96; x++) {
+      random = (Math.imul(random, 1664525) + 1013904223) >>> 0
+      const inside = visible && ((x - 48) / 7) ** 2 + ((y - 23) / 5) ** 2 <= 1
+      gray[y * 96 + x] = Math.round(
+        135 +
+          slope * (x - 48) +
+          verticalSlope * (y - 23) +
+          (random % noiseRange) -
+          Math.floor(noiseRange / 2) -
+          (inside ? 5 : 0)
+      )
+      if (glareRadius > 0 && (x - 50) ** 2 + (y - 24) ** 2 <= glareRadius ** 2)
+        gray[y * 96 + x] = 230
+    }
+  return gray
+}
+const slopedOptions = {
+  centerRegion: opening,
+  expectedCenter: [48, 23] as [number, number],
+  centerRadius: 30,
+  maxRadius: 12,
+}
+test("illumination slope cannot maintain pupil history after the pupil disappears", () => {
+  const tracker = new IrEyeTracker(cv)
+  for (let i = 0; i < 8; i++)
+    expect(
+      tracker.process(
+        slopedEye(0.6, true, Math.SQRT2),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).not.toBeNull()
+  for (let i = 8; i < 12; i++)
+    expect(
+      tracker.process(
+        slopedEye(0.6, false, 0),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).toBeNull()
+})
+test("a steep illumination slope and isolated glare cannot establish a pupil", () => {
+  expect(
+    new IrEyeTracker(cv).process(
+      slopedEye(1, false, 5),
+      96,
+      48,
+      0,
+      0,
+      slopedOptions
+    ).pupil
+  ).toBeNull()
+})
+test("invalid fractional crop dimensions fail without allocating a recovery image", () => {
+  expect(
+    new IrEyeTracker(cv).process(
+      new Uint8Array(4632),
+      96.5,
+      48,
+      0,
+      0,
+      slopedOptions
+    ).pupil
+  ).toBeNull()
+})
+
+test.each([0, 0.25])(
+  "noise cannot maintain a disappeared pupil (slope%s)",
+  (slope) => {
+    const tracker = new IrEyeTracker(cv)
+    for (let i = 0; i < 8; i++)
+      expect(
+        tracker.process(
+          slopedEye(slope, true, 1.4, 11),
+          96,
+          48,
+          0,
+          i * 40,
+          slopedOptions
+        ).pupil
+      ).not.toBeNull()
+    for (let i = 8; i < 16; i++)
+      expect(
+        tracker.process(
+          slopedEye(slope, false, 0, 11),
+          96,
+          48,
+          0,
+          i * 40,
+          slopedOptions
+        ).pupil
+      ).toBeNull()
+  }
+)
+test("noisy flat pixels and a compact glint cannot cold acquire a pupil", () => {
+  expect(
+    new IrEyeTracker(cv).process(
+      slopedEye(0, false, 1.4, 11),
+      96,
+      48,
+      0,
+      0,
+      slopedOptions
+    ).pupil
+  ).toBeNull()
+})
+test("remaining glare cannot sustain a pupil after it disappears", () => {
+  const tracker = new IrEyeTracker(cv)
+  for (let i = 0; i < 8; i++)
+    expect(
+      tracker.process(
+        slopedEye(0.6, true, 1.4),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).not.toBeNull()
+  for (let i = 8; i < 12; i++)
+    expect(
+      tracker.process(
+        slopedEye(0.6, false, 8),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).toBeNull()
+})
+
+test("a brighter distant reflection cannot hide broad local glare", () => {
+  const tracker = new IrEyeTracker(cv)
+  for (let i = 0; i < 8; i++)
+    expect(
+      tracker.process(
+        slopedEye(0.6, true, 1.4),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).not.toBeNull()
+  const gray = slopedEye(0.6, false, 8)
+  for (let y = 0; y < 48; y++)
+    for (let x = 0; x < 96; x++) {
+      if ((x - 50) ** 2 + (y - 24) ** 2 <= 64) gray[y * 96 + x] = 190
+      if ((x - 71) ** 2 + (y - 24) ** 2 <= 2) gray[y * 96 + x] = 255
+    }
+  expect(tracker.process(gray, 96, 48, 0, 320, slopedOptions).pupil).toBeNull()
+})
+
+test("global enhancement cannot maintain a pupil using noisy vertical lighting and remaining glare", () => {
+  const tracker = new IrEyeTracker(cv)
+  for (let i = 0; i < 8; i++)
+    expect(
+      tracker.process(
+        slopedEye(0, true, 1.4, 11, 123, 0.6),
+        96,
+        48,
+        0,
+        i * 40,
+        slopedOptions
+      ).pupil
+    ).not.toBeNull()
+  expect(
+    tracker.process(
+      slopedEye(0, false, 5, 11, 123, 0.6),
+      96,
+      48,
+      0,
+      320,
+      slopedOptions
+    ).pupil
+  ).toBeNull()
+})

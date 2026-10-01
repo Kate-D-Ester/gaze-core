@@ -1,3 +1,4 @@
+import { pointInPolygon } from "../eye-tracking/geometry"
 import type { Point, Rect } from "./types"
 import type { RgbFaceGeometry } from "./rgb-features"
 
@@ -22,6 +23,64 @@ export function irEyeAperture(geometry: RgbFaceGeometry, eye: number): Point[] {
     b,
     ...lids.slice(2).sort((p, q) => along(q) - along(p)),
   ]
+}
+
+/** Optional anatomical prior: iris landmarks constrain search, never replace a pixel measurement. */
+export function irEyeSearchBounds(
+  geometry: RgbFaceGeometry,
+  eye: number
+): {
+  center: Point
+  centerRadius: number
+  maxRadius: number
+} | null {
+  const index = eye === 0 ? 468 : 473
+  const center = geometry.landmarks[index],
+    ring = geometry.landmarks.slice(index + 1, index + 5)
+  if (
+    !center ||
+    ring.length !== 4 ||
+    ![center, ...ring].flat().every(Number.isFinite) ||
+    !pointInPolygon(center, irEyeAperture(geometry, eye))
+  )
+    return null
+  const [a, b] = IR_EYE_CORNERS[eye].map((i) => geometry.landmarks[i])
+  const span = Math.hypot(b[0] - a[0], b[1] - a[1]),
+    radius =
+      ring.reduce(
+        (sum, p) => sum + Math.hypot(p[0] - center[0], p[1] - center[1]),
+        0
+      ) / 4
+  if (radius < 3 || radius < span * 0.05 || radius > span * 0.25) return null
+  for (const [first, second] of [
+    [0, 2],
+    [1, 3],
+  ]) {
+    const a = ring[first],
+      b = ring[second]
+    const midpointError = Math.hypot(
+      (a[0] + b[0]) / 2 - center[0],
+      (a[1] + b[1]) / 2 - center[1]
+    )
+    if (
+      midpointError > radius * 0.4 ||
+      Math.hypot(a[0] - b[0], a[1] - b[1]) < radius
+    )
+      return null
+  }
+  const u: Point = [ring[0][0] - ring[2][0], ring[0][1] - ring[2][1]],
+    v: Point = [ring[1][0] - ring[3][0], ring[1][1] - ring[3][1]]
+  if (
+    Math.abs(u[0] * v[1] - u[1] * v[0]) /
+      (Math.hypot(...u) * Math.hypot(...v)) <
+    0.2
+  )
+    return null
+  return {
+    center,
+    centerRadius: Math.max(6, radius * 1.1),
+    maxRadius: Math.min(span * 0.22, radius * 1.25),
+  }
 }
 
 /** Eye proposals only: pupil centers are measured from camera pixels, never copied from iris landmarks. */

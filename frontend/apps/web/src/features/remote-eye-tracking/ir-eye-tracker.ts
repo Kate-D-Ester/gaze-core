@@ -1,4 +1,5 @@
-import { prepareIrEye } from "./ir-preprocessing"
+import { pointInPolygon } from "../eye-tracking/geometry"
+import { prepareIrEye, prepareIrLocalEye } from "./ir-preprocessing"
 import { PupilTracker } from "../eye-tracking/pupil-tracker"
 import type { CV } from "../eye-tracking/opencv.types"
 import type { Point } from "./types"
@@ -107,13 +108,21 @@ class IrEyeTrack {
 export class IrEyeTracker {
   private readonly native: IrEyeTrack
   private readonly enhanced: IrEyeTrack
+  private readonly local: { backgroundFraction: number; track: IrEyeTrack }[]
+  private readonly cv: CV
   constructor(cv: CV) {
+    this.cv = cv
     this.native = new IrEyeTrack(cv)
     this.enhanced = new IrEyeTrack(cv)
+    this.local = [0.48, 0.24].map((backgroundFraction) => ({
+      backgroundFraction,
+      track: new IrEyeTrack(cv),
+    }))
   }
   reset() {
     this.native.reset()
     this.enhanced.reset()
+    this.local.forEach(({ track }) => track.reset())
   }
   process(
     gray: Uint8Array,
@@ -134,20 +143,53 @@ export class IrEyeTracker {
       coordinates
     )
     if (native.pupil || threshold !== 0 || !options.centerRegion) return native
+    let recovered = native
+    for (const { backgroundFraction, track } of this.local) {
+      const local = prepareIrLocalEye(
+        this.cv,
+        gray,
+        width,
+        height,
+        backgroundFraction
+      )
+      if (!local) {
+        track.reset()
+        continue
+      }
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++)
+          if (!pointInPolygon([x, y], options.centerRegion))
+            local[y * width + x] = 255
+      const result = track.process(
+        local,
+        width,
+        height,
+        threshold,
+        timestamp,
+        { ...options, requireRawRim: true },
+        coordinates,
+        gray
+      )
+      // Broad normalization preserves the pupil interior; a finer rim is the fallback.
+      // Keep both histories current, even when the first scale supplies this frame.
+      if (!recovered.pupil && result.pupil) recovered = result
+    }
     const prepared = prepareIrEye(gray, width, height)
     if (!prepared) {
       this.enhanced.reset()
-      return native
+      return recovered
     }
-    return this.enhanced.process(
+    const enhanced = this.enhanced.process(
       prepared,
       width,
       height,
       threshold,
       timestamp,
-      options,
+      { ...options, requireRawRim: true },
       coordinates,
       gray
     )
+    // Keep both recovery histories current rather than starving the fallback when one succeeds.
+    return recovered.pupil ? recovered : enhanced
   }
 }

@@ -6,6 +6,7 @@ import {
   buildIrFaceFeatures,
   irEyeRegions,
   irEyeAperture,
+  irEyeSearchBounds,
   IR_EYE_CORNERS,
 } from "./ir-face-features"
 import { inspectRgbFace, type RgbFaceResult } from "./rgb-features"
@@ -96,7 +97,13 @@ export async function createIrProcessor(
     timestamp: number,
     threshold: number,
     tracker: IrEyeTracker,
-    eyeFrame?: { center: Point; span: number; angle: number; aperture: Point[] }
+    eyeFrame?: {
+      center: Point
+      span: number
+      angle: number
+      aperture: Point[]
+      search: ReturnType<typeof irEyeSearchBounds>
+    }
   ) {
     const scale = Math.min(
       1,
@@ -140,9 +147,18 @@ export async function createIrProcessor(
       threshold,
       timestamp,
       {
-        maxRadius: eyeFrame ? eyeFrame.span * 0.22 * scale : undefined,
-        centerRadius: eyeFrame ? eyeFrame.span * 0.42 * scale : undefined,
-        expectedCenter: eyeCoordinates?.origin,
+        maxRadius: eyeFrame
+          ? (eyeFrame.search?.maxRadius ?? eyeFrame.span * 0.22) * scale
+          : undefined,
+        centerRadius: eyeFrame
+          ? (eyeFrame.search?.centerRadius ?? eyeFrame.span * 0.42) * scale
+          : undefined,
+        expectedCenter: eyeFrame?.search
+          ? [
+              (eyeFrame.search.center[0] - roi.x) * scale,
+              (eyeFrame.search.center[1] - roi.y) * scale,
+            ]
+          : eyeCoordinates?.origin,
         centerRegion: eyeFrame?.aperture.map(([x, y]) => [
           (x - roi.x) * scale,
           (y - roi.y) * scale,
@@ -229,6 +245,7 @@ export async function createIrProcessor(
                   span,
                   angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
                   aperture: irEyeAperture(geometry, i),
+                  search: irEyeSearchBounds(geometry, i),
                 }
               )
             })

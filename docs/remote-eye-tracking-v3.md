@@ -291,3 +291,82 @@ the final review.
 The actual production build replayed a private 3 s excerpt, displayed measured
 pupils and head pose at approximately 28 processed fps, and cleared output at end.
 The original development route remains available on port 4003.
+
+## Coverage and accuracy follow-up (2026-10-02)
+
+This follow-up supersedes the 479/865 binocular counts above. Both entire private
+reference recordings were processed again through the real browser pipeline,
+sequentially at all 2,417 source-frame timestamps. No interpolated, held or
+landmark-generated pupil positions are counted as detections.
+
+Recovery now removes local illumination at two spatial scales on the small native
+pixel eye crops. It suppresses compact positive outliers before normalization and
+masks outside the current lid opening so lashes cannot merge with pupil contours.
+Each transform keeps independent head-remapped shape/intensity histories; current
+native evidence remains first. Broader normalization preserves pupil interiors;
+finer normalization can recover their rims. The global contrast transform remains
+an additional fallback. No new model or runtime dependency was added.
+
+Every transformed recovery requires a distributed rim in the original camera
+pixels. Subpixel, averaged radial samples are corrected using robust background
+slope estimates. A median second-difference noise estimate raises the minimum
+contrast on noisy input. Partial fits also need at least 16 supported directions;
+current raw evidence must support their center even when prior shape is reused.
+Dark-rim evidence excludes candidate-local specular pixels. Reflection rejection
+uses the candidate's raw intensity rather than an unrelated whole-crop peak, which
+previously let a brighter distant highlight hide broad local glare. Independently
+measured enclosing-iris support is also checked in raw pixels before bright-pupil
+acquisition, avoiding artificial normalization halos.
+
+Valid MediaPipe iris geometry now supplies a **search prior only**: it restricts
+pupil center travel and maximum size before candidate ranking. Canthi/lids still
+supply independent head coordinates, and gaze still uses the measured pupil
+center. Missing, off-aperture, implausibly sized, collapsed, one-sided or collinear
+iris predictions fall back to the original eye-opening search. The prior tolerates
+iris-model size error and does not require hidden iris-ring points to lie inside
+partially closed lids.
+
+| Recording | Frames | Both pupils, previous → current | Any pupil current | Face frames | Median processing | p95 processing |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Off-axis lighting (`01-53-37`) | 1,217 | 479 → 1,031 (84.7%) | 1,194 | 1,213 | 49.5 ms | 60.0 ms |
+| Light directed at eyes (`01-55-24`) | 1,200 | 865 → 1,044 (87.0%) | 1,166 | 1,200 | 39.7 ms | 66.6 ms |
+
+Visual/source-pixel review identified a false corner measurement at clip 2,
+frame 605: its center changed from approximately (657.9,489.4) to (628.7,474.3)
+after anatomical constraints. The suspect eye-0 fit at frame 451 is now absent.
+These are reviewed examples of placement/rejection improvements, not independently
+labeled pixel-error measurements. Remaining ambiguous rims, blur and glare can
+still cause incorrect fits; every visibly open eye has not been established as a
+correct pupil detection. Neither these counts nor agreement with an iris prior
+establish calibrated screen-gaze accuracy.
+
+An independent synthetic sweep checked 320 cold acquisition/disappearance cases
+across four random seeds, five lighting directions, two noise levels and multiple
+glare sizes: no false acquisitions or post-disappearance measurements remained.
+All 1,280 genuine acquired pupil frames in that sweep were detected, with maximum
+center error 1.164 source pixels. These controlled synthetic results do **not**
+represent accuracy on the videos or on other cameras/subjects.
+
+Processing timings are from the complete automated browser evaluation on this
+machine, with verification work also running during portions of it. They exceed
+33.3 ms in many frames, so this does not establish sustained 30-fps inference or
+universal mobile performance. Live replay continues to process the latest frame
+with one inference in flight; exhaustive offline counts should not be interpreted
+as real-time throughput. The existing device/memory/transfer limitations above
+remain applicable.
+
+The final collinearity guard was added after video inference; every recorded iris
+ring was checked and remained outside its rejection region (minimum normalized
+cross product 0.958/0.988, threshold 0.2), so it changes no recorded-frame search
+bounds. Regression tests separately cover its fallback behavior.
+
+Concrete remaining inspection cases are clip 2 frame 869 eye 1 (reflection-cap/
+partial-rim ambiguity) and clip 1 frame 330 eye 1 (upper-iris cap). Their blurred or
+occluded rims do not support independent pixel-error labels; they remain examples
+of uncertainty rather than evidence that the video tracker is universally accurate.
+
+Final verification: **316 Bun tests passed across 29 files**, 0 failures and
+2,501 assertions; frontend lint and TypeScript/production build passed. Independent
+review verified noise/glare disappearance checks and the corner-fit correction.
+The application stays available on port 4003; the private evaluation server and
+benchmark page were removed after validation.
