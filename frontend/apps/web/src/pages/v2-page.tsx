@@ -4,8 +4,8 @@ import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
 import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
-import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, ArrowRight, Eye, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { ArrowLeft, ArrowRight, Eye } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
 import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
@@ -15,11 +15,25 @@ import { V2StepNavigation } from "@/features/eye-tracking/components/v2-step-nav
 import { V2StepPanel } from "@/features/eye-tracking/components/v2-step-panel"
 import { CalibrationOverlay } from "@/features/eye-tracking/calibration-overlay"
 import { getEyeModelLockStatus } from "@/features/eye-tracking/eye-model"
+import { useHeadTracking } from "@/features/eye-tracking/head-tracking/use-head-tracking"
+import { HeadPreview } from "@/features/eye-tracking/head-tracking/head-preview"
+import { LiveGazeOverlay } from "@/features/eye-tracking/live-gaze-overlay"
+import { EyeTooltipLayer } from "@/features/eye-tracking/components/eye-tooltip-layer"
 import {
-  fitCalibration,
-  gazeFeature,
-  mapGaze,
-} from "@/features/eye-tracking/calibration"
+  DEFAULT_GAZE_ORIENTATION,
+  SAMPLE_GAZE_ORIENTATION,
+} from "@/features/eye-tracking/calibration-orientation"
+import type { GazeOrientation } from "@/features/eye-tracking/calibration.types"
+import { HeadControls } from "@/features/eye-tracking/head-tracking/head-controls"
+import { useCalibratedGaze } from "@/features/eye-tracking/use-calibrated-gaze"
+import { mapCalibrationSample } from "@/features/eye-tracking/calibration"
+import { fitCalibrationInWorker } from "@/features/eye-tracking/calibration-fit"
+import { CalibrationDiagnostics } from "@/features/eye-tracking/calibration-diagnostics"
+import type { DiagnosticReadingInput } from "@/features/eye-tracking/calibration-diagnostics.types"
+import type {
+  CalibrationFitIssue,
+  CalibrationFitResult,
+} from "@/features/eye-tracking/calibration-result.types"
 import type {
   Calibration,
   CalibrationSample,
@@ -27,32 +41,46 @@ import type {
   Point,
   Rect,
 } from "@/features/eye-tracking/eye-tracking.types"
-import type { V2StepCopy, V2StepName } from "./v2-page.types"
+import type { V2StepName } from "./v2-page.types"
 import "./v2.css"
 
 const STEPS: readonly V2StepName[] = [
   "Camera",
   "Eye region",
   "Eye model",
+  "Head tracker",
   "Calibrate",
   "Live gaze",
 ]
-const COPY: readonly V2StepCopy[] = [
-  ["Choose a source", "Choose a USB camera or network stream."],
-  ["Frame one eye", "Keep the pupil’s full range of movement inside the box."],
-  [
-    "Build the eye model",
-    "Look left, right, up and down, then around the edges.",
-  ],
-  [
-    "Calibrate your screen",
-    "Follow nine points while keeping your head still.",
-  ],
-  ["Live gaze", "Check your gaze, validate accuracy, or export a result."],
+const STEP_HELP: readonly string[] = [
+  "Connect a USB camera or network stream. Processing stays in this browser.",
+  "Frame one eye. Keep the pupil’s full movement inside the box, with dark frame edges outside.",
+  "Look left, right, up and down, then around the edges to build the eye model.",
+  "Optional: connect a front camera. Calibration includes a short head-movement pass.",
+  "Look at each dot until it pops, then follow the next one. Keep your face visible if head tracking is enabled.",
+  "Check your gaze, validate accuracy, recalibrate, or export a result.",
 ]
 export function V2Page() {
+  const [diagnostics] = useState(() => new CalibrationDiagnostics())
+  const [diagnosticsAvailable, setDiagnosticsAvailable] = useState(false)
+  const recordDiagnosticReading = useCallback(
+    (reading: DiagnosticReadingInput) => {
+      diagnostics.recordReading(reading)
+      setDiagnosticsAvailable(true)
+    },
+    [diagnostics]
+  )
+  const pendingFit = useRef<AbortController | null>(null)
+  const [fitting, setFitting] = useState(false)
+  useEffect(() => () => pendingFit.current?.abort(), [])
   const tracker = useTracker(),
     { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
+  const head = useHeadTracking(!!source)
+  const [orientation, setOrientation] = useState<GazeOrientation>(
+    DEFAULT_GAZE_ORIENTATION
+  )
+  let activeOrientation = orientation
+  if (source?.kind === "sample") activeOrientation = SAMPLE_GAZE_ORIENTATION
   const [step, setStep] = useState(0),
     [deviceId, setDeviceId] = useState(""),
     [regionStepComplete, setRegionStepComplete] = useState(false),
@@ -69,6 +97,10 @@ export function V2Page() {
     ),
     [focus, setFocus] = useState(false),
     [notice, setNotice] = useState("")
+  const [savedGazeGrid, setSavedGazeGrid] = useState<CalibrationSample[]>([])
+  const [headCalibrationIssue, setHeadCalibrationIssue] =
+    useState<CalibrationFitIssue | null>(null)
+  const [retryHeadPass, setRetryHeadPass] = useState(false)
   let activeCornerMode: ManualCornerMode | null = null
   if (step === 2 && settings.format === "classic" && !settings.locked) {
     activeCornerMode = manualCornerMode
@@ -78,12 +110,19 @@ export function V2Page() {
     }
   }
   const clearCalibration = useCallback(() => {
+    pendingFit.current?.abort()
+    setFitting(false)
     setCalibration(null)
     setValidation(null)
     setCapture(null)
     setFocus(false)
     setNotice("")
-  }, [])
+    setSavedGazeGrid([])
+    setHeadCalibrationIssue(null)
+    setRetryHeadPass(false)
+    diagnostics.clear()
+    setDiagnosticsAvailable(false)
+  }, [diagnostics])
   useEffect(() => {
     setPreviewMasksEnabled(
       !!source && (thresholdViewOpen || (pipelineOpen && step >= 2))
@@ -97,6 +136,7 @@ export function V2Page() {
     [configure, clearCalibration]
   )
   const resetSource = () => {
+    head.stop()
     clearCalibration()
     setRegionStepComplete(false)
     setCorner(null)
@@ -112,27 +152,44 @@ export function V2Page() {
     frame?.roi.width ?? 0,
     frame?.roi.height ?? 0
   )
-  const feature = frame?.gaze ? gazeFeature(frame.gaze.direction) : null
-  const screenPoint =
-    calibration && feature ? mapGaze(calibration, feature) : null
+  const gazeReading = useCalibratedGaze({
+    calibration,
+    eye: tracker.latest,
+    head: head.latest,
+    headHistory: head.history,
+    onDiagnosticReading: recordDiagnosticReading,
+  })
+  const screenPoint = gazeReading.point
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
   const allowed = [
     true,
     !!source,
     regionStepComplete && !!source,
     settings.locked && !!source,
+    settings.locked &&
+      !!source &&
+      (!head.enabled || head.status === "tracking"),
     !!calibration && !!source,
   ]
+  let eyeDeviceId = ""
+  if (source?.kind === "camera") {
+    const activeCamera = tracker.devices.find(
+      (device) => device.label === source.name
+    )
+    eyeDeviceId = source.deviceId || activeCamera?.deviceId || ""
+  }
   let continueDisabled = false
   if (step === 0) {
     continueDisabled = !source
   } else if (step === 2) {
     continueDisabled = !modelLockStatus.ready
+  } else if (step === 3) {
+    continueDisabled = head.enabled && head.status !== "tracking"
   }
   let focusTitle = "Gaze outside this view"
-  let stepDescription = COPY[step][1]
+  let stepDescription = STEP_HELP[step]
   if (!screenPoint) {
-    focusTitle = "Pupil lost"
+    focusTitle = gazeReading.message
   } else if (onscreen) {
     focusTitle = "Look around."
   }
@@ -147,50 +204,103 @@ export function V2Page() {
     }
   }
   const finishCapture = useCallback(
-    (samples: CalibrationSample[]) => {
-      setCapture(null)
+    async (samples: CalibrationSample[]) => {
       if (capture === "validation" && calibration) {
+        setCapture(null)
         const mse =
           samples.reduce((sum, s) => {
-            const p = mapGaze(calibration, s.feature)!
+            const p = mapCalibrationSample(calibration, s)
+            if (!p) return Infinity
             return (
               sum +
               ((p[0] - s.target[0]) * window.innerWidth) ** 2 +
               ((p[1] - s.target[1]) * window.innerHeight) ** 2
             )
           }, 0) / samples.length
+        if (!Number.isFinite(mse)) {
+          setNotice(
+            "Validation lost the face or left the calibrated head range. Please retry."
+          )
+          return
+        }
         setValidation(Math.sqrt(mse))
-        setStep(4)
+        setStep(5)
         return
       }
-      const fit = fitCalibration(samples)
-      if (!fit || fit.validationError > 0.16) {
-        setNotice(
-          "The samples did not form a reliable mapping. Keep your head still and try again."
-        )
-        setCalibration(null)
+      pendingFit.current?.abort()
+      const controller = new AbortController()
+      pendingFit.current = controller
+      setFitting(true)
+      const request = {
+        samples,
+        orientation: activeOrientation,
+        screenAspectRatio: window.innerWidth / window.innerHeight,
+      }
+      const attempt = diagnostics.startFit(request)
+      setDiagnosticsAvailable(true)
+      let result: CalibrationFitResult
+      try {
+        result = await fitCalibrationInWorker(request, controller.signal)
+      } catch (error) {
+        if (controller.signal.aborted) {
+          diagnostics.finishFit(attempt, null, "Calibration cancelled.")
+          return
+        }
+        let message = "Calibration failed. Please retry."
+        if (error instanceof Error) message = error.message
+        diagnostics.finishFit(attempt, null, message)
+        setNotice(message)
+        setCapture(null)
+        setFitting(false)
+        pendingFit.current = null
         return
       }
-      setCalibration(fit)
+      if (controller.signal.aborted) return
+      diagnostics.finishFit(attempt, result)
+      pendingFit.current = null
+      setCapture(null)
+      setFitting(false)
+      setRetryHeadPass(false)
+      if (!result.calibration) {
+        setNotice(result.issue?.message ?? "Calibration could not be fitted.")
+        return
+      }
+      setCalibration(result.calibration)
+      setSavedGazeGrid(samples.slice(0, 9))
+      setHeadCalibrationIssue(result.issue)
       setValidation(null)
-      setStep(4)
-      setNotice("Calibration saved for this session.")
+      setStep(5)
+      if (result.issue) {
+        setNotice(`Eye-only calibration saved. ${result.issue.message}`)
+      } else {
+        setNotice("Calibration saved for this session.")
+      }
     },
-    [capture, calibration]
+    [capture, calibration, activeOrientation, diagnostics]
   )
+  const canRetryHead =
+    head.enabled &&
+    !!calibration &&
+    !calibration.headCompensation &&
+    !!headCalibrationIssue &&
+    savedGazeGrid.length === 9
+
+  function retryHeadCalibration(): void {
+    setFocus(false)
+    setNotice("")
+    setRetryHeadPass(true)
+    setCapture("calibration")
+  }
   useEffect(() => {
     const resized = () => {
       if (!calibration && !capture && !focus) return
-      setStep((current) => Math.min(current, 3))
-      setCalibration(null)
-      setValidation(null)
-      setCapture(null)
-      setFocus(false)
+      setStep((current) => Math.min(current, 4))
+      clearCalibration()
       setNotice("Window size changed. Calibrate again for this view.")
     }
     window.addEventListener("resize", resized)
     return () => window.removeEventListener("resize", resized)
-  }, [calibration, capture, focus])
+  }, [calibration, capture, focus, clearCalibration])
   function chooseRegion(roi: Rect) {
     if (
       roi.x === settings.roi.x &&
@@ -229,7 +339,7 @@ export function V2Page() {
     update({ corners })
   }
   function exportResult() {
-    if (!frame) return
+    if (!frame && !diagnosticsAvailable) return
     const data = {
       format: settings.format === "classic" ? "Eye Tracker 1" : "Eye Tracker 2",
       simulated: source?.kind === "sample",
@@ -237,12 +347,18 @@ export function V2Page() {
       coordinates:
         "camera: +x right, +y down, +z away; screen: normalized viewport",
       settings,
-      pupil: frame.detection.ellipse,
-      eyeModel: frame.model,
-      gaze: frame.gaze,
+      pupil: frame?.detection.ellipse ?? null,
+      eyeModel: frame?.model ?? null,
+      gaze: frame?.gaze ?? null,
       screenPosition: screenPoint,
       calibration,
+      headPose: head.latest.current,
       validationErrorPixels: validation,
+      headCameraTransform: head.transform,
+      eyeCameraOrientation: activeOrientation,
+      eyeSourceKind: source?.kind ?? null,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      diagnostics: diagnostics.snapshot(),
     }
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
@@ -258,6 +374,7 @@ export function V2Page() {
       className="eye-app"
       style={{ colorScheme: "dark", backgroundColor: "#090909" }}
     >
+      <EyeTooltipLayer />
       <header className="eye-header">
         <Link to="/dashboard" className="eye-brand">
           <span className="eye-logo">
@@ -362,13 +479,14 @@ export function V2Page() {
           </div>
         </section>
         <V2StepPanel
-          stepNumber={step + 1}
           stepName={STEPS[step]}
-          title={COPY[step][0]}
           description={stepDescription}
           error={tracker.error}
           message={notice}
         >
+          {head.enabled && step !== 3 && !capture && !focus && (
+            <HeadPreview head={head} inline />
+          )}
           {step === 0 && (
             <SourceControls
               tracker={tracker}
@@ -389,27 +507,58 @@ export function V2Page() {
             />
           )}
           {step === 3 && (
-            <CalibrationControls
-              usable={usable}
-              locked={settings.locked}
-              onStart={() => {
-                setNotice("")
-                setCapture("calibration")
+            <HeadControls
+              head={head}
+              devices={tracker.devices}
+              eyeDeviceId={eyeDeviceId}
+              simulated={source?.kind === "sample"}
+              onConfigurationChange={clearCalibration}
+              onSkip={() => {
+                head.stop()
+                clearCalibration()
+                setStep(4)
               }}
             />
           )}
           {step === 4 && (
+            <CalibrationControls
+              usable={usable}
+              locked={settings.locked}
+              headReady={!head.enabled || head.status === "tracking"}
+              headEnabled={head.enabled}
+              onExportDiagnostics={
+                diagnosticsAvailable ? exportResult : undefined
+              }
+              orientation={activeOrientation}
+              onOrientationChange={(next) => {
+                clearCalibration()
+                setOrientation(next)
+              }}
+              onStart={() => {
+                setNotice("")
+                setRetryHeadPass(false)
+                setCapture("calibration")
+              }}
+            />
+          )}
+          {step === 5 && (
             <LiveControls
               tracker={tracker}
               calibration={calibration}
               screenPoint={screenPoint}
               validation={validation}
               usable={usable}
+              gazeMessage={gazeReading.message}
+              headCompensated={!!calibration?.headCompensation}
+              onRetryHeadCalibration={
+                canRetryHead ? retryHeadCalibration : undefined
+              }
+              retryHeadDisabled={head.status !== "tracking"}
               onFocus={() => setFocus(true)}
               onValidate={() => setCapture("validation")}
               onRecalibrate={() => {
                 clearCalibration()
-                setStep(3)
+                setStep(4)
               }}
               onExport={exportResult}
             />
@@ -447,7 +596,7 @@ export function V2Page() {
               {modelLockStatus.blocker === "ready" && "Model ready"}
             </span>
           )}
-          {step < 3 && (
+          {step < 4 && (
             <button
               className="eye-button primary"
               disabled={continueDisabled}
@@ -469,46 +618,29 @@ export function V2Page() {
       {capture && (
         <CalibrationOverlay
           tracker={tracker}
+          head={head}
+          calibration={calibration}
           validation={capture === "validation"}
+          fitting={fitting}
+          seedSamples={retryHeadPass ? savedGazeGrid : undefined}
+          orientation={activeOrientation}
           onComplete={finishCapture}
-          onCancel={() => setCapture(null)}
+          onDiagnosticReading={recordDiagnosticReading}
+          onCancel={() => {
+            pendingFit.current?.abort()
+            setFitting(false)
+            setCapture(null)
+          }}
         />
       )}
       {focus && (
-        <div
-          className="eye-focus-view"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Live gaze view"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setFocus(false)
-          }}
-        >
-          <button
-            autoFocus
-            className="eye-icon-button"
-            onClick={() => setFocus(false)}
-            aria-label="Close gaze view"
-          >
-            <X />
-          </button>
-          <div className="eye-focus-caption">
-            <span className="eye-eyebrow">
-              {source?.kind === "sample" ? "SYNTHETIC SAMPLE" : "LIVE GAZE"}
-            </span>
-            <h2>{focusTitle}</h2>
-            <p>Your gaze dot follows your calibrated screen position.</p>
-          </div>
-          {onscreen && (
-            <i
-              className="eye-live-dot"
-              style={{
-                left: `${screenPoint![0] * 100}%`,
-                top: `${screenPoint![1] * 100}%`,
-              }}
-            />
-          )}
-        </div>
+        <LiveGazeOverlay
+          point={screenPoint}
+          title={focusTitle}
+          simulated={source?.kind === "sample"}
+          head={head}
+          onClose={() => setFocus(false)}
+        />
       )}
     </main>
   )

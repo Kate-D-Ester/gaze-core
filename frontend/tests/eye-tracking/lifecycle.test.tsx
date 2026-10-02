@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import { act, createElement } from "../../apps/web/node_modules/react"
-import {
-  createRoot,
-  type Root,
-} from "../../apps/web/node_modules/react-dom/client"
+import type { Root } from "../../apps/web/node_modules/react-dom/client"
 import { useTracker } from "../../apps/web/src/features/eye-tracking/use-tracker"
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 import { RegionControls } from "../../apps/web/src/features/eye-tracking/steps/region-controls"
@@ -16,6 +13,8 @@ import {
 } from "../../apps/web/src/features/eye-tracking/video-source"
 GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+const { createRoot } =
+  await import("../../apps/web/node_modules/react-dom/client")
 let controller: TrackerController,
   root: Root | null,
   host: HTMLDivElement,
@@ -114,7 +113,13 @@ afterEach(async () => {
 })
 const stream = () => ({
   getTracks: () => [{ stop: () => stopped++ }],
-  getVideoTracks: () => [{ label: "Test camera", addEventListener: () => {} }],
+  getVideoTracks: () => [
+    {
+      label: "Test camera",
+      getSettings: () => ({ deviceId: "camera-1" }),
+      addEventListener: () => {},
+    },
+  ],
 })
 test("format change while permission is pending does not strand startup", async () => {
   let pending: Promise<void>
@@ -131,6 +136,7 @@ test("format change while permission is pending does not strand startup", async 
   })
   expect(controller.busy).toBe(false)
   expect(controller.source?.kind).toBe("camera")
+  expect(controller.source?.deviceId).toBe("camera-1")
   expect(controller.settings.format).toBe("classic")
 })
 test("format change while video starts retains source and stop releases its tracks", async () => {
@@ -223,7 +229,11 @@ test("settings edits and source restarts cannot queue frames behind an active wo
   expect(requests).toHaveLength(1)
   await act(async () => {
     worker.onmessage({
-      data: { type: "error", generation: requests[0].generation, message: "stale" },
+      data: {
+        type: "error",
+        generation: requests[0].generation,
+        message: "stale",
+      },
     })
     tick(400)
   })
@@ -238,7 +248,11 @@ test("settings edits and source restarts cannot queue frames behind an active wo
   expect(requests).toHaveLength(2)
   await act(async () => {
     worker.onmessage({
-      data: { type: "error", generation: requests[1].generation, message: "stale" },
+      data: {
+        type: "error",
+        generation: requests[1].generation,
+        message: "stale",
+      },
     })
     tick(600)
   })
@@ -424,8 +438,15 @@ test("source controls show numbered USB cameras and only USB or network modes", 
   )
   const text = document.body.textContent ?? ""
   expect(labels).toContain("Camera 1")
-  expect(text).toContain("USB Camera")
-  expect(text).toContain("Network Stream")
+  expect(document.querySelector('[aria-label="USB camera"]')).not.toBeNull()
+  const networkButton = document.querySelector<HTMLButtonElement>(
+    '[aria-label="Network stream"]'
+  )!
+  expect(networkButton).not.toBeNull()
+  await act(async () => networkButton.click())
+  expect(
+    document.querySelector('[aria-label="Network stream URL"]')
+  ).not.toBeNull()
   expect(text).not.toContain("Eye video")
   expect(text).not.toContain("Try sample")
 })

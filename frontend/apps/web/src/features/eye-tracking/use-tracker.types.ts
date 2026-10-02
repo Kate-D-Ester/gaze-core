@@ -9,6 +9,8 @@ import type {
 export type TrackerSource = {
   kind: "camera" | "network" | "video" | "sample"
   name: string
+  /** Actual capture device, independent of a pending source-selector choice. */
+  deviceId?: string
 }
 
 export type TrackerRuntimeState = {

@@ -78,18 +78,88 @@ test("opens MJPEG directly from its network URL", async () => {
   expect(remainingFrames).toEqual(["JPEG2"])
 })
 
+test.each(["esp32.local", "192.168.1.11"])(
+  "retries the standard ESP32 stream port for %s after a default-port failure",
+  async (hostname) => {
+    const requested: string[] = []
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      requested.push(url)
+      if (!url.includes(":81/")) throw new TypeError("Failed to fetch")
+      return createMjpegResponse()
+    }
+    const source = await openNetworkSource(
+      `http://${hostname}/stream`,
+      new AbortController().signal
+    )
+    expect(requested).toEqual([
+      `http://${hostname}/stream`,
+      `http://${hostname}:81/stream`,
+    ])
+    expect(source.kind).toBe("mjpeg")
+    if (source.kind === "mjpeg") await source.frames.return(undefined)
+  }
+)
+
+test("retries port 81 when a local web server returns HTML instead of a stream", async () => {
+  const requested: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    requested.push(url)
+    if (url.includes(":81/")) return createMjpegResponse()
+    return new Response("Camera page", {
+      headers: { "Content-Type": "text/html" },
+    })
+  }
+  const source = await openNetworkSource(
+    "http://esp32.local/stream",
+    new AbortController().signal
+  )
+  expect(requested).toEqual([
+    "http://esp32.local/stream",
+    "http://esp32.local:81/stream",
+  ])
+  if (source.kind === "mjpeg") await source.frames.return(undefined)
+})
+
+test.each(["http://esp32.local:8080/stream", "https://camera.example/stream"])(
+  "never substitutes an explicit port or a public camera URL: %s",
+  async (url) => {
+    const requested: string[] = []
+    globalThis.fetch = async (input) => {
+      requested.push(String(input))
+      throw new TypeError("Failed to fetch")
+    }
+    await expect(
+      openNetworkSource(url, new AbortController().signal)
+    ).rejects.toThrow(/could not reach or read/)
+    expect(requested).toEqual([url])
+  }
+)
+
+test("cancelling a local-camera connection never starts the fallback request", async () => {
+  const requested: string[] = []
+  const controller = new AbortController()
+  globalThis.fetch = async (input) => {
+    requested.push(String(input))
+    controller.abort()
+    throw new DOMException("Stopped", "AbortError")
+  }
+  await expect(
+    openNetworkSource("http://esp32.local/stream", controller.signal)
+  ).rejects.toMatchObject({ name: "AbortError" })
+  expect(requested).toEqual(["http://esp32.local/stream"])
+})
+
 test("explains network, CORS, and default ESP32 stream port failures", async () => {
   globalThis.fetch = async () => {
     throw new TypeError("Failed to fetch")
   }
 
   await expect(
-    openNetworkSource(
-      "http://esp32.local/stream",
-      new AbortController().signal
-    )
+    openNetworkSource("http://esp32.local/stream", new AbortController().signal)
   ).rejects.toThrow(
-    /could not reach or read.*same network.*esp32\.local:81\/stream.*Access-Control-Allow-Origin/is
+    /could not reach or read.*esp32\.local:81\/stream.*same network.*Access-Control-Allow-Origin/is
   )
 })
 

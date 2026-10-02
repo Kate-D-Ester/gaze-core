@@ -1,4 +1,13 @@
-import { Crosshair, ChevronDown, RotateCcw, Download } from "lucide-react"
+import {
+  Crosshair,
+  ChevronDown,
+  RotateCcw,
+  Download,
+  Maximize2,
+  UserRound,
+} from "lucide-react"
+import { EyeActionButton } from "../components/eye-action-button"
+import { HelpTip } from "../components/help-tip"
 import type { LiveControlsProps } from "./live-controls.types"
 
 export function LiveControls({
@@ -7,6 +16,10 @@ export function LiveControls({
   screenPoint,
   validation,
   usable,
+  gazeMessage,
+  headCompensated,
+  onRetryHeadCalibration,
+  retryHeadDisabled = false,
   onFocus,
   onValidate,
   onRecalibrate,
@@ -17,7 +30,7 @@ export function LiveControls({
   let positionLabel = "Gaze is outside this view"
 
   if (!screenPoint) {
-    positionLabel = "Pupil lost"
+    positionLabel = gazeMessage
   } else if (onscreen) {
     positionLabel = "Screen position"
   }
@@ -44,47 +57,67 @@ export function LiveControls({
         <span>
           Y <b>{screenPoint ? `${(screenPoint[1] * 100).toFixed(1)}%` : "—"}</b>
         </span>
+        {headCompensated && (
+          <span
+            className="eye-status-indicator"
+            role="img"
+            aria-label="Head compensation active"
+            title="Head compensation active"
+            data-tooltip="Head compensation active"
+          >
+            <UserRound size={16} aria-hidden="true" />
+          </span>
+        )}
+        {!headCompensated && <span>Eye-only</span>}
       </div>
-      <button
-        className="eye-button primary"
-        disabled={!calibration}
-        onClick={onFocus}
-      >
-        Open gaze view
-        <Crosshair size={16} />
-      </button>
-      <button
-        className="eye-button secondary"
-        disabled={!usable || !calibration}
-        onClick={onValidate}
-      >
-        Validate with 5 points
-      </button>
+      <div className="eye-action-row" role="group" aria-label="Gaze actions">
+        <EyeActionButton
+          label="Open gaze view"
+          className="eye-button primary"
+          disabled={!calibration}
+          onClick={onFocus}
+        >
+          <Maximize2 size={17} aria-hidden="true" />
+        </EyeActionButton>
+        <EyeActionButton
+          label="Validate with 5 points"
+          disabled={!usable || !calibration}
+          onClick={onValidate}
+        >
+          <Crosshair size={17} aria-hidden="true" />
+        </EyeActionButton>
+        <EyeActionButton label="Recalibrate" onClick={onRecalibrate}>
+          <RotateCcw size={17} aria-hidden="true" />
+        </EyeActionButton>
+        {onRetryHeadCalibration && (
+          <EyeActionButton
+            label="Retry head movements"
+            disabled={!usable || retryHeadDisabled}
+            onClick={onRetryHeadCalibration}
+          >
+            <UserRound size={17} aria-hidden="true" />
+          </EyeActionButton>
+        )}
+        <EyeActionButton
+          label="Export result"
+          disabled={!frame}
+          onClick={onExport}
+        >
+          <Download size={17} aria-hidden="true" />
+        </EyeActionButton>
+      </div>
       <div className="eye-validation">
         <span>
-          {source?.kind === "sample"
-            ? "Simulated validation"
-            : "Validation error"}
+          {source?.kind === "sample" ? "Simulated error" : "Validation error"}
         </span>
         <strong>
-          {validation === null
-            ? "Not measured"
-            : `${validation.toFixed(0)} px RMS`}
+          {validation === null ? "—" : `${validation.toFixed(0)} px RMS`}
         </strong>
-        <small>
-          {calibration
-            ? `${(calibration.validationError * 100).toFixed(1)}% held-out calibration error`
-            : ""}
-        </small>
+        <HelpTip
+          label="Validation details"
+          text={`Five-point validation reports pixel RMS error. Held-out calibration error: ${calibration ? (calibration.validationError * 100).toFixed(1) + "%" : "not measured"}.`}
+        />
       </div>
-      <button className="eye-text-button" onClick={onRecalibrate}>
-        <RotateCcw size={14} />
-        Recalibrate
-      </button>
-      <button className="eye-text-button" disabled={!frame} onClick={onExport}>
-        <Download size={14} />
-        Export result
-      </button>
       <details className="eye-details">
         <summary>
           Gaze vector
@@ -95,10 +128,10 @@ export function LiveControls({
             ? frame.gaze.direction.map((v) => v.toFixed(4)).join(", ")
             : "No valid gaze"}
         </code>
-        <p className="eye-small">
-          Camera coordinates: right, down, away. Direction is a unit vector.
-          Screen position uses your calibration.
-        </p>
+        <HelpTip
+          label="Gaze vector help"
+          text="Camera coordinates: right, down, away. Direction is a unit vector; screen position uses your calibration."
+        />
       </details>
     </>
   )

@@ -1,5 +1,6 @@
-import { ChevronDown, RotateCcw, X } from "lucide-react"
-import { useState } from "react"
+import { ChevronDown, RotateCcw, ScanEye } from "lucide-react"
+import { EyeActionButton } from "../components/eye-action-button"
+import { HelpTip } from "../components/help-tip"
 import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
 import type { Point } from "../eye-tracking.types"
@@ -12,7 +13,6 @@ export function ModelControls({
   setNotice,
 }: ModelControlsProps) {
   const { settings, frame } = tracker
-  const [showCornerInstructions, setShowCornerInstructions] = useState(true)
   const lockStatus = getEyeModelLockStatus(
     frame?.model ?? null,
     frame?.width ?? 0,
@@ -35,48 +35,40 @@ export function ModelControls({
     modelHeading = "Ready to lock."
     modelGuidance = "The eye model has a stable fit across enough movement."
   }
-  let cornerHeading = "Create the eye model."
-  let cornerDescription = "Choose Create, then click both eye corners."
+  let cornerDescription = "Pick two eye corners."
   if (corner) {
-    cornerHeading = "Choose the opposite eye corner."
-    cornerDescription = "The first point is marked. Click the opposite corner."
+    cornerDescription = "Pick the opposite corner."
   } else if (settings.corners) {
-    cornerHeading = "Eye model points saved."
-    cornerDescription =
-      "Choose Edit to move or resize the model. Choose Create to replace both points."
+    cornerDescription = "Points saved."
+  }
+  function resetCorners(): void {
+    update({
+      corners: [
+        [
+          settings.roi.x + settings.roi.width * 0.15,
+          settings.roi.y + settings.roi.height * 0.5,
+        ],
+        [
+          settings.roi.x + settings.roi.width * 0.85,
+          settings.roi.y + settings.roi.height * 0.5,
+        ],
+      ],
+    })
   }
   return (
     <>
       <SpherePreview frame={frame} />
       {settings.format === "classic" ? (
         <>
-          {showCornerInstructions && (
-            <aside
-              className="eye-corner-instructions"
-              aria-label="Manual eye corner instructions"
-              role="note"
-            >
-              <div>
-                <strong>Create or edit the eye model</strong>
-                <p>
-                  Choose Create and click the inner, then outer eye corner. Edit
-                  lets you drag a + endpoint to resize the circle, or drag
-                  inside it to move the model.
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Dismiss corner instructions"
-                onClick={() => setShowCornerInstructions(false)}
-              >
-                <X size={14} />
-              </button>
-            </aside>
-          )}
-          <h3>{cornerHeading}</h3>
-          <p className="eye-muted" role="status" aria-live="polite">
-            {cornerDescription}
-          </p>
+          <div className="eye-guidance-row">
+            <p className="eye-muted" role="status" aria-live="polite">
+              {cornerDescription}
+            </p>
+            <HelpTip
+              label="Manual eye model help"
+              text="Create: pick the inner, then outer eye corner. Edit: drag a red + to resize, or drag inside the circle to move."
+            />
+          </div>
           <div className="eye-number-grid">
             {[0, 1].map((i) => (
               <label className="eye-field" key={i}>
@@ -98,30 +90,15 @@ export function ModelControls({
               </label>
             ))}
           </div>
-          <button
-            className="eye-text-button"
-            onClick={() =>
-              update({
-                corners: [
-                  [
-                    settings.roi.x + settings.roi.width * 0.15,
-                    settings.roi.y + settings.roi.height * 0.5,
-                  ],
-                  [
-                    settings.roi.x + settings.roi.width * 0.85,
-                    settings.roi.y + settings.roi.height * 0.5,
-                  ],
-                ],
-              })
-            }
-          >
-            Use region-based starting corners
-          </button>
         </>
       ) : (
         <>
-          <h3>{modelHeading}</h3>
-          <p className="eye-muted">{modelGuidance}</p>
+          <div className="eye-guidance-row">
+            <p className="eye-muted" role="status">
+              {modelHeading}
+            </p>
+            <HelpTip label="Eye model readiness help" text={modelGuidance} />
+          </div>
           <div
             className="eye-progress-track"
             role="progressbar"
@@ -134,16 +111,29 @@ export function ModelControls({
           </div>
         </>
       )}
-      <button
-        className="eye-button secondary"
-        onClick={() => {
-          update({ locked: false })
-          setNotice("Look around to rebuild.")
-        }}
+      <div
+        className="eye-action-row"
+        role="group"
+        aria-label="Eye model actions"
       >
-        <RotateCcw size={15} />
-        Rebuild model
-      </button>
+        {settings.format === "classic" && (
+          <EyeActionButton
+            label="Reset corners to the eye region"
+            onClick={resetCorners}
+          >
+            <ScanEye size={17} aria-hidden="true" />
+          </EyeActionButton>
+        )}
+        <EyeActionButton
+          label="Rebuild model"
+          onClick={() => {
+            update({ locked: false })
+            setNotice("Look around to rebuild.")
+          }}
+        >
+          <RotateCcw size={17} aria-hidden="true" />
+        </EyeActionButton>
+      </div>
       {settings.format === "spatial" && (
         <details className="eye-details">
           <summary>
@@ -151,7 +141,7 @@ export function ModelControls({
             <ChevronDown size={14} />
           </summary>
           <label className="eye-field">
-            Vertical field of view · degrees
+            Field of view · °
             <input
               type="number"
               min="10"
@@ -164,7 +154,7 @@ export function ModelControls({
             />
           </label>
           <label className="eye-field">
-            Assumed eye radius · mm
+            Eye radius · mm
             <input
               type="number"
               min="8"
@@ -177,10 +167,10 @@ export function ModelControls({
               }}
             />
           </label>
-          <p className="eye-small">
-            45° and 12 mm are model assumptions. Use your camera’s measured
-            field of view for a better scale estimate.
-          </p>
+          <HelpTip
+            label="Camera geometry help"
+            text="45° and 12 mm are assumptions. Use the measured camera field of view for a better scale estimate."
+          />
         </details>
       )}
     </>

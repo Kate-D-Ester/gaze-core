@@ -50,23 +50,45 @@ afterEach(async () => {
   host.remove()
 })
 
-test("manual corner instructions can be dismissed and return on re-entry", async () => {
-  expect(host.textContent).toContain("Create or edit the eye model")
-  expect(host.textContent).toContain("Choose Create and click the inner")
-  expect(host.textContent).toContain("drag a + endpoint to resize the circle")
-  expect(host.textContent).toContain("drag inside it to move the model")
-
-  const dismiss = host.querySelector<HTMLButtonElement>(
-    '[aria-label="Dismiss corner instructions"]'
+test("manual corner help opens on tap, dismisses with Escape, and remains available on re-entry", async () => {
+  const help = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Manual eye model help"]'
+  )!
+  const tip = help.closest(".eye-help-tip")!
+  const description = host.querySelector(
+    `#${help.getAttribute("aria-describedby")}`
+  )!
+  expect(description.getAttribute("role")).toBe("tooltip")
+  expect(description.textContent).toContain("drag a red + to resize")
+  expect(description.textContent).toContain("drag inside the circle to move")
+  expect(tip.hasAttribute("data-open")).toBe(false)
+  await act(async () => help.click())
+  expect(tip.hasAttribute("data-open")).toBe(true)
+  const floating = document.querySelector(".eye-floating-tooltip")
+  expect(floating).not.toBeNull()
+  expect(floating?.parentElement).toBe(document.body)
+  expect(floating?.textContent).toContain("drag a red + to resize")
+  await act(async () =>
+    help.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    )
   )
-  expect(dismiss).not.toBeNull()
-  await act(async () => dismiss?.click())
-  expect(host.textContent).not.toContain("Place two eye-corner points")
+  expect(tip.hasAttribute("data-open")).toBe(false)
+  expect(tip.hasAttribute("data-dismissed")).toBe(true)
+  expect(document.querySelector(".eye-floating-tooltip")).toBeNull()
+  await act(async () => help.click())
+  expect(tip.hasAttribute("data-open")).toBe(true)
+  expect(tip.hasAttribute("data-dismissed")).toBe(false)
 
   await act(async () => root?.unmount())
   root = null
   await act(async () => renderModelControls())
-  expect(host.textContent).toContain("Create or edit the eye model")
+  expect(
+    host.querySelector('[aria-label="Manual eye model help"]')
+  ).not.toBeNull()
+  expect(host.querySelector(".eye-help-tip")?.hasAttribute("data-open")).toBe(
+    false
+  )
 })
 
 test("manual corner status announces that point 2 is next", async () => {
@@ -74,8 +96,7 @@ test("manual corner status announces that point 2 is next", async () => {
 
   const status = host.querySelector('[role="status"]')
   expect(status).not.toBeNull()
-  expect(status?.textContent).toContain("first point is marked")
-  expect(status?.textContent).toContain("opposite corner")
+  expect(status?.textContent).toBe("Pick the opposite corner.")
 })
 
 test("auto model guidance says how many more directions are needed", async () => {

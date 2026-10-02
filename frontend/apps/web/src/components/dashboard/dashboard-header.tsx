@@ -14,7 +14,7 @@ export function DashboardHeader({
           Signed in as {session?.user?.email}
         </p>
       </div>
-      <a href="/trial" className="text-sm underline">
+      <a href="/trial/screen-eye-tracking" className="text-sm underline">
         Try it out
       </a>
       <Button variant="outline" disabled={busy} onClick={onSignOut}>

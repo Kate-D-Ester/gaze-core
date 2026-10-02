@@ -1,6 +1,6 @@
 # GazeCore
 
-GazeCore provides a browser-based eye-tracking experience and a separate auth/API-key service. Eye tracking is available at `/trial`; `/v2` redirects there for older links.
+GazeCore provides a browser-based eye-tracking experience and a separate auth/API-key service. Eye tracking is available at `/trial/screen-eye-tracking`; `/v2` redirects there for older links.
 
 ## Try eye tracking
 
@@ -14,6 +14,6 @@ Open `http://localhost:4001/trial`. Camera access requires localhost or HTTPS an
 
 ## Auth and API keys
 
-The dashboard, Google/email authentication, and API-key management use the separate backend service. Follow [the backend setup guide](backend/README.md) to configure its environment and database. The `/trial` eye-tracking experience can run without that service.
+The dashboard, Google/email authentication, and API-key management use the separate backend service. Follow [the backend setup guide](backend/README.md) to configure its environment and database. The `/trial/screen-eye-tracking` eye-tracking experience can run without that service.
 
 See [Eye tracking V2](docs/eye-tracking-v2.md) for the tracker workflow, models, limitations, and validation details.

@@ -72,8 +72,4 @@ export type TrackingFrame = {
   gaze: Gaze | null
   processingMs: number
 }
-export type CalibrationSample = { feature: Point; target: Point }
-export type Calibration = {
-  coefficients: [number[], number[]]
-  validationError: number
-}
+export type { CalibrationSample, Calibration } from "./calibration.types"
