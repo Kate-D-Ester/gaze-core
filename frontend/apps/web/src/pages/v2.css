@@ -1864,3 +1864,6 @@
     transition: none !important;
   }
 }
+
+.remote-trial-link { color: var(--primary); font-size: 12px; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+@media(max-width:640px) { .eye-header-right:has(.remote-trial-link) .eye-local { display: none; } }

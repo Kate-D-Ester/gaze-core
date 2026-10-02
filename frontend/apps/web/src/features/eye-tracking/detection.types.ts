@@ -12,6 +12,11 @@ export type CvOwnedObject = {
 export type PupilDetectionOptions = {
   thresholdMode?: "auto" | "manual"
   expectedCenter?: Point
+  /** Hard anatomical bounds apply before candidate ranking and to temporal recovery. */
+  maxRadius?: number
+  centerRadius?: number
+  /** Current visible eye opening; exclude lids, canthi and skin candidates. */
+  centerRegion?: Point[]
   previous?: Ellipse | null
   previousAgeMs?: number
   previousShapeAgeMs?: number
@@ -19,6 +24,8 @@ export type PupilDetectionOptions = {
   pupilIntensity?: number
   /** Lower interior quantile; distinguishes pupil variation from darker lashes. */
   pupilIntensityLow?: number
+  /** Full-rim exterior brightness; prevents an occluding highlight becoming a pupil edge. */
+  pupilReflectionLimit?: number
   /** Periodically compare an inferred shape with independent full-ROI detection. */
   refreshShape?: boolean
   /** Last independently detected shape; limits gradual drift during rim tracking. */

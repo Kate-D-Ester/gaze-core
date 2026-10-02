@@ -383,6 +383,7 @@ export function V2Page() {
           GazeCore<span className="eye-version">V2</span>
         </Link>
         <div className="eye-header-right">
+          <Link to="/trial/remote-eye-tracking" className="remote-trial-link">Remote eye tracking</Link>
           <span className="eye-local">
             <span className="status-light on" />
             On-device processing

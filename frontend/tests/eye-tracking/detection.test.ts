@@ -1321,3 +1321,80 @@ test("a broad reflection cannot turn a pupil fragment into a displaced ellipse",
   expect(Math.abs(result.ellipse!.major - 35)).toBeLessThan(3)
   expect(Math.abs(result.ellipse!.minor - 29)).toBeLessThan(3)
 })
+
+test("anatomical bounds exclude stronger distractors before choosing the pupil", () => {
+  const data = movingEye(210, 150, 60, false)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++) {
+      if ((x - 120) ** 2 / 35 ** 2 + (y - 120) ** 2 / 24 ** 2 <= 1)
+        data[y * 320 + x] = 5
+    }
+  const unbounded = detectSpatialPupil(cv, data, 320, 240, 0)
+  expect(unbounded.ellipse!.center[0]).toBeLessThan(150)
+  for (const bounds of [
+    { maxRadius: 22 },
+    { expectedCenter: [190, 145] as Point, centerRadius: 45 },
+  ]) {
+    const result = detectSpatialPupil(cv, data, 320, 240, 0, bounds)
+    expect(result.ellipse).not.toBeNull()
+    expect(
+      Math.hypot(
+        result.ellipse!.center[0] - 210,
+        result.ellipse!.center[1] - 150
+      )
+    ).toBeLessThan(2)
+  }
+})
+
+test("anatomical bounds also apply to a recently tracked pupil", () => {
+  const data = movingEye(160, 120, 45, false)
+  const previous = detectSpatialPupil(cv, data, 320, 240, 0).ellipse!
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    previous,
+    maxRadius: 10,
+    expectedCenter: [60, 60],
+    centerRadius: 25,
+  })
+  expect(result.ellipse).toBeNull()
+})
+
+test("current eye aperture excludes an eyelid shadow without hiding a pupil", () => {
+  const data = movingEye(190, 145, 60, false)
+  for (let y = 0; y < 240; y++)
+    for (let x = 0; x < 320; x++)
+      if ((x - 165) ** 2 / 28 ** 2 + (y - 90) ** 2 / 17 ** 2 <= 1)
+        data[y * 320 + x] = 5
+  const result = detectSpatialPupil(cv, data, 320, 240, 0, {
+    centerRegion: [
+      [90, 135],
+      [150, 113],
+      [220, 116],
+      [265, 135],
+      [220, 175],
+      [150, 175],
+    ],
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 190, result.ellipse!.center[1] - 145)
+  ).toBeLessThan(2)
+})
+
+test("a source-resolution distant pupil survives mask cleanup in a small eye crop", () => {
+  const width = 84,
+    height = 36,
+    data = new Uint8Array(width * height).fill(170)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++)
+      if (((x - 42) / 4.5) ** 2 + ((y - 18) / 3.5) ** 2 <= 1)
+        data[y * width + x] = 130
+  const result = detectSpatialPupil(cv, data, width, height, 0, {
+    maxRadius: 13,
+    expectedCenter: [42, 18],
+    centerRadius: 20,
+  })
+  expect(result.ellipse).not.toBeNull()
+  expect(
+    Math.hypot(result.ellipse!.center[0] - 42, result.ellipse!.center[1] - 18)
+  ).toBeLessThan(1)
+})

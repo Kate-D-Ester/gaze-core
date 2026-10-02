@@ -219,3 +219,14 @@ export function fitEyeCenter(
   )
   return { center, inliers: best.map((l) => l.e), residual }
 }
+
+export function pointInPolygon([x, y]: Point, polygon: Point[]): boolean {
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [ax, ay] = polygon[i],
+      [bx, by] = polygon[j]
+    if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax)
+      inside = !inside
+  }
+  return inside
+}
