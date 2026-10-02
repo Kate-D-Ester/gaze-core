@@ -38,6 +38,8 @@ export type Detection = {
   /** Glint-excluded dark interior quantile, measured from the current full fit. */
   pupilIntensity?: number
   pupilIntensityLow?: number
+  /** Glare ceiling learned only from a fresh accepted full pupil and its surroundings. */
+  pupilReflectionLimit?: number
   /** A full-ROI search was performed even if a measured partial rim ultimately won. */
   fullShapeSearched?: boolean
   /** Visible feedback only; never used to fit the eye model or produce gaze. */

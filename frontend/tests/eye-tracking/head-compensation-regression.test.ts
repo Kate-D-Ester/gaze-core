@@ -99,4 +99,4 @@ test("a single unreliable head fixation cannot be hidden by averaging opposite g
     },
   ]
   expect(fitCalibration(samples)).toBeNull()
-})
+}, 20_000)

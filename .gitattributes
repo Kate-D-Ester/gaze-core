@@ -1,0 +1,2 @@
+# Keep the upstream runtime byte-for-byte identical; its generated whitespace is not authored code.
+frontend/apps/web/public/models/remote-eye-tracking/mediapipe/vision_wasm_module_internal.js -whitespace linguist-vendored=true
