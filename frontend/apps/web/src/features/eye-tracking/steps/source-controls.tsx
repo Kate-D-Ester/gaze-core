@@ -1,9 +1,15 @@
+import { LoaderCircle, Plug, RefreshCw, X } from "lucide-react"
+import { CameraSpinnerStyles } from "../../tracking-ui/camera-styles"
+import {
+  EyeActionIconStyles,
+  EyeButtonStyles,
+  EyeFieldStyles,
+  EyeSourceActionsStyles,
+} from "../../tracking-ui/control-styles"
+import { CameraSourceType } from "../components/camera-source-type"
 import { SavedCameraOption } from "../components/saved-camera-option"
 import { useCameraSourcePreferences } from "../use-camera-source-preferences"
-import { LoaderCircle, Plug, RefreshCw, X } from "lucide-react"
-import { CameraSourceType } from "../components/camera-source-type"
 import type { SourceControlsProps } from "./source-controls.types"
-
 export function SourceControls({
   tracker,
   role = "eye",
@@ -20,30 +26,33 @@ export function SourceControls({
   } = useCameraSourcePreferences(role, tracker.source)
   const cameras = tracker.devices.filter((device) => device.deviceId)
   let previewButtonLabel = "Connect"
-
   if (tracker.source) {
     previewButtonLabel = "Reconnect"
   }
   if (tracker.busy) {
     previewButtonLabel = "Connecting…"
   }
-  if (tracker.connection === "reconnecting")
+  if (tracker.connection === "reconnecting") {
     previewButtonLabel = "Reconnecting…"
+  }
   let ConnectionIcon = tracker.source ? RefreshCw : Plug
-  if (tracker.busy) ConnectionIcon = LoaderCircle
-
+  if (tracker.busy) {
+    ConnectionIcon = LoaderCircle
+  }
   function startPreview() {
     resetSource()
-    if (kind === "usb") void tracker.startCamera(deviceId, excludedDeviceId)
-    else void tracker.startNetworkStream(streamUrl)
+    if (kind === "usb") {
+      void tracker.startCamera(deviceId, excludedDeviceId)
+    } else {
+      void tracker.startNetworkStream(streamUrl)
+    }
   }
-
   return (
     <>
       <CameraSourceType value={kind} onChange={setKind} />
 
       {kind === "usb" ? (
-        <label className="eye-field">
+        <label className={`eye-field ${EyeFieldStyles}`}>
           <select
             aria-label="Eye camera"
             value={deviceId}
@@ -66,7 +75,7 @@ export function SourceControls({
           </select>
         </label>
       ) : (
-        <label className="eye-field">
+        <label className={`eye-field ${EyeFieldStyles}`}>
           <input
             aria-label="Network stream URL"
             type="url"
@@ -77,9 +86,9 @@ export function SourceControls({
         </label>
       )}
 
-      <div className="eye-source-actions">
+      <div className={`eye-source-actions ${EyeSourceActionsStyles}`}>
         <button
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           disabled={
             tracker.busy ||
             !tracker.engineReady ||
@@ -88,7 +97,9 @@ export function SourceControls({
           onClick={startPreview}
         >
           <ConnectionIcon
-            className={tracker.busy ? "camera-spinner" : undefined}
+            className={
+              tracker.busy ? `camera-spinner ${CameraSpinnerStyles}` : undefined
+            }
             size={16}
             aria-hidden="true"
           />
@@ -96,7 +107,7 @@ export function SourceControls({
         </button>
         {tracker.busy && (
           <button
-            className="eye-button secondary eye-action-icon"
+            className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
             aria-label="Cancel connection"
             title="Cancel connection"
             data-tooltip="Cancel connection"

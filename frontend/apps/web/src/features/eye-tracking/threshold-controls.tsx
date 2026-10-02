@@ -1,8 +1,18 @@
-import { useState, type CSSProperties } from "react"
 import { SlidersHorizontal, WandSparkles } from "lucide-react"
+import { useState, type CSSProperties } from "react"
+import {
+  EyeThresholdControlRowStyles,
+  EyeThresholdControlsStyles,
+  EyeThresholdFieldLabelStyles,
+  EyeThresholdHeadingStyles,
+  EyeThresholdModesStyles,
+  EyeThresholdSliderStyles,
+  EyeThresholdTitleStyles,
+  EyeThresholdTuningStyles,
+  EyeThresholdValueStyles,
+} from "../tracking-ui/threshold-styles"
 import { HelpTip } from "./components/help-tip"
 import type { ThresholdControlsProps } from "./threshold-controls.types"
-
 export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
   const { settings, frame } = tracker
   const spatial = settings.format === "spatial"
@@ -14,18 +24,18 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
   const progress = ((value - minimum) / (maximum - minimum)) * 100
   const selected = frame?.detection.previews[frame.detection.selected]
   const commit = () => {
-    if (draft !== null && draft !== settings.threshold)
+    if (draft !== null && draft !== settings.threshold) {
       update({ threshold: Math.max(minimum, Math.min(maximum, draft)) })
+    }
     setDraft(null)
   }
-
   return (
     <section
-      className="eye-threshold-controls"
+      className={`eye-threshold-controls ${EyeThresholdControlsStyles}`}
       aria-label="Threshold adjustment"
     >
-      <div className="eye-threshold-heading">
-        <div className="eye-threshold-title">
+      <div className={`eye-threshold-heading ${EyeThresholdHeadingStyles}`}>
+        <div className={`eye-threshold-title ${EyeThresholdTitleStyles}`}>
           <strong>Threshold</strong>
         </div>
         <HelpTip
@@ -37,10 +47,10 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
           }
         />
       </div>
-      <div className="eye-threshold-tuning">
+      <div className={`eye-threshold-tuning ${EyeThresholdTuningStyles}`}>
         {spatial && (
           <div
-            className="eye-threshold-modes"
+            className={`eye-threshold-modes ${EyeThresholdModesStyles}`}
             role="group"
             aria-label="Threshold mode"
           >
@@ -50,7 +60,9 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
               data-tooltip="Automatic threshold"
               aria-pressed={!manual}
               onClick={() => {
-                if (!manual) return
+                if (!manual) {
+                  return
+                }
                 setDraft(null)
                 update({ thresholdMode: "auto", threshold: 0 })
               }}
@@ -63,7 +75,9 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
               data-tooltip="Manual threshold"
               aria-pressed={manual}
               onClick={() => {
-                if (manual) return
+                if (manual) {
+                  return
+                }
                 setDraft(null)
                 update({
                   thresholdMode: "manual",
@@ -75,16 +89,18 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
             </button>
           </div>
         )}
-        <div className="eye-threshold-control-row">
+        <div
+          className={`eye-threshold-control-row ${EyeThresholdControlRowStyles}`}
+        >
           <label
-            className="eye-threshold-field-label"
+            className={`eye-threshold-field-label ${EyeThresholdFieldLabelStyles}`}
             htmlFor="eye-threshold-range"
           >
             {manual ? "Cutoff" : "Bias"}
           </label>
           <input
             id="eye-threshold-range"
-            className="eye-threshold-slider"
+            className={`eye-threshold-slider ${EyeThresholdSliderStyles}`}
             type="range"
             aria-label={manual ? "Pupil threshold" : "Auto threshold bias"}
             aria-valuetext={
@@ -100,7 +116,7 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
             }}
           />
           <input
-            className="eye-threshold-value"
+            className={`eye-threshold-value ${EyeThresholdValueStyles}`}
             type="number"
             aria-label="Threshold value"
             min={minimum}
@@ -112,7 +128,9 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
             }}
             onBlur={commit}
             onKeyDown={(event) => {
-              if (event.key === "Enter") commit()
+              if (event.key === "Enter") {
+                commit()
+              }
             }}
           />
         </div>

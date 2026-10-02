@@ -1,13 +1,18 @@
-import { useState } from "react"
 import { MoveHorizontal, MoveVertical, RotateCcw } from "lucide-react"
+import { useState } from "react"
+import {
+  GazeOffsetAxisStyles,
+  GazeOffsetControlsStyles,
+  GazeOffsetHeadingStyles,
+  GazeOffsetLabelStyles,
+  GazeOffsetResetStyles,
+} from "../../tracking-ui/control-styles"
 import { offsetFromPixels } from "../gaze-offset"
 import type { GazeOffsetAxis } from "../gaze-offset.types"
 import type {
   GazeOffsetControlsProps,
   GazeOffsetEdit,
 } from "./gaze-offset-controls.types"
-import "./gaze-offset-controls.css"
-
 const AXES = [
   {
     index: 0,
@@ -22,7 +27,6 @@ const AXES = [
     help: "Negative moves up; positive moves down",
   },
 ] as const
-
 export function GazeOffsetControls({
   offset,
   width,
@@ -38,26 +42,24 @@ export function GazeOffsetControls({
     !Number.isFinite(height) ||
     width <= 0 ||
     height <= 0
-
   function changePixels(axis: GazeOffsetAxis, value: number): void {
     const next = offsetFromPixels(offset, axis, value, dimensions[axis]!)
     if (next !== offset) {
       onChange(next)
     }
   }
-
   return (
     <section
-      className="gaze-offset-controls"
+      className={`gaze-offset-controls ${GazeOffsetControlsStyles}`}
       aria-label="Gaze position adjustment"
     >
-      <div className="gaze-offset-heading">
+      <div className={`gaze-offset-heading ${GazeOffsetHeadingStyles}`}>
         <span>
           Gaze offset <small>· px</small>
         </span>
         <button
           type="button"
-          className="gaze-offset-reset"
+          className={`gaze-offset-reset ${GazeOffsetResetStyles}`}
           aria-label="Reset gaze offset"
           title="Reset gaze offset"
           data-tooltip="Reset gaze offset"
@@ -78,8 +80,14 @@ export function GazeOffsetControls({
           value = editing.value
         }
         return (
-          <div className="gaze-offset-axis" key={label}>
-            <span className="gaze-offset-label" title={help}>
+          <div
+            className={`gaze-offset-axis ${GazeOffsetAxisStyles}`}
+            key={label}
+          >
+            <span
+              className={`gaze-offset-label ${GazeOffsetLabelStyles}`}
+              title={help}
+            >
               <Icon size={14} aria-hidden="true" />
               {label}
             </span>

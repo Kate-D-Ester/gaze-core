@@ -1,4 +1,3 @@
-import { useEffect, useState, useSyncExternalStore } from "react"
 import {
   ChartNoAxesCombined,
   Download,
@@ -9,20 +8,30 @@ import {
   Trash2,
   Video,
 } from "lucide-react"
+import { useEffect, useState, useSyncExternalStore } from "react"
+import { isDefaultCameraTransform } from "../eye-tracking/camera-transform"
 import { HelpTip } from "../eye-tracking/components/help-tip"
-import type { TrackerController } from "../eye-tracking/use-tracker.types"
-import type { SceneCamera } from "./scene-camera"
-import type { SceneSessionSnapshot } from "./scene-session"
+import { CameraSpinnerStyles } from "../tracking-ui/camera-styles"
+import {
+  EyeButtonStyles,
+  EyeGuidanceRowStyles,
+  EyeTextButtonStyles,
+} from "../tracking-ui/control-styles"
+import {
+  SceneCheckboxStyles,
+  SceneDownloadsStyles,
+  SceneHeatmapStyles,
+  SceneRecordingStyles,
+} from "../tracking-ui/scene-styles"
+import { download } from "./download"
+import { heatmapCanvas } from "./heatmap"
+import type { RecordingControlsProps } from "./recording-controls.types"
 import {
   canUseSceneCalibration,
   hasCurrentAccuracyCheck,
 } from "./scene-session"
-import type { HandObservation } from "./scene.types"
-import { SessionRecorder } from "./session-recorder"
 import { exportSessionCsv, exportSessionJson } from "./session"
-import { heatmapCanvas } from "./heatmap"
-import { isDefaultCameraTransform } from "../eye-tracking/camera-transform"
-import { download } from "./download"
+import { SessionRecorder } from "./session-recorder"
 export function RecordingControls({
   camera,
   tracker,
@@ -30,18 +39,11 @@ export function RecordingControls({
   hand,
   identity,
   onRecordingChange,
-}: {
-  camera: SceneCamera
-  tracker: TrackerController
-  state: SceneSessionSnapshot
-  hand: HandObservation | null
-  identity: string
-  onRecordingChange?: (recording: boolean) => void
-}) {
-  const [recorder] = useState(() => new SessionRecorder()),
-    [withEye, setWithEye] = useState(false),
-    [heatmapUrl, setHeatmapUrl] = useState<string | null>(null),
-    [exportError, setExportError] = useState("")
+}: RecordingControlsProps) {
+  const [recorder] = useState(() => new SessionRecorder())
+  const [withEye, setWithEye] = useState(false)
+  const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null)
+  const [exportError, setExportError] = useState("")
   const recording = useSyncExternalStore(
     recorder.subscribe,
     recorder.getSnapshot
@@ -56,14 +58,16 @@ export function RecordingControls({
     )
   }, [identity, recorder])
   useEffect(() => {
-    if (!state.calibration)
+    if (!state.calibration) {
       void recorder.stop("Calibration changed. The recording was finalized.")
+    }
   }, [state.calibration, recorder])
   useEffect(() => {
-    if (!canRecord)
+    if (!canRecord) {
       void recorder.stop(
         "Accuracy needs to be checked before continuing recording."
       )
+    }
   }, [canRecord, recorder])
   useEffect(() => {
     void recorder.stop("Gaze offset changed. The recording was finalized.")
@@ -77,7 +81,9 @@ export function RecordingControls({
   useEffect(() => () => recorder.dispose(), [recorder])
   useEffect(
     () => () => {
-      if (heatmapUrl) URL.revokeObjectURL(heatmapUrl)
+      if (heatmapUrl) {
+        URL.revokeObjectURL(heatmapUrl)
+      }
     },
     [heatmapUrl]
   )
@@ -85,9 +91,11 @@ export function RecordingControls({
     setHeatmapUrl(null)
     setExportError("")
     let accuracy = "one-point-estimate"
-    if (hasCurrentAccuracyCheck(state)) accuracy = "independently-checked"
-    else if (state.reusedCalibration)
+    if (hasCurrentAccuracyCheck(state)) {
+      accuracy = "independently-checked"
+    } else if (state.reusedCalibration) {
       accuracy = "reused-calibration-not-rechecked"
+    }
     recorder.start(
       camera.rawCanvas,
       tracker.sourceCanvas.current,
@@ -121,17 +129,19 @@ export function RecordingControls({
   }
   async function heatmap() {
     try {
-      const log = recording.log,
-        background = recording.background
-      if (!log || !background) return
-      const canvas = heatmapCanvas(log.measurements, background),
-        blob = await new Promise<Blob>((resolve, reject) =>
-          canvas.toBlob(
-            (value) =>
-              value ? resolve(value) : reject(new Error("PNG export failed.")),
-            "image/png"
-          )
+      const log = recording.log
+      const background = recording.background
+      if (!log || !background) {
+        return
+      }
+      const canvas = heatmapCanvas(log.measurements, background)
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (value) =>
+            value ? resolve(value) : reject(new Error("PNG export failed.")),
+          "image/png"
         )
+      )
       setHeatmapUrl(URL.createObjectURL(blob))
       download(blob, "scene-gaze-heatmap.png")
     } catch (error) {
@@ -141,10 +151,21 @@ export function RecordingControls({
     }
   }
   let recordLabel = recording.log ? "New recording" : "Record"
-  if (recording.finalizing) recordLabel = "Saving…"
+  if (recording.finalizing) {
+    recordLabel = "Saving…"
+  }
+  const recordingActionIcon = recording.finalizing ? (
+    <LoaderCircle
+      className={`camera-spinner ${CameraSpinnerStyles}`}
+      size={16}
+      aria-hidden="true"
+    />
+  ) : (
+    <Video size={16} aria-hidden="true" />
+  )
   return (
-    <div className="scene-recording">
-      <div className="eye-guidance-row">
+    <div className={`scene-recording ${SceneRecordingStyles}`}>
+      <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
         <h3>Recording</h3>
         <HelpTip
           label="Recording help"
@@ -152,7 +173,7 @@ export function RecordingControls({
         />
       </div>
       {!recording.recording && (
-        <label className="scene-checkbox">
+        <label className={`scene-checkbox ${SceneCheckboxStyles}`}>
           <input
             type="checkbox"
             checked={withEye}
@@ -169,7 +190,7 @@ export function RecordingControls({
             {recording.log?.measurements.length ?? 0} samples
           </p>
           <button
-            className="eye-button primary"
+            className={`eye-button ${EyeButtonStyles} primary`}
             onClick={() => void recorder.stop()}
           >
             <Square size={15} aria-hidden="true" /> Stop
@@ -177,19 +198,11 @@ export function RecordingControls({
         </>
       ) : (
         <button
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           disabled={!canRecord || !camera.latest || recording.finalizing}
           onClick={start}
         >
-          {recording.finalizing ? (
-            <LoaderCircle
-              className="camera-spinner"
-              size={16}
-              aria-hidden="true"
-            />
-          ) : (
-            <Video size={16} aria-hidden="true" />
-          )}
+          {recordingActionIcon}
           {recordLabel}
         </button>
       )}
@@ -199,10 +212,10 @@ export function RecordingControls({
         </p>
       )}
       {recording.log && !recording.recording && !recording.finalizing && (
-        <div className="scene-downloads">
+        <div className={`scene-downloads ${SceneDownloadsStyles}`}>
           {recording.sceneUrl && (
             <a
-              className="eye-button secondary"
+              className={`eye-button ${EyeButtonStyles} secondary`}
               href={recording.sceneUrl}
               download={`scene-raw.${recording.sceneVideo!.extension}`}
             >
@@ -211,7 +224,7 @@ export function RecordingControls({
           )}
           {recording.eyeUrl && (
             <a
-              className="eye-button secondary"
+              className={`eye-button ${EyeButtonStyles} secondary`}
               href={recording.eyeUrl}
               download={`eye-raw.${recording.eyeVideo!.extension}`}
             >
@@ -219,7 +232,7 @@ export function RecordingControls({
             </a>
           )}
           <button
-            className="eye-button secondary"
+            className={`eye-button ${EyeButtonStyles} secondary`}
             onClick={() =>
               download(
                 new Blob([exportSessionCsv(recording.log!)], {
@@ -232,7 +245,7 @@ export function RecordingControls({
             <FileSpreadsheet size={16} aria-hidden="true" /> CSV
           </button>
           <button
-            className="eye-button secondary"
+            className={`eye-button ${EyeButtonStyles} secondary`}
             onClick={() =>
               download(
                 new Blob([exportSessionJson(recording.log!)], {
@@ -245,7 +258,7 @@ export function RecordingControls({
             <FileJson size={16} aria-hidden="true" /> JSON
           </button>
           <button
-            className="eye-button secondary"
+            className={`eye-button ${EyeButtonStyles} secondary`}
             disabled={
               !recording.background ||
               !recording.log.measurements.some((m) => m.valid)
@@ -255,7 +268,7 @@ export function RecordingControls({
             <ChartNoAxesCombined size={16} aria-hidden="true" /> Heatmap
           </button>
           <button
-            className="eye-text-button"
+            className={`eye-text-button ${EyeTextButtonStyles}`}
             onClick={() => {
               recorder.clear()
               setHeatmapUrl(null)
@@ -266,7 +279,7 @@ export function RecordingControls({
         </div>
       )}
       {heatmapUrl && (
-        <figure className="scene-heatmap">
+        <figure className={`scene-heatmap ${SceneHeatmapStyles}`}>
           <img
             src={heatmapUrl}
             alt="Accumulated dwell-weighted gaze density in scene camera coordinates"

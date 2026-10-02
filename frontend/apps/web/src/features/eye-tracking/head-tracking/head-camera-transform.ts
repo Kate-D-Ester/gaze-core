@@ -2,14 +2,12 @@ import type {
   HeadCameraTransform,
   HeadFrameGeometry,
 } from "./head-camera-transform.types"
-
 const STORAGE_KEY = "gazecore.head-camera.transform.v1"
 export const DEFAULT_HEAD_CAMERA_TRANSFORM: HeadCameraTransform = {
   rotation: 0,
   mirrorX: false,
   mirrorY: false,
 }
-
 export function normalizeHeadCameraTransform(
   value: HeadCameraTransform
 ): HeadCameraTransform {
@@ -19,7 +17,6 @@ export function normalizeHeadCameraTransform(
   }
   return { rotation, mirrorX: !!value.mirrorX, mirrorY: !!value.mirrorY }
 }
-
 export function headFrameGeometry(
   width: number,
   height: number,
@@ -50,11 +47,12 @@ export function headFrameGeometry(
     ],
   }
 }
-
 export function readHeadCameraTransform(): HeadCameraTransform {
   try {
     const serialized = globalThis.localStorage?.getItem(STORAGE_KEY)
-    if (!serialized) return { ...DEFAULT_HEAD_CAMERA_TRANSFORM }
+    if (!serialized) {
+      return { ...DEFAULT_HEAD_CAMERA_TRANSFORM }
+    }
     const value: unknown = JSON.parse(serialized)
     if (typeof value !== "object" || value === null) {
       return { ...DEFAULT_HEAD_CAMERA_TRANSFORM }
@@ -78,7 +76,6 @@ export function readHeadCameraTransform(): HeadCameraTransform {
   }
   return { ...DEFAULT_HEAD_CAMERA_TRANSFORM }
 }
-
 export function saveHeadCameraTransform(value: HeadCameraTransform): void {
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(value))

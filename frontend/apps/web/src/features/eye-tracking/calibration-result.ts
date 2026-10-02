@@ -1,11 +1,10 @@
 import { CALIBRATION_TARGETS, fitCalibration } from "./calibration"
-import { fitHeadCompensationWithDiagnostics } from "./head-tracking/head-calibration"
-import type { CalibrationSample, GazeOrientation } from "./calibration.types"
 import type {
   CalibrationFitIssue,
   CalibrationFitResult,
 } from "./calibration-result.types"
-
+import type { CalibrationSample, GazeOrientation } from "./calibration.types"
+import { fitHeadCompensationWithDiagnostics } from "./head-tracking/head-calibration"
 export function evaluateCalibration(
   samples: CalibrationSample[],
   orientation: GazeOrientation,

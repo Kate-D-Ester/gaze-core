@@ -1,22 +1,20 @@
+import type { TrackingFrame, Vector3 } from "../eye-tracking.types"
 import { HEAD_POSE_MAX_AGE_MS } from "./head-pose"
 import type { HeadPose } from "./head-pose.types"
-import type { Vector3, TrackingFrame } from "../eye-tracking.types"
 import type {
   Quaternion,
   SynchronizedGazeFrame,
 } from "./head-synchronization.types"
-
 const MAXIMUM_BRACKET_MS = 80
 const MAXIMUM_ROTATION_STEP = 0.35
-
 function quaternion(rotation: Vector3): Quaternion {
   const [pitch, yaw, roll] = rotation.map((value) => value / 2)
-  const cx = Math.cos(pitch),
-    sx = Math.sin(pitch)
-  const cy = Math.cos(yaw),
-    sy = Math.sin(yaw)
-  const cz = Math.cos(roll),
-    sz = Math.sin(roll)
+  const cx = Math.cos(pitch)
+  const sx = Math.sin(pitch)
+  const cy = Math.cos(yaw)
+  const sy = Math.sin(yaw)
+  const cz = Math.cos(roll)
+  const sz = Math.sin(roll)
   return [
     sx * cy * cz - cx * sy * sz,
     cx * sy * cz + sx * cy * sz,
@@ -24,7 +22,6 @@ function quaternion(rotation: Vector3): Quaternion {
     cx * cy * cz + sx * sy * sz,
   ]
 }
-
 function interpolateRotation(
   left: Vector3,
   right: Vector3,
@@ -38,7 +35,9 @@ function interpolateRotation(
     cosine = -cosine
   }
   const angle = Math.acos(Math.min(1, cosine))
-  if (2 * angle > MAXIMUM_ROTATION_STEP) return null
+  if (2 * angle > MAXIMUM_ROTATION_STEP) {
+    return null
+  }
   let a = 1 - fraction
   let b = fraction
   if (angle > 0.0001) {
@@ -54,36 +53,48 @@ function interpolateRotation(
     Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)),
   ]
 }
-
 /** Interpolate only between actual observations. Do not extrapolate a stale head pose. */
 export function interpolateHeadPose(
   history: HeadPose[],
   timestamp: number,
   now: number
 ): HeadPose | null {
-  if (!Number.isFinite(now)) return null
+  if (!Number.isFinite(now)) {
+    return null
+  }
   if (
     !Number.isFinite(timestamp) ||
     now < timestamp ||
     now - timestamp > HEAD_POSE_MAX_AGE_MS
-  )
+  ) {
     return null
+  }
   const exact = history.find((pose) => pose.timestamp === timestamp)
-  if (exact) return exact
+  if (exact) {
+    return exact
+  }
   for (let index = 1; index < history.length; index++) {
     const left = history[index - 1]
     const right = history[index]
-    if (right.timestamp > now) continue
-    if (left.timestamp > timestamp || right.timestamp < timestamp) continue
+    if (right.timestamp > now) {
+      continue
+    }
+    if (left.timestamp > timestamp || right.timestamp < timestamp) {
+      continue
+    }
     const interval = right.timestamp - left.timestamp
-    if (interval <= 0 || interval > MAXIMUM_BRACKET_MS) return null
+    if (interval <= 0 || interval > MAXIMUM_BRACKET_MS) {
+      return null
+    }
     const fraction = (timestamp - left.timestamp) / interval
     const rotation = interpolateRotation(
       left.rotation,
       right.rotation,
       fraction
     )
-    if (!rotation) return null
+    if (!rotation) {
+      return null
+    }
     return {
       ...right,
       timestamp,
@@ -95,11 +106,9 @@ export function interpolateHeadPose(
   }
   return null
 }
-
 /** A short bounded eye buffer lets the next head observation bracket its timestamp. */
 export class GazeFrameSynchronizer {
   private frames: TrackingFrame[] = []
-
   read(
     frame: TrackingFrame | null,
     history: HeadPose[],
@@ -109,14 +118,18 @@ export class GazeFrameSynchronizer {
       this.frames = []
       return null
     }
-    if (frame.id !== this.frames.at(-1)?.id) this.frames.push(frame)
+    if (frame.id !== this.frames.at(-1)?.id) {
+      this.frames.push(frame)
+    }
     this.frames = this.frames
       .filter((eye) => now - eye.timestamp <= HEAD_POSE_MAX_AGE_MS)
       .slice(-16)
     for (let index = this.frames.length - 1; index >= 0; index--) {
       const eye = this.frames[index]
       const head = interpolateHeadPose(history, eye.timestamp, now)
-      if (head) return { eye, head }
+      if (head) {
+        return { eye, head }
+      }
     }
     return null
   }

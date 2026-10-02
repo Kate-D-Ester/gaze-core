@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react"
+import type { DiagnosticReadingInput } from "./calibration-diagnostics.types"
 import type { Calibration, TrackingFrame } from "./eye-tracking.types"
 import type { HeadPose } from "./head-tracking/head-pose.types"
-import type { DiagnosticReadingInput } from "./calibration-diagnostics.types"
 
 export type UseCalibratedGazeOptions = {
   calibration: Calibration | null

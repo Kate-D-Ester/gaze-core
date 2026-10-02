@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components */
+"use client"
 import * as React from "react"
 import type {
   ResolvedTheme,
@@ -29,22 +29,11 @@ function getSystemTheme(): ResolvedTheme {
   return "light"
 }
 
-function disableTransitionsTemporarily() {
-  const style = document.createElement("style")
-  style.appendChild(
-    document.createTextNode(
-      "*,*::before,*::after{-webkit-transition:none!important;transition:none!important}"
-    )
-  )
-  document.head.appendChild(style)
-
-  return () => {
-    window.getComputedStyle(document.body)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        style.remove()
-      })
-    })
+function saveTheme(storageKey: string, theme: Theme) {
+  try {
+    localStorage.setItem(storageKey, theme)
+  } catch {
+    // Themes still work when browser storage is unavailable.
   }
 }
 
@@ -71,44 +60,35 @@ export function ThemeProvider({
   children,
   defaultTheme = "dark",
   storageKey = "gazecore-theme",
-  disableTransitionOnChange = true,
   ...props
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = React.useState<Theme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
-    if (isTheme(storedTheme)) {
-      return storedTheme
-    }
+  const [theme, setThemeState] = React.useState<Theme>(defaultTheme)
 
-    return defaultTheme
-  })
+  React.useEffect(() => {
+    try {
+      const storedTheme = localStorage.getItem(storageKey)
+      if (isTheme(storedTheme)) {
+        setThemeState(storedTheme)
+      }
+    } catch {
+      // Keep the default when storage is disabled.
+    }
+  }, [storageKey])
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme)
+      saveTheme(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
     [storageKey]
   )
 
-  const applyTheme = React.useCallback(
-    (nextTheme: Theme) => {
-      const root = document.documentElement
-      const resolvedTheme =
-        nextTheme === "system" ? getSystemTheme() : nextTheme
-      const restoreTransitions = disableTransitionOnChange
-        ? disableTransitionsTemporarily()
-        : null
-
-      root.classList.remove("light", "dark")
-      root.classList.add(resolvedTheme)
-
-      if (restoreTransitions) {
-        restoreTransitions()
-      }
-    },
-    [disableTransitionOnChange]
-  )
+  const applyTheme = React.useCallback((nextTheme: Theme) => {
+    const root = document.documentElement
+    const resolvedTheme = nextTheme === "system" ? getSystemTheme() : nextTheme
+    root.classList.remove("light", "dark")
+    root.classList.add(resolvedTheme)
+  }, [])
 
   React.useEffect(() => {
     applyTheme(theme)
@@ -157,7 +137,7 @@ export function ThemeProvider({
           nextTheme = getSystemTheme() === "dark" ? "light" : "dark"
         }
 
-        localStorage.setItem(storageKey, nextTheme)
+        saveTheme(storageKey, nextTheme)
         return nextTheme
       })
     }
@@ -171,10 +151,6 @@ export function ThemeProvider({
 
   React.useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.storageArea !== localStorage) {
-        return
-      }
-
       if (event.key !== storageKey) {
         return
       }

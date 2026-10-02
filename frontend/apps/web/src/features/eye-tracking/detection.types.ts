@@ -77,3 +77,14 @@ export type PupilCandidate = {
   refined: Point[]
   ellipse: Ellipse
 }
+
+export type PupilArcEvidence = {
+  persistentFraction: number
+  arcCondition: number
+}
+
+export type RefinedPupilContour = {
+  region: PupilContourRegion
+  points: Point[]
+  refined: Point[]
+}

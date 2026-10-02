@@ -120,6 +120,35 @@ test("a grossly inconsistent calibration location is rejected instead of accepti
   samples[0].target[0] += 0.18
   expect(fitSceneCalibration(samples)).toBeNull()
 })
+test("bounded collection noise proceeds to independent checks instead of blaming a single point", () => {
+  const offsets = [0, 1, -1, 1, -1, 1, -1, 1, -1]
+  const samples = CALIBRATION_TARGETS.map(([x, y], index) => ({
+    region: Math.floor(y * 3) * 3 + Math.floor(x * 3),
+    feature: [x - 0.5, y - 0.5] as [number, number],
+    target: [x + offsets[index] * 0.048, y] as [number, number],
+    pairs: [pair(index + 1, 1000, x, y)],
+  }))
+  const result = inspectSceneCalibration(samples)
+  expect(result.calibration).not.toBeNull()
+  expect(result.retryIndex).toBeNull()
+  const calibration = result.calibration!
+  expect(calibration.holds).toHaveLength(9)
+  expect(calibration.trainingRms).toBeGreaterThan(0.025)
+  expect(calibration.maxTrainingError).toBeLessThan(0.05)
+
+  const checks = VALIDATION_TARGETS.map(([x, y], index) => ({
+    region: index,
+    feature: [x - 0.5, y - 0.5] as [number, number],
+    target: [x, y] as [number, number],
+    pairs: [pair(100 + index, 2000, x, y)],
+  }))
+  expect(validateSceneCalibration(calibration, checks)?.passed).toBe(true)
+  const shiftedChecks = checks.map((hold) => ({
+    ...hold,
+    feature: [hold.feature[0] + 0.08, hold.feature[1]] as [number, number],
+  }))
+  expect(validateSceneCalibration(calibration, shiftedChecks)?.passed).toBe(false)
+})
 test("validation cannot hide one inaccurate location inside a good average", () => {
   const calibration = fitSceneCalibration(holds())!
   const fresh = holds().slice(0, 5)

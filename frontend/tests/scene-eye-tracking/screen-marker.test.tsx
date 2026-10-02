@@ -7,14 +7,14 @@ const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
 const { ScreenCalibrationMarker } =
   await import("../../apps/web/src/features/scene-eye-tracking/screen-calibration-marker")
-const { V2StepPanel } =
-  await import("../../apps/web/src/features/eye-tracking/components/v2-step-panel")
+const { SetupStepPanel } =
+  await import("../../apps/web/src/features/eye-tracking/components/setup-step-panel")
 test("a same-page marker is separate from changing controls, and its size cannot change during a hold", async () => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   const render = (capturing: boolean, message = "") =>
-    createElement(V2StepPanel, {
+    createElement(SetupStepPanel, {
       stepName: "Calibration",
       description: "Look at the red center",
       message,

@@ -33,6 +33,58 @@ afterEach(async () => {
   host?.remove()
 })
 
+test("the primary recovery action retries only the named point and survives cancelling the retry", async () => {
+  const session = new SceneSession()
+  session.startCapture("calibration")
+  const collected = collectValidation(
+    session,
+    0,
+    (index) => index === 1 ? [0.2, 0] : [0, 0],
+    CALIBRATION_TARGETS
+  )
+  const saved = session.getSnapshot().fitFailure!.holds
+  expect(saved).toHaveLength(9)
+
+  function Controls() {
+    const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
+    return createElement(FingerControls, {
+      session,
+      state,
+      hands: { status: "ready", error: "" },
+      canCapture: true,
+      retry() {},
+      onLive() {},
+    })
+  }
+  host = document.createElement("div")
+  document.body.append(host)
+  root = createRoot(host)
+  await act(async () => root!.render(createElement(Controls)))
+
+  const retry = host.querySelector<HTMLButtonElement>(".eye-button.primary")!
+  expect(retry.textContent).toContain("Retry top left")
+  await act(async () => retry.click())
+  expect(session.getSnapshot().collection?.holds).toEqual(
+    saved.filter((_, index) => index !== 1)
+  )
+  expect(session.getSnapshot().collection?.target).toEqual([0.15, 0.15])
+  const cancel = Array.from(host.querySelectorAll("button")).find(
+    (button) => button.textContent?.trim() === "Cancel"
+  )!
+  await act(async () => cancel.click())
+  expect(session.getSnapshot().fitFailure?.holds).toEqual(saved)
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".eye-button.primary")!.click()
+  )
+  expect(session.getSnapshot().collection?.holds).toHaveLength(8)
+  await act(async () => {
+    collectValidation(session, collected.id, () => [0, 0], [[0.15, 0.15]])
+  })
+  expect(session.getSnapshot().calibration?.holds).toHaveLength(9)
+  expect(session.getSnapshot().capture).toBe("validation")
+  expect(session.getSnapshot().validation).toBeNull()
+})
+
 test("Space starts one-point capture once and automatically opens live gaze without an accuracy claim", async () => {
   const session = new SceneSession("one-point")
   let live = 0

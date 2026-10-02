@@ -1,23 +1,31 @@
-import { useRef, type ComponentProps, type ReactNode } from "react"
-import { FileVideo, Info, type LucideIcon } from "lucide-react"
-
-export function Hint({
-  label,
-  children,
-  className = "",
-}: {
-  label: string
-  children: ReactNode
-  className?: string
-}) {
+import { FileVideo, Info } from "lucide-react"
+import { useRef, type ComponentProps } from "react"
+import {
+  RemoteHelpBodyStyles,
+  RemoteHelpLinksStyles,
+  RemoteHelpStyles,
+  RemoteHintStyles,
+  RemoteIconButtonStyles,
+  RemoteTooltipStyles,
+} from "../tracking-ui/remote-styles"
+import type {
+  HintProps,
+  IconButtonProps,
+  LocalVideoButtonProps,
+  SetupHelpProps,
+} from "./remote-controls.types"
+export function Hint({ label, children, className = "" }: HintProps) {
   return (
     <span
-      className={`remote-hint ${className}`}
+      className={`remote-hint ${RemoteHintStyles} ${className}`}
       aria-label={label}
       tabIndex={0}
     >
       {children}
-      <span className="remote-tooltip" aria-hidden="true">
+      <span
+        className={`remote-tooltip ${RemoteTooltipStyles}`}
+        aria-hidden="true"
+      >
         {label}
       </span>
     </span>
@@ -29,31 +37,26 @@ export function IconButton({
   primary = false,
   className = "",
   ...props
-}: Omit<ComponentProps<"button">, "children"> & {
-  label: string
-  icon: LucideIcon
-  primary?: boolean
-}) {
+}: Omit<ComponentProps<"button">, "children"> & IconButtonProps) {
   return (
     <button
       type="button"
       {...props}
       aria-label={label}
-      className={`remote-icon-button ${primary ? "primary" : ""} ${className}`}
+      className={`remote-icon-button ${RemoteIconButtonStyles} ${primary ? "primary" : ""} ${className}`}
     >
       <Icon size={19} aria-hidden="true" />
-      <span className="remote-tooltip" aria-hidden="true">
+      <span
+        className={`remote-tooltip ${RemoteTooltipStyles}`}
+        aria-hidden="true"
+      >
         {label}
       </span>
     </button>
   )
 }
 /** The file remains a browser-local source; it is never uploaded. */
-export function LocalVideoButton({
-  onSelect,
-}: {
-  onSelect: (file: File) => void
-}) {
+export function LocalVideoButton({ onSelect }: LocalVideoButtonProps) {
   const input = useRef<HTMLInputElement>(null)
   return (
     <>
@@ -66,7 +69,9 @@ export function LocalVideoButton({
         onChange={(event) => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ""
-          if (file) onSelect(file)
+          if (file) {
+            onSelect(file)
+          }
         }}
       />
       <IconButton
@@ -78,21 +83,29 @@ export function LocalVideoButton({
   )
 }
 /** Tap-to-open help remains available on touch screens where hover is unavailable. */
-export function SetupHelp({ preparation }: { preparation?: string }) {
+export function SetupHelp({ preparation }: SetupHelpProps) {
   return (
     <details
-      className="remote-help"
+      className={`remote-help ${RemoteHelpStyles}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape") event.currentTarget.open = false
+        if (event.key === "Escape") {
+          event.currentTarget.open = false
+        }
       }}
     >
-      <summary className="remote-icon-button" aria-label="Setup help">
+      <summary
+        className={`remote-icon-button ${RemoteIconButtonStyles}`}
+        aria-label="Setup help"
+      >
         <Info size={18} aria-hidden="true" />
-        <span className="remote-tooltip" aria-hidden="true">
+        <span
+          className={`remote-tooltip ${RemoteTooltipStyles}`}
+          aria-hidden="true"
+        >
           Help
         </span>
       </summary>
-      <div className="remote-help-body">
+      <div className={`remote-help-body ${RemoteHelpBodyStyles}`}>
         <strong>Setup help</strong>
         {preparation && <p>{preparation}</p>}
         <p>
@@ -115,7 +128,7 @@ export function SetupHelp({ preparation }: { preparation?: string }) {
           gaze.
         </p>
         <p>Research trial. Commercial model rights need verification.</p>
-        <div className="remote-help-links">
+        <div className={`remote-help-links ${RemoteHelpLinksStyles}`}>
           <a
             href="https://arxiv.org/html/2508.19544v1"
             target="_blank"

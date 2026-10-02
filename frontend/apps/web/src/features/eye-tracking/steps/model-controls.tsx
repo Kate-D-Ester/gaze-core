@@ -1,11 +1,19 @@
 import { ChevronDown, RotateCcw, ScanEye } from "lucide-react"
+import {
+  EyeActionRowStyles,
+  EyeDetailsStyles,
+  EyeFieldStyles,
+  EyeGuidanceRowStyles,
+  EyeMutedStyles,
+  EyeNumberGridStyles,
+  EyeProgressTrackStyles,
+} from "../../tracking-ui/control-styles"
 import { EyeActionButton } from "../components/eye-action-button"
 import { HelpTip } from "../components/help-tip"
 import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
 import type { Point } from "../eye-tracking.types"
 import type { ModelControlsProps } from "./model-controls.types"
-
 export function ModelControls({
   tracker,
   corner,
@@ -28,7 +36,9 @@ export function ModelControls({
       lockStatus.requiredDirections - lockStatus.coveredDirections
     )
     let directionLabel = "directions"
-    if (directionsRemaining === 1) directionLabel = "direction"
+    if (directionsRemaining === 1) {
+      directionLabel = "direction"
+    }
     modelHeading = "Explore a few directions."
     modelGuidance = `Keep your head still. Move your pupil into ${directionsRemaining} more distinct ${directionLabel} in the camera preview.`
   } else if (lockStatus.ready) {
@@ -60,8 +70,12 @@ export function ModelControls({
       <SpherePreview frame={frame} />
       {settings.format === "classic" ? (
         <>
-          <div className="eye-guidance-row">
-            <p className="eye-muted" role="status" aria-live="polite">
+          <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
+            <p
+              className={`eye-muted ${EyeMutedStyles}`}
+              role="status"
+              aria-live="polite"
+            >
               {cornerDescription}
             </p>
             <HelpTip
@@ -69,9 +83,9 @@ export function ModelControls({
               text="Create: pick the inner, then outer eye corner. Edit: drag a red + to resize, or drag inside the circle to move."
             />
           </div>
-          <div className="eye-number-grid">
+          <div className={`eye-number-grid ${EyeNumberGridStyles}`}>
             {[0, 1].map((i) => (
-              <label className="eye-field" key={i}>
+              <label className={`eye-field ${EyeFieldStyles}`} key={i}>
                 Corner {i + 1} · x
                 <input
                   type="number"
@@ -93,14 +107,14 @@ export function ModelControls({
         </>
       ) : (
         <>
-          <div className="eye-guidance-row">
-            <p className="eye-muted" role="status">
+          <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
+            <p className={`eye-muted ${EyeMutedStyles}`} role="status">
               {modelHeading}
             </p>
             <HelpTip label="Eye model readiness help" text={modelGuidance} />
           </div>
           <div
-            className="eye-progress-track"
+            className={`eye-progress-track ${EyeProgressTrackStyles}`}
             role="progressbar"
             aria-label="Eye model readiness"
             aria-valuemin={0}
@@ -112,7 +126,7 @@ export function ModelControls({
         </>
       )}
       <div
-        className="eye-action-row"
+        className={`eye-action-row ${EyeActionRowStyles}`}
         role="group"
         aria-label="Eye model actions"
       >
@@ -135,12 +149,12 @@ export function ModelControls({
         </EyeActionButton>
       </div>
       {settings.format === "spatial" && (
-        <details className="eye-details">
+        <details className={`eye-details ${EyeDetailsStyles}`}>
           <summary>
             Camera geometry
             <ChevronDown size={14} />
           </summary>
-          <label className="eye-field">
+          <label className={`eye-field ${EyeFieldStyles}`}>
             Field of view · °
             <input
               type="number"
@@ -149,11 +163,13 @@ export function ModelControls({
               value={settings.fov}
               onChange={(e) => {
                 const fov = Number(e.target.value)
-                if (fov >= 10 && fov <= 140) update({ fov })
+                if (fov >= 10 && fov <= 140) {
+                  update({ fov })
+                }
               }}
             />
           </label>
-          <label className="eye-field">
+          <label className={`eye-field ${EyeFieldStyles}`}>
             Eye radius · mm
             <input
               type="number"
@@ -163,7 +179,9 @@ export function ModelControls({
               value={settings.radiusMm}
               onChange={(e) => {
                 const radiusMm = Number(e.target.value)
-                if (radiusMm >= 8 && radiusMm <= 16) update({ radiusMm })
+                if (radiusMm >= 8 && radiusMm <= 16) {
+                  update({ radiusMm })
+                }
               }}
             />
           </label>

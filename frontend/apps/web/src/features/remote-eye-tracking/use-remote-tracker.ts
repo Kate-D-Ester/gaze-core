@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { RemoteMode, RemoteSettings } from "./remote-eye-tracking.types"
 import { RemoteSession, type SessionState } from "./session"
-import type { RemoteMode, RemoteSettings } from "./types"
-
 export function useRemoteTracker(
   settings: RemoteSettings,
   onInterruption?: () => void
@@ -26,21 +25,26 @@ export function useRemoteTracker(
   })
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      return
+    }
     let previousStatus: SessionState["status"] = "idle"
     const session = new RemoteSession(video, (value) => {
       latest.current = value.observation
       if (
         value.status === "error" ||
         (value.status === "idle" && previousStatus !== "idle")
-      )
+      ) {
         interruption.current?.()
+      }
       previousStatus = value.status
       setState(value)
     })
     sessionRef.current = session
     const hide = () => {
-      if (document.hidden) session.stop()
+      if (document.hidden) {
+        session.stop()
+      }
     }
     document.addEventListener("visibilitychange", hide)
     return () => {

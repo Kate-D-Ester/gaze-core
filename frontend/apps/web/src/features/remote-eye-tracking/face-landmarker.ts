@@ -1,14 +1,14 @@
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision-remote"
-
+import type {
+  FaceLandmarkerOptions,
+  FaceLandmarkerRuntime,
+  ImportedVisionModule,
+  VisionModuleFactory,
+} from "./face-landmarker.types"
 const ASSETS = "/models/remote-eye-tracking"
-
 export async function createLandmarker({
   outputFaceBlendshapes = true,
-}: { outputFaceBlendshapes?: boolean } = {}): Promise<{
-  landmarker: FaceLandmarker
-  canvas: OffscreenCanvas
-  delegate: "GPU" | "CPU"
-}> {
+}: FaceLandmarkerOptions = {}): Promise<FaceLandmarkerRuntime> {
   if (typeof OffscreenCanvas === "undefined") {
     throw new Error(
       "Local face tracking requires a browser with OffscreenCanvas support"
@@ -22,13 +22,10 @@ export async function createLandmarker({
   // creation, so restore the exported factory for each delegate attempt/reinitialization.
   const loaderUrl = new URL(fileset.wasmLoaderPath, globalThis.location.origin)
     .href
-  const loader = (await import(/* @vite-ignore */ loaderUrl)) as {
-    default: unknown
-  }
-  const scope = globalThis as typeof globalThis & {
-    ModuleFactory?: unknown
-    Module?: unknown
-  }
+  const loader = (await import(
+    /* webpackIgnore: true */ loaderUrl
+  )) as ImportedVisionModule
+  const scope = globalThis as typeof globalThis & VisionModuleFactory
   for (const delegate of ["GPU", "CPU"] as const) {
     const canvas = new OffscreenCanvas(1, 1)
     try {
@@ -53,10 +50,11 @@ export async function createLandmarker({
       return { landmarker, canvas, delegate }
     } catch (error) {
       canvas.width = canvas.height = 0
-      if (delegate === "CPU")
+      if (delegate === "CPU") {
         throw new Error(
           `Unable to initialize local face/iris inference: ${error instanceof Error ? error.message : String(error)}`
         )
+      }
     } finally {
       delete scope.ModuleFactory
       delete scope.Module

@@ -1,5 +1,4 @@
 const previewMaskIntervalMs = 200
-
 export function shouldIncludePreviewMasks(
   enabled: boolean,
   timestamp: number,

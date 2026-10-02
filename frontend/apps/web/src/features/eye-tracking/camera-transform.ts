@@ -1,14 +1,10 @@
-export type CameraTransform = {
-  rotation: number
-  mirrorX: boolean
-  mirrorY: boolean
-}
+import type { CameraTransform, FrameDimensions } from "./camera-transform.types"
+export type { CameraTransform } from "./camera-transform.types"
 export const DEFAULT_CAMERA_TRANSFORM: CameraTransform = {
   rotation: 0,
   mirrorX: false,
   mirrorY: false,
 }
-
 export function normalizeCameraTransform(
   value: CameraTransform
 ): CameraTransform {
@@ -20,12 +16,11 @@ export function normalizeCameraTransform(
     mirrorY: !!value.mirrorY,
   }
 }
-
 export function cameraFrameGeometry(
   width: number,
   height: number,
   value: CameraTransform,
-  output?: { width: number; height: number }
+  output?: FrameDimensions
 ) {
   const transform = normalizeCameraTransform(value)
   const [ra, rb, rc, rd] = cameraDirectionMatrix(transform)
@@ -34,10 +29,10 @@ export function cameraFrameGeometry(
   const size = output ?? { width: rotatedWidth, height: rotatedHeight }
   const sx = size.width / rotatedWidth
   const sy = size.height / rotatedHeight
-  const a = sx * ra,
-    b = sy * rb,
-    c = sx * rc,
-    d = sy * rd
+  const a = sx * ra
+  const b = sy * rb
+  const c = sx * rc
+  const d = sy * rd
   return {
     ...size,
     matrix: [
@@ -50,22 +45,19 @@ export function cameraFrameGeometry(
     ] as [number, number, number, number, number, number],
   }
 }
-
 /** Linear image axes: clockwise rotation, then mirroring in the displayed axes. */
 export function cameraDirectionMatrix(value: CameraTransform) {
   const transform = normalizeCameraTransform(value)
   const angle = (transform.rotation * Math.PI) / 180
   const cos = Math.abs(Math.cos(angle)) < 1e-10 ? 0 : Math.cos(angle)
   const sin = Math.abs(Math.sin(angle)) < 1e-10 ? 0 : Math.sin(angle)
-  const mx = transform.mirrorX ? -1 : 1,
-    my = transform.mirrorY ? -1 : 1
+  const mx = transform.mirrorX ? -1 : 1
+  const my = transform.mirrorY ? -1 : 1
   return [mx * cos, my * sin, -mx * sin, my * cos] as const
 }
-
 export function isDefaultCameraTransform(value: CameraTransform): boolean {
   return value.rotation === 0 && !value.mirrorX && !value.mirrorY
 }
-
 export function drawCameraFrame(
   ctx: CanvasRenderingContext2D,
   image: CanvasImageSource,
@@ -87,7 +79,6 @@ export function drawCameraFrame(
   ctx.drawImage(image, 0, 0, width, height)
   ctx.restore()
 }
-
 export function readCameraTransform(role: "eye" | "scene"): CameraTransform {
   try {
     const value = JSON.parse(
@@ -98,14 +89,14 @@ export function readCameraTransform(role: "eye" | "scene"): CameraTransform {
       typeof value.rotation === "number" &&
       typeof value.mirrorX === "boolean" &&
       typeof value.mirrorY === "boolean"
-    )
+    ) {
       return normalizeCameraTransform(value)
+    }
   } catch {
     /* Orientation settings are optional when storage is unavailable. */
   }
   return { ...DEFAULT_CAMERA_TRANSFORM }
 }
-
 export function saveCameraTransform(
   role: "eye" | "scene",
   value: CameraTransform

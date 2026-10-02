@@ -2,7 +2,6 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { buttonVariants } from "./button-variants"
 import type { ButtonProps } from "./button.types"
-
 function Button({
   className,
   variant = "default",
@@ -17,5 +16,4 @@ function Button({
     />
   )
 }
-
 export { Button }

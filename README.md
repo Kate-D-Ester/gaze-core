@@ -1,6 +1,6 @@
 # GazeCore
 
-GazeCore provides a browser-based eye-tracking experience and a separate auth/API-key service. Eye tracking is available at `/trial/screen-eye-tracking`; `/v2` redirects there for older links.
+GazeCore provides a Next.js browser-based eye-tracking experience and a separate auth/API-key service. Eye tracking is available at `/trial/screen-eye-tracking`; `/v2` redirects there for older links.
 
 The dashboard offers three **Try it out** cards:
 
@@ -49,3 +49,11 @@ Keep each runtime paired with its own WASM assets; these versions are not
 interchangeable. See the [remote integration handoff](docs/remote-eye-tracking-v3-handoff.md)
 and [scene integration handoff](docs/worktree-v4-merge-handoff.md) for the
 original implementation and hardware validation notes.
+
+## V3 codebase
+
+The frontend uses Next.js 16.3.8, React 19.3.0 and Tailwind CSS 4.3.3.
+See [frontend structure and commands](frontend/README.md) and the
+[v3 audit report](docs/v3-codebase-audit.md) for migration decisions, shared code,
+security fixes and verification. The separate `vision_assistant` Python work is
+not imported, bundled, deleted or changed by this application migration.

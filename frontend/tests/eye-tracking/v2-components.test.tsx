@@ -5,8 +5,8 @@ import {
   createRoot,
   type Root,
 } from "../../apps/web/node_modules/react-dom/client"
-import { V2StepNavigation } from "../../apps/web/src/features/eye-tracking/components/v2-step-navigation"
-import { V2StepPanel } from "../../apps/web/src/features/eye-tracking/components/v2-step-panel"
+import { SetupStepNavigation } from "../../apps/web/src/features/eye-tracking/components/setup-step-navigation"
+import { SetupStepPanel } from "../../apps/web/src/features/eye-tracking/components/setup-step-panel"
 import { PipelinePreviews } from "../../apps/web/src/features/eye-tracking/components/pipeline-previews"
 import { SpherePreview } from "../../apps/web/src/features/eye-tracking/components/sphere-preview"
 import { LiveControls } from "../../apps/web/src/features/eye-tracking/steps/live-controls"
@@ -32,7 +32,7 @@ test("step navigation marks completion, gates unavailable steps, and selects a s
   await act(async () => {
     root = createRoot(host)
     root.render(
-      createElement(V2StepNavigation, {
+      createElement(SetupStepNavigation, {
         steps: ["Camera", "Eye region", "Eye model"],
         activeStep: 1,
         completedSteps: new Set([0]),
@@ -60,7 +60,7 @@ test("step panel exposes the active step and readable error feedback", async () 
     root = createRoot(host)
     root.render(
       createElement(
-        V2StepPanel,
+        SetupStepPanel,
         {
           stepName: "Eye model",
           description: "Look around the full range.",

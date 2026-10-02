@@ -74,4 +74,4 @@ export type TrackingFrame = {
   gaze: Gaze | null
   processingMs: number
 }
-export type { CalibrationSample, Calibration } from "./calibration.types"
+export type { Calibration, CalibrationSample } from "./calibration.types"

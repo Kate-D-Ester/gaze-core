@@ -1,19 +1,15 @@
-import { Button } from "@workspace/ui/components/button"
 import type { ApiKeyRecord } from "@/lib/auth.types"
+import { Button } from "@workspace/ui/components/button"
 import type { ApiKeysPanelProps } from "./api-keys-panel.types"
-
 function getApiKeyLabel(key: ApiKeyRecord) {
   if (key.name && key.name.trim().length > 0) {
     return key.name
   }
-
   if (key.start && key.start.trim().length > 0) {
     return key.start
   }
-
   return key.id
 }
-
 export function ApiKeysPanel({
   loadingKeys,
   busy,

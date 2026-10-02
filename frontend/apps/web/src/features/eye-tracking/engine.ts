@@ -1,12 +1,5 @@
-import { gazeVector3D } from "../../../../../packages/ui/src/lib/gaze-core/geometry"
-import { PupilTracker } from "./pupil-tracker"
+import { gazeVector3D } from "./manual-gaze-vector"
 import { EyeModelEstimator } from "./eye-model"
-import {
-  cameraIntrinsics,
-  gazeFromPupil,
-  sphereFromProjection,
-} from "./geometry"
-import type { CV } from "./opencv.types"
 import type {
   Detection,
   EyeModel,
@@ -14,7 +7,13 @@ import type {
   Gaze,
   TrackingFrame,
 } from "./eye-tracking.types"
-
+import {
+  cameraIntrinsics,
+  gazeFromPupil,
+  sphereFromProjection,
+} from "./geometry"
+import type { CV } from "./opencv.types"
+import { PupilTracker } from "./pupil-tracker"
 export class TrackingEngine {
   private readonly model = new EyeModelEstimator()
   private configKey = ""
@@ -37,8 +36,8 @@ export class TrackingEngine {
     timestamp: number,
     includePreviewMasks = true
   ): TrackingFrame {
-    const start = performance.now(),
-      roi = settings.roi
+    const start = performance.now()
+    const roi = settings.roi
     if (
       ![width, height, roi.x, roi.y, roi.width, roi.height].every(
         Number.isInteger
@@ -50,8 +49,9 @@ export class TrackingEngine {
       roi.x + roi.width > width ||
       roi.y + roi.height > height ||
       rgba.length !== width * height * 4
-    )
+    ) {
       throw new Error("Invalid camera frame or eye region.")
+    }
     const key = JSON.stringify([
       width,
       height,
@@ -67,23 +67,26 @@ export class TrackingEngine {
       this.reset()
       this.configKey = key
     }
-    if (this.gray.length !== roi.width * roi.height)
+    if (this.gray.length !== roi.width * roi.height) {
       this.gray = new Uint8Array(roi.width * roi.height)
+    }
     const gray = this.gray
     // Crop and convert directly into a reusable buffer, without an intermediate RGBA crop.
     for (let y = 0; y < roi.height; y++) {
       let source = ((y + roi.y) * width + roi.x) * 4
       const row = y * roi.width
-      for (let x = 0; x < roi.width; x++, source += 4)
+      for (let x = 0; x < roi.width; x++) {
         gray[row + x] = Math.round(
           rgba[source] * 0.299 +
             rgba[source + 1] * 0.587 +
             rgba[source + 2] * 0.114
         )
+        source += 4
+      }
     }
-    let detection: Detection,
-      model: EyeModel | null = null,
-      gaze: Gaze | null = null
+    let detection: Detection
+    let model: EyeModel | null = null
+    let gaze: Gaze | null = null
     if (settings.format === "spatial") {
       detection = this.pupils.accept(
         this.pupils.detect(
@@ -100,7 +103,7 @@ export class TrackingEngine {
       )
       const e = detection.ellipse
       model = this.model.getLatest()
-      if (e && !settings.locked && detection.shapeObserved !== false)
+      if (e && !settings.locked && detection.shapeObserved !== false) {
         model = this.model.observe(
           { ...e, center: [e.center[0] + roi.x, e.center[1] + roi.y] },
           width,
@@ -108,6 +111,7 @@ export class TrackingEngine {
           roi.width,
           roi.height
         )
+      }
       const k = cameraIntrinsics(width, height, settings.fov)
       if (e && detection.tracking === "tracking" && model?.ready && k) {
         const sphere = sphereFromProjection(
@@ -116,12 +120,13 @@ export class TrackingEngine {
           settings.radiusMm,
           k
         )
-        if (sphere)
+        if (sphere) {
           gaze = gazeFromPupil(
             [e.center[0] + roi.x, e.center[1] + roi.y],
             sphere,
             k
           )
+        }
       }
     } else {
       const corners = settings.corners

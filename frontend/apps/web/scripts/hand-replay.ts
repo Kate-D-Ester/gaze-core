@@ -1,19 +1,6 @@
+import type { ReplayReply } from "./hand-replay.types"
 // Local diagnostic fixture only. The clip is copied into ignored dist for a run.
 import { HandStability } from "../src/features/scene-eye-tracking/hand-stability"
-import type {
-  Landmark,
-  SceneObservation,
-} from "../src/features/scene-eye-tracking/scene.types"
-type ReplayReply = {
-  type: string
-  error?: string
-  delegate?: string
-  inferenceMs?: number
-  landmarks: Landmark[][]
-  worldLandmarks: Landmark[][]
-  scene: SceneObservation
-  handedness: string[]
-}
 export async function replayHandClip(
   WorkerType: typeof Worker,
   report: (text: string) => void
@@ -49,8 +36,11 @@ export async function replayHandClip(
       )
       receive = (value) => {
         clearTimeout(timeout)
-        if (value.type === "error") reject(new Error(value.error))
-        else resolve(value)
+        if (value.type === "error") {
+          reject(new Error(value.error))
+        } else {
+          resolve(value)
+        }
       }
       worker.onerror = (event) => {
         clearTimeout(timeout)
@@ -62,14 +52,14 @@ export async function replayHandClip(
     report("Replay loading real MediaPipe…")
     const ready = await request({ type: "init", generation: 1 })
     const stability = new HandStability()
-    let detected = 0,
-      evaluated = 0,
-      missedRun = 0,
-      longestMiss = 0,
-      flips = 0,
-      previousHand = "",
-      totalInference = 0,
-      accepted = 0
+    let detected = 0
+    let evaluated = 0
+    let missedRun = 0
+    let longestMiss = 0
+    let flips = 0
+    let previousHand = ""
+    let totalInference = 0
+    let accepted = 0
     const rejectedTimes: number[] = []
     for (let id = 1; id * 0.1 < video.duration; id++) {
       const time = id * 0.1
@@ -113,18 +103,24 @@ export async function replayHandClip(
         totalInference += value.inferenceMs ?? 0
         if (value.landmarks.length === 1) {
           detected++
-          if (filtered.hand.landmarks.length === 1) accepted++
-          else rejectedTimes.push(time)
+          if (filtered.hand.landmarks.length === 1) {
+            accepted++
+          } else {
+            rejectedTimes.push(time)
+          }
           missedRun = 0
           const side = value.handedness[0]
-          if (previousHand && previousHand !== side) flips++
+          if (previousHand && previousHand !== side) {
+            flips++
+          }
           previousHand = side
         } else {
           longestMiss = Math.max(longestMiss, ++missedRun)
         }
       }
-      if (id % 25 === 0)
+      if (id % 25 === 0) {
         report(`Replay ${time.toFixed(1)}s / ${video.duration.toFixed(1)}s`)
+      }
     }
     report(
       `Replay done: ${JSON.stringify({ delegate: ready.delegate, evaluated, detected, accepted, rejectedTimes, longestMissingMs: longestMiss * 100, handednessFlips: flips, meanInferenceMs: Math.round(totalInference / evaluated) })}`

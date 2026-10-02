@@ -1,36 +1,41 @@
+import { EyeAppStyles } from "../src/features/tracking-ui/layout-styles"
+import type {
+  FixtureSceneClock,
+  FixtureSceneIdentity,
+  FixtureWorkerRequest,
+} from "./scene-browser-fixture.types"
 // Browser-only smoke fixture; synthetic sensors never touch the production route.
-import { createRoot } from "react-dom/client"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { SceneWorkspace } from "../src/features/scene-eye-tracking/scene-workspace"
+import { createRoot } from "react-dom/client"
+import { DEFAULT_CAMERA_TRANSFORM } from "../src/features/eye-tracking/camera-transform"
+import { CameraTransformControls } from "../src/features/eye-tracking/components/camera-transform-controls"
+import type { TrackingFrame } from "../src/features/eye-tracking/eye-tracking.types"
+import type { TrackerController } from "../src/features/eye-tracking/use-tracker.types"
 import {
   CALIBRATION_TARGETS,
   VALIDATION_TARGETS,
 } from "../src/features/scene-eye-tracking/calibration"
-import type { TrackerController } from "../src/features/eye-tracking/use-tracker.types"
-import type { TrackingFrame } from "../src/features/eye-tracking/eye-tracking.types"
-import "../src/pages/v2.css"
-import { replayHandClip } from "./hand-replay"
 import { markerSvg } from "../src/features/scene-eye-tracking/marker-detector"
+import { SceneWorkspace } from "../src/features/scene-eye-tracking/scene-workspace"
+import { replayHandClip } from "./hand-replay"
 declare const SCENE_MARKER_WORKER_URL: string
-import { CameraTransformControls } from "../src/features/eye-tracking/components/camera-transform-controls"
-import { DEFAULT_CAMERA_TRANSFORM } from "../src/features/eye-tracking/camera-transform"
 const points = [...CALIBRATION_TARGETS, ...VALIDATION_TARGETS]
-let target = points[0],
-  lost = false,
-  missingHand = false,
-  missingGaze = false,
-  intermittentLoss = false,
-  recoveryBursts = false,
-  cornerNoise = false,
-  perspectiveMapping = false,
-  badTopLeft = false,
-  handSpikes = false,
-  validationBias = false,
-  badValidationPoint = false,
-  printedMarker = false,
-  difficultMarker = false,
-  previewCopy = false,
-  sequence = 0
+let target = points[0]
+let lost = false
+let missingHand = false
+let missingGaze = false
+let intermittentLoss = false
+let recoveryBursts = false
+let cornerNoise = false
+let perspectiveMapping = false
+let badTopLeft = false
+let handSpikes = false
+let validationBias = false
+let badValidationPoint = false
+let printedMarker = false
+let difficultMarker = false
+let previewCopy = false
+let sequence = 0
 const raw = document.createElement("canvas")
 raw.width = 960
 raw.height = 540
@@ -55,8 +60,9 @@ function draw() {
     const preview = document.querySelector<HTMLCanvasElement>(
       'canvas[aria-label="Scene camera preview with calibration marker and mapped gaze"]'
     )
-    if (preview?.width && preview.height)
+    if (preview?.width && preview.height) {
       context.drawImage(preview, 600, 325, 350, 197)
+    }
   }
   if (printedMarker && markerImage.complete) {
     context.save()
@@ -92,12 +98,13 @@ class FixtureWorker {
         type: "module",
       })
       worker.addEventListener("message", ({ data }) => {
-        if (data.type === "result")
+        if (data.type === "result") {
           markerEvidence = data.marker.position
             ? data.marker.position
                 .map((value: number) => value.toFixed(3))
                 .join(", ")
             : data.marker.reason
+        }
       })
       return worker as unknown as FixtureWorker
     }
@@ -106,30 +113,29 @@ class FixtureWorker {
   onerror = null
   onmessageerror = null
   closed = false
-  postMessage(message: {
-    type: string
-    generation: number
-    bitmap?: ImageBitmap
-    scene?: object
-  }) {
-    if (this.closed) return
-    if (message.type === "init")
+  postMessage(message: FixtureWorkerRequest) {
+    if (this.closed) {
+      return
+    }
+    if (message.type === "init") {
       queueMicrotask(() =>
         this.onmessage?.({
           data: { type: "ready", generation: message.generation },
         } as MessageEvent)
       )
+    }
     if (message.type === "frame") {
       const joints = Array.from({ length: 21 }, (_, i) => ({
         x: target[0] + (i === 8 ? 0 : (i % 4) * 0.01),
         y: target[1] + (i === 8 ? 0 : 0.05 + Math.floor(i / 4) * 0.008),
         z: 0,
       }))
-      if (handSpikes && (message.scene as { id: number }).id % 8 === 0)
+      if (handSpikes && (message.scene as FixtureSceneIdentity).id % 8 === 0) {
         joints[8].x += 0.25
+      }
       message.bitmap?.close()
       queueMicrotask(() => {
-        if (!this.closed)
+        if (!this.closed) {
           this.onmessage?.({
             data: {
               type: "result",
@@ -138,16 +144,17 @@ class FixtureWorker {
               landmarks:
                 missingHand ||
                 (recoveryBursts &&
-                  (message.scene as { timestamp: number }).timestamp % 2600 <
+                  (message.scene as FixtureSceneClock).timestamp % 2600 <
                     700) ||
                 (intermittentLoss &&
-                  (message.scene as { id: number }).id % 4 === 0)
+                  (message.scene as FixtureSceneIdentity).id % 4 === 0)
                   ? []
                   : [joints],
               worldLandmarks: [joints],
               handedness: ["Right"],
             },
           } as MessageEvent)
+        }
       })
     }
   }
@@ -172,19 +179,29 @@ class FixtureAudioContext extends NativeAudioContext {
     }
   }
   createOscillator() {
-    const oscillator = super.createOscillator(),
-      start = oscillator.start.bind(oscillator),
-      stop = oscillator.stop.bind(oscillator)
+    const oscillator = super.createOscillator()
+    const start = oscillator.start.bind(oscillator)
+    const stop = oscillator.stop.bind(oscillator)
     oscillator.start = (when) => {
       const frequency = oscillator.frequency.value
-      if (frequency === 660) audioStats.capturing = true
-      if (frequency === 520) audioStats.locked++
-      if (frequency === 880) audioStats.saved++
-      if (frequency === 140) audioStats.lost++
+      if (frequency === 660) {
+        audioStats.capturing = true
+      }
+      if (frequency === 520) {
+        audioStats.locked++
+      }
+      if (frequency === 880) {
+        audioStats.saved++
+      }
+      if (frequency === 140) {
+        audioStats.lost++
+      }
       start(when)
     }
     oscillator.stop = (when) => {
-      if (oscillator.frequency.value === 660) audioStats.capturing = false
+      if (oscillator.frequency.value === 660) {
+        audioStats.capturing = false
+      }
       stop(when)
     }
     return oscillator
@@ -192,13 +209,13 @@ class FixtureAudioContext extends NativeAudioContext {
 }
 window.AudioContext = FixtureAudioContext
 export function Fixture() {
-  const [step, setStep] = useState(0),
-    [eyeTransform, setEyeTransform] = useState(DEFAULT_CAMERA_TRANSFORM),
-    [reference, setReference] = useState(0),
-    [frame, setFrame] = useState<TrackingFrame | null>(null),
-    [runtime, setRuntime] = useState("Not tested"),
-    [rawVideo, setRawVideo] = useState<string | null>(null),
-    [artifact, setArtifact] = useState("")
+  const [step, setStep] = useState(0)
+  const [eyeTransform, setEyeTransform] = useState(DEFAULT_CAMERA_TRANSFORM)
+  const [reference, setReference] = useState(0)
+  const [frame, setFrame] = useState<TrackingFrame | null>(null)
+  const [runtime, setRuntime] = useState("Not tested")
+  const [rawVideo, setRawVideo] = useState<string | null>(null)
+  const [artifact, setArtifact] = useState("")
   const latest = useRef<TrackingFrame | null>(null)
   const status = useCallback(() => {}, [])
   useEffect(() => {
@@ -206,20 +223,24 @@ export function Fixture() {
       const scale = cornerNoise ? 3.4 : 1
       const perspective = perspectiveMapping ? 1 + 1.5 * (target[0] - 0.5) : 1
       const x =
-          ((target[0] - 0.5) * scale) / perspective +
-          (badTopLeft && target === points[1] ? 0.2 : 0) +
-          (validationBias ? 0.06 : 0) +
-          (badValidationPoint && target === points[11] ? 0.14 : 0),
-        y =
-          ((target[1] - 0.5) * scale) / perspective -
-          (validationBias ? 0.04 : 0)
+        ((target[0] - 0.5) * scale) / perspective +
+        (badTopLeft && target === points[1] ? 0.2 : 0) +
+        (validationBias ? 0.06 : 0) +
+        (badValidationPoint && target === points[11] ? 0.14 : 0)
+      const y =
+        ((target[1] - 0.5) * scale) / perspective - (validationBias ? 0.04 : 0)
       // A front-facing eye is opposite the outward scene horizontally.
       // The fixture represents a normal view after correcting the raw mount;
       // correction metadata must not transform these adjusted slopes again.
-      const eyeX = -x,
-        eyeY = y
+      const eyeX = -x
+      // A front-facing eye is opposite the outward scene horizontally.
+      // The fixture represents a normal view after correcting the raw mount;
+      // correction metadata must not transform these adjusted slopes again.
+      const eyeY = y
       let yaw = 0
-      if (cornerNoise) yaw = sequence % 2 ? 0.007 : -0.007
+      if (cornerNoise) {
+        yaw = sequence % 2 ? 0.007 : -0.007
+      }
       const center: [number, number] = [
         320 - (target[0] - 0.5) * 180,
         240 + (target[1] - 0.5) * 120,
@@ -260,7 +281,7 @@ export function Fixture() {
                 major: 30,
                 minor: 24,
                 angle: 0,
-                confidence: cornerNoise && sequence % 5 === 0 ? 0.68 : 0.95,
+                confidence: syntheticPupilConfidence(cornerNoise, sequence),
               },
           tracking: lost ? "lost" : "tracking",
           seed: null,
@@ -348,7 +369,7 @@ export function Fixture() {
     sourceCanvas: { current: eyeCanvas },
   } as TrackerController
   return (
-    <main className="eye-app">
+    <main className={`eye-app ${EyeAppStyles}`}>
       <h1 style={{ fontSize: 16, margin: "12px 4% 0" }}>
         Synthetic scene-camera browser fixture
       </h1>
@@ -559,3 +580,10 @@ export function Fixture() {
   )
 }
 createRoot(document.getElementById("root")!).render(<Fixture />)
+
+function syntheticPupilConfidence(noisy: boolean, frameNumber: number): number {
+  if (noisy && frameNumber % 5 === 0) {
+    return 0.68
+  }
+  return 0.95
+}

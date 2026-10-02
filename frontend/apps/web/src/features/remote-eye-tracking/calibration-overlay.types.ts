@@ -3,7 +3,7 @@ import type {
   CalibrationSample,
   RemoteCalibration,
   RemoteObservation,
-} from "./types"
+} from "./remote-eye-tracking.types"
 
 export type CaptureViewport = {
   width: number

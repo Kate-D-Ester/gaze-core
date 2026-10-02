@@ -6,7 +6,7 @@ import {
   type IrReference,
   type IrEyeOptions,
 } from "../../apps/web/src/features/remote-eye-tracking/ir-features"
-import type { Point } from "../../apps/web/src/features/remote-eye-tracking/types"
+import type { Point } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 
 let cv: Awaited<ReturnType<typeof loadOpenCv>>["cv"]
 beforeAll(async () => {

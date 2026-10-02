@@ -23,5 +23,7 @@ const result = await Bun.build({
   outdir: destination,
   naming: "scene-hand.worker.js",
 })
-if (!result.success) throw new Error(result.logs.map(String).join("\n"))
+if (!result.success) {
+  throw new Error(result.logs.map(String).join("\n"))
+}
 console.log("Prepared pinned MediaPipe worker and WASM assets.")

@@ -1,17 +1,15 @@
-import type { HeadCameraCallbacks, HeadCameraState } from "./head-camera.types"
-import type { HeadWorkerResponse } from "./head.worker.types"
-import { HEAD_POSE_MAX_AGE_MS } from "./head-pose"
+import { VideoFrameClock } from "../video-frame-clock"
 import {
   DEFAULT_HEAD_CAMERA_TRANSFORM,
   normalizeHeadCameraTransform,
 } from "./head-camera-transform"
 import type { HeadCameraTransform } from "./head-camera-transform.types"
-import { VideoFrameClock } from "../video-frame-clock"
-
+import type { HeadCameraCallbacks, HeadCameraState } from "./head-camera.types"
+import { HEAD_POSE_MAX_AGE_MS } from "./head-pose"
+import type { HeadWorkerResponse } from "./head.worker.types"
 const FRAME_INTERVAL_MS = 1000 / 30
 const PROCESSING_TIMEOUT_MS = 3000
 const INITIALIZATION_TIMEOUT_MS = 30000
-
 export class HeadCamera {
   private generation = 0
   private worker: Worker | null = null
@@ -29,39 +27,42 @@ export class HeadCamera {
   private transform = { ...DEFAULT_HEAD_CAMERA_TRANSFORM }
   private transformVersion = 0
   private inFlightTransformVersion = 0
-
   constructor(callbacks: HeadCameraCallbacks) {
     this.callbacks = callbacks
   }
-
   private publish(state: HeadCameraState): void {
     this.callbacks.onState(state)
   }
-
   setTransform(value: HeadCameraTransform): void {
     const next = normalizeHeadCameraTransform(value)
     if (
       next.rotation === this.transform.rotation &&
       next.mirrorX === this.transform.mirrorX &&
       next.mirrorY === this.transform.mirrorY
-    )
+    ) {
       return
+    }
     this.transform = next
     this.transformVersion++
     this.lastPoseTimestamp = null
     this.lastVideoTime = -1
     if (this.stream) {
       let status: HeadCameraState["status"] = "loading"
-      if (this.timer) status = "lost"
+      if (this.timer) {
+        status = "lost"
+      }
       this.publish({ status, pose: null, stream: this.stream, error: "" })
     }
   }
-
   stop(): void {
     this.generation++
     this.frameClock.stop()
-    if (this.timer) clearInterval(this.timer)
-    if (this.initializationTimer) clearTimeout(this.initializationTimer)
+    if (this.timer) {
+      clearInterval(this.timer)
+    }
+    if (this.initializationTimer) {
+      clearTimeout(this.initializationTimer)
+    }
     this.timer = null
     this.initializationTimer = null
     this.worker?.terminate()
@@ -78,12 +79,10 @@ export class HeadCamera {
     this.lastPoseTimestamp = null
     this.publish({ status: "off", pose: null, stream: null, error: "" })
   }
-
   private fail(message: string): void {
     this.stop()
     this.publish({ status: "error", pose: null, stream: null, error: message })
   }
-
   async start(deviceId: string): Promise<void> {
     this.stop()
     const generation = this.generation
@@ -98,7 +97,9 @@ export class HeadCamera {
         )
       }
       let device: MediaTrackConstraints = { facingMode: "user" }
-      if (deviceId) device = { deviceId: { exact: deviceId } }
+      if (deviceId) {
+        device = { deviceId: { exact: deviceId } }
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -120,13 +121,16 @@ export class HeadCamera {
       this.video = video
       this.frameClock.watch(video)
       await video.play()
-      if (generation !== this.generation) return
+      if (generation !== this.generation) {
+        return
+      }
       stream.getVideoTracks().forEach((track) => {
         track.addEventListener("ended", () => {
-          if (generation === this.generation)
+          if (generation === this.generation) {
             this.fail(
               "The front camera disconnected. Reconnect it before using compensated gaze."
             )
+          }
         })
       })
       this.publish({ status: "loading", pose: null, stream, error: "" })
@@ -135,20 +139,25 @@ export class HeadCamera {
       })
       this.worker = worker
       worker.onerror = () => {
-        if (generation === this.generation)
+        if (generation === this.generation) {
           this.fail(
             "The face-tracking worker stopped. Reconnect the front camera."
           )
+        }
       }
       worker.onmessage = (event: MessageEvent<HeadWorkerResponse>) => {
-        if (generation !== this.generation) return
+        if (generation !== this.generation) {
+          return
+        }
         const message = event.data
         if (message.type === "error") {
           this.fail(message.message)
           return
         }
         if (message.type === "ready") {
-          if (this.initializationTimer) clearTimeout(this.initializationTimer)
+          if (this.initializationTimer) {
+            clearTimeout(this.initializationTimer)
+          }
           this.initializationTimer = null
           this.publish({
             status: "lost",
@@ -162,10 +171,13 @@ export class HeadCamera {
           return
         }
         this.inFlight = false
-        if (this.inFlightTransformVersion !== this.transformVersion) return
+        if (this.inFlightTransformVersion !== this.transformVersion) {
+          return
+        }
         let pose = message.pose
-        if (pose && performance.now() - pose.timestamp > HEAD_POSE_MAX_AGE_MS)
+        if (pose && performance.now() - pose.timestamp > HEAD_POSE_MAX_AGE_MS) {
           pose = null
+        }
         this.lastPoseTimestamp = pose?.timestamp ?? null
         this.publish({
           status: pose ? "tracking" : "lost",
@@ -175,23 +187,29 @@ export class HeadCamera {
         })
       }
       this.initializationTimer = setTimeout(() => {
-        if (generation === this.generation)
+        if (generation === this.generation) {
           this.fail(
             "Face tracking took too long to load. Check your connection and retry."
           )
+        }
       }, INITIALIZATION_TIMEOUT_MS)
       worker.postMessage({ type: "initialize" })
     } catch (error) {
-      if (generation !== this.generation) return
+      if (generation !== this.generation) {
+        return
+      }
       let message =
         "Could not start the front camera. Check its permission and selection."
-      if (error instanceof Error) message = error.message
+      if (error instanceof Error) {
+        message = error.message
+      }
       this.fail(message)
     }
   }
-
   private async capture(generation: number): Promise<void> {
-    if (generation !== this.generation) return
+    if (generation !== this.generation) {
+      return
+    }
     const now = performance.now()
     if (
       this.lastPoseTimestamp !== null &&
@@ -206,16 +224,21 @@ export class HeadCamera {
       })
     }
     if (this.inFlight) {
-      if (now - this.inFlightStarted > PROCESSING_TIMEOUT_MS)
+      if (now - this.inFlightStarted > PROCESSING_TIMEOUT_MS) {
         this.fail(
           "Face tracking stopped responding. Reconnect the front camera."
         )
+      }
       return
     }
     const video = this.video
     const worker = this.worker
-    if (!video || !worker || video.readyState < 2 || !video.videoWidth) return
-    if (video.currentTime === this.lastVideoTime) return
+    if (!video || !worker || video.readyState < 2 || !video.videoWidth) {
+      return
+    }
+    if (video.currentTime === this.lastVideoTime) {
+      return
+    }
     this.lastVideoTime = video.currentTime
     this.inFlight = true
     this.inFlightStarted = now
@@ -248,8 +271,9 @@ export class HeadCamera {
         throw error
       }
     } catch {
-      if (generation === this.generation)
+      if (generation === this.generation) {
         this.fail("Could not read front-camera frames. Reconnect the camera.")
+      }
     }
   }
 }

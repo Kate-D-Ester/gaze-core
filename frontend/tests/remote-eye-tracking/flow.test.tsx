@@ -3,16 +3,14 @@ import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global
 import type {
   RemoteObservation,
   RemoteRequest,
-} from "../../apps/web/src/features/remote-eye-tracking/types"
+} from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 if (typeof document === "undefined") GlobalRegistrator.register()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act, createElement } = await import("../../apps/web/node_modules/react")
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
-const { MemoryRouter } =
-  await import("../../apps/web/node_modules/react-router-dom")
 const { RemoteEyeTrackingPage } =
-  await import("../../apps/web/src/pages/remote-eye-tracking-page")
+  await import("../../apps/web/src/screens/remote-eye-tracking-page")
 
 test("complete labeled calibration, validation, resize recovery, and camera-disconnection recovery", async () => {
   let clock = 100,
@@ -176,7 +174,7 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
       })
     await act(async () =>
       root.render(
-        createElement(MemoryRouter, null, createElement(RemoteEyeTrackingPage))
+        createElement(RemoteEyeTrackingPage)
       )
     )
     await click("Webcam-based eye tracker")

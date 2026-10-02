@@ -1,22 +1,28 @@
+import type { Ellipse } from "../eye-tracking/eye-tracking.types"
 import { loadOpenCv } from "../eye-tracking/opencv"
 import { createLandmarker } from "./face-landmarker"
-import { buildIrFeatures } from "./ir-features"
 import { IrEyeTracker } from "./ir-eye-tracker"
 import {
   buildIrFaceFeatures,
-  irEyeRegions,
-  irEyeAperture,
-  irEyeSearchBounds,
   IR_EYE_CORNERS,
+  irEyeAperture,
+  irEyeRegions,
+  irEyeSearchBounds,
 } from "./ir-face-features"
-import { inspectRgbFace, type RgbFaceResult } from "./rgb-features"
-import type { Ellipse } from "../eye-tracking/eye-tracking.types"
-import type { Point, Rect, RemoteObservation, RemoteProcessor } from "./types"
-
-export interface IrFaceLocator {
-  detect(frame: ImageBitmap, timestamp: number): RgbFaceResult
-  dispose(): void
-}
+import { buildIrFeatures } from "./ir-features"
+import type {
+  IrEyeFrame,
+  IrFaceLocator,
+  IrProcessorOptions,
+} from "./ir-processor.types"
+import type {
+  Point,
+  Rect,
+  RemoteObservation,
+  RemoteProcessor,
+} from "./remote-eye-tracking.types"
+import { inspectRgbFace } from "./rgb-features"
+export type { IrFaceLocator } from "./ir-processor.types"
 async function loadFaceLocator(): Promise<IrFaceLocator> {
   const { landmarker, canvas } = await createLandmarker({
     outputFaceBlendshapes: false,
@@ -43,13 +49,14 @@ function pixelRoi(roi: Rect, width: number, height: number): Rect | null {
     roi.height <= 0 ||
     width <= 0 ||
     height <= 0
-  )
+  ) {
     return null
+  }
   const clamp = (n: number) => Math.max(0, Math.min(1, n))
-  const x = Math.floor(clamp(roi.x) * width),
-    y = Math.floor(clamp(roi.y) * height)
-  const right = Math.ceil(clamp(roi.x + roi.width) * width),
-    bottom = Math.ceil(clamp(roi.y + roi.height) * height)
+  const x = Math.floor(clamp(roi.x) * width)
+  const y = Math.floor(clamp(roi.y) * height)
+  const right = Math.ceil(clamp(roi.x + roi.width) * width)
+  const bottom = Math.ceil(clamp(roi.y + roi.height) * height)
   return right - x >= 24 && bottom - y >= 24
     ? { x, y, width: right - x, height: bottom - y }
     : null
@@ -57,15 +64,15 @@ function pixelRoi(roi: Rect, width: number, height: number): Rect | null {
 function automaticRegion(roi: Rect) {
   return roi.x === 0 && roi.y === 0 && roi.width === 1 && roi.height === 1
 }
-
 /** Only eye crops are resized; the original camera frame supplies all pupil pixels. */
 export async function createIrProcessor(
-  options: { faceLocator?: IrFaceLocator | null } = {}
+  options: IrProcessorOptions = {}
 ): Promise<RemoteProcessor> {
-  if (typeof OffscreenCanvas === "undefined")
+  if (typeof OffscreenCanvas === "undefined") {
     throw new Error(
       "IR processing requires worker canvas support in this browser"
     )
+  }
   const { cv } = await loadOpenCv()
   let locator: IrFaceLocator | null = options.faceLocator ?? null
   if (options.faceLocator === undefined) {
@@ -75,8 +82,8 @@ export async function createIrProcessor(
       /* Close-up pupil/reflection tracking can still run without face inference. */
     }
   }
-  const canvas = new OffscreenCanvas(1, 1),
-    context = canvas.getContext("2d", { willReadFrequently: true })
+  const canvas = new OffscreenCanvas(1, 1)
+  const context = canvas.getContext("2d", { willReadFrequently: true })
   if (!context) {
     locator?.dispose()
     throw new Error("The IR worker could not create its image canvas")
@@ -87,9 +94,9 @@ export async function createIrProcessor(
     closeup.reset()
     eyeTrackers.forEach((eye) => eye.reset())
   }
-  let regionKey = "",
-    disposed = false,
-    lastTimestamp = -Infinity
+  let regionKey = ""
+  let disposed = false
+  let lastTimestamp = -Infinity
   let pipeline: "face" | "closeup" | null = null
   function measure(
     frame: ImageBitmap,
@@ -97,20 +104,14 @@ export async function createIrProcessor(
     timestamp: number,
     threshold: number,
     tracker: IrEyeTracker,
-    eyeFrame?: {
-      center: Point
-      span: number
-      angle: number
-      aperture: Point[]
-      search: ReturnType<typeof irEyeSearchBounds>
-    }
+    eyeFrame?: IrEyeFrame
   ) {
     const scale = Math.min(
       1,
       maxProcessingDimension / Math.max(roi.width, roi.height)
     )
-    const width = Math.round(roi.width * scale),
-      height = Math.round(roi.height * scale)
+    const width = Math.round(roi.width * scale)
+    const height = Math.round(roi.height * scale)
     canvas.width = width
     canvas.height = height
     context!.drawImage(
@@ -124,12 +125,13 @@ export async function createIrProcessor(
       width,
       height
     )
-    const rgba = context!.getImageData(0, 0, width, height).data,
-      gray = new Uint8Array(width * height)
-    for (let i = 0; i < gray.length; i++)
+    const rgba = context!.getImageData(0, 0, width, height).data
+    const gray = new Uint8Array(width * height)
+    for (let i = 0; i < gray.length; i++) {
       gray[i] = Math.round(
         0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]
       )
+    }
     const eyeCoordinates = eyeFrame
       ? {
           origin: [
@@ -166,8 +168,8 @@ export async function createIrProcessor(
       },
       eyeCoordinates
     )
-    const scaleX = roi.width / width,
-      scaleY = roi.height / height
+    const scaleX = roi.width / width
+    const scaleY = roi.height / height
     const pupil: Ellipse | null = detected.pupil
       ? {
           ...detected.pupil,
@@ -186,8 +188,8 @@ export async function createIrProcessor(
   }
   return {
     async process(frame, timestamp, settings) {
-      const started = performance.now(),
-        roi = pixelRoi(settings.roi, frame.width, frame.height)
+      const started = performance.now()
+      const roi = pixelRoi(settings.roi, frame.width, frame.height)
       const empty = (reason: string): RemoteObservation => ({
         timestamp,
         width: frame.width,
@@ -204,7 +206,9 @@ export async function createIrProcessor(
         method: "IR pupil detection",
         processingMs: performance.now() - started,
       })
-      if (disposed) return empty("IR processor stopped")
+      if (disposed) {
+        return empty("IR processor stopped")
+      }
       if (!roi || !Number.isFinite(timestamp) || timestamp <= lastTimestamp) {
         resetTracking()
         return empty("Waiting for a fresh valid IR frame")
@@ -233,7 +237,9 @@ export async function createIrProcessor(
                 (index) => geometry.landmarks[index]
               )
               const span = Math.hypot(b[0] - a[0], b[1] - a[1])
-              if (region.width < 24 || region.height < 24) return null
+              if (region.width < 24 || region.height < 24) {
+                return null
+              }
               return measure(
                 frame,
                 region,
@@ -264,17 +270,19 @@ export async function createIrProcessor(
               pose: geometry.pose,
               method: "IR binocular pupils + head pose",
             }
-            if (pupils.some((p) => !p))
+            if (pupils.some((p) => !p)) {
               return {
                 ...empty("Pupil not clear. Move closer or adjust IR lighting."),
                 ...feedback,
               }
+            }
             const features = buildIrFaceFeatures(
               geometry,
               pupils.map((p) => p!.center)
             )
-            if (!features)
+            if (!features) {
               return { ...empty("IR pupil geometry unavailable"), ...feedback }
+            }
             return {
               ...empty(""),
               ...feedback,
@@ -287,8 +295,9 @@ export async function createIrProcessor(
               processingMs: performance.now() - started,
             }
           }
-          if (pipeline === "face" || geometry.reason !== "face-not-found")
+          if (pipeline === "face" || geometry.reason !== "face-not-found") {
             return empty(geometry.reason)
+          }
         }
         // A real close-up can use PCCR. Never reinterpret small full-face blobs as a close-up eye.
         const { detected, pupil, glint } = measure(
@@ -309,29 +318,33 @@ export async function createIrProcessor(
               : "Automatic eye localization unavailable. Select one eye region."
           )
         }
-        if (pupil && automatic) pipeline = "closeup"
+        if (pupil && automatic) {
+          pipeline = "closeup"
+        }
         const feedback = {
           eyes: pupil ? [{ center: pupil.center, radius: pupil.major }] : [],
           glints: glint ? [glint] : [],
           eyeRegions: [roi],
           method: "IR pupil / corneal reflection",
         }
-        if (!pupil || !glint)
+        if (!pupil || !glint) {
           return {
             ...empty(detected.reason ?? "IR pupil and reflection unavailable"),
             ...feedback,
           }
+        }
         const features = buildIrFeatures(
           pupil,
           glint,
           frame.width,
           frame.height
         )
-        if (!features.feature.every(Number.isFinite))
+        if (!features.feature.every(Number.isFinite)) {
           return {
             ...empty("IR reference measurement is invalid"),
             ...feedback,
           }
+        }
         return {
           ...empty(""),
           ...feedback,
@@ -348,7 +361,9 @@ export async function createIrProcessor(
       }
     },
     dispose() {
-      if (disposed) return
+      if (disposed) {
+        return
+      }
       disposed = true
       resetTracking()
       locator?.dispose()

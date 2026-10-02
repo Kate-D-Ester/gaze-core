@@ -1,6 +1,6 @@
-import type { HandObservation, Landmark } from "./scene.types"
 import { MAX_FRAME_AGE_MS } from "./calibration"
-
+import type { StableHandResult } from "./hand-stability.types"
+import type { HandObservation, Landmark } from "./scene.types"
 const PALM = [0, 5, 9, 13, 17]
 const distance = (a: Landmark, b: Landmark, hand: HandObservation) =>
   Math.hypot((a.x - b.x) * hand.scene.width, (a.y - b.y) * hand.scene.height) /
@@ -14,7 +14,6 @@ const rejected = (hand: HandObservation, reason: string) => ({
   handedness: [],
   reason,
 })
-
 /** Reject isolated jumps; smooth only the drawing, never the calibration data. */
 export class HandStability {
   private previous: HandObservation | null = null
@@ -23,27 +22,25 @@ export class HandStability {
   reset() {
     this.previous = this.pending = this.preview = null
   }
-  apply(hand: HandObservation): {
-    hand: HandObservation
-    preview: HandObservation | null
-  } {
+  apply(hand: HandObservation): StableHandResult {
     if (hand.landmarks.length !== 1) {
       this.pending = null
       return { hand, preview: null }
     }
-    const joints = hand.landmarks[0],
-      { scene } = hand
+    const joints = hand.landmarks[0]
+    const { scene } = hand
     if (
       joints.length !== 21 ||
       ![scene.timestamp, scene.width, scene.height].every(Number.isFinite) ||
       scene.width <= 0 ||
       scene.height <= 0 ||
       joints.some((p) => ![p.x, p.y, p.z].every(Number.isFinite))
-    )
+    ) {
       return {
         hand: rejected(hand, "Hand landmarks unavailable."),
         preview: null,
       }
+    }
     let previous = this.previous
     if (
       previous &&
@@ -55,11 +52,12 @@ export class HandStability {
       this.reset()
       previous = null
     }
-    if (previous && scene.timestamp <= previous.scene.timestamp)
+    if (previous && scene.timestamp <= previous.scene.timestamp) {
       return {
         hand: rejected(hand, "Waiting for a fresh hand frame."),
         preview: null,
       }
+    }
     let resetPreview = !previous
     if (previous) {
       const palm = previous.landmarks[0]

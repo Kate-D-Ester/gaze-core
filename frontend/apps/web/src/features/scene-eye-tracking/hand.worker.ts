@@ -1,16 +1,16 @@
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision"
-import type { SceneObservation } from "./scene.types"
-
+import type { HandWorkerRequest } from "./hand.worker.types"
 // Compiled as a classic worker: MediaPipe 0.10.32 loads its WASM factory with importScripts.
 let detector: HandLandmarker | null = null
 let delegate: "GPU" | "CPU" = "GPU"
 const base = new URL(".", self.location.href).href
 const send = (message: object) => self.postMessage(message)
 async function initialize(generation: number) {
-  if (typeof OffscreenCanvas === "undefined")
+  if (typeof OffscreenCanvas === "undefined") {
     throw new Error(
       "Hand tracking needs OffscreenCanvas. Use a current Chrome, Edge, Firefox or Safari browser."
     )
+  }
   const fileset = await FilesetResolver.forVisionTasks(`${base}wasm`)
   const canvas = new OffscreenCanvas(640, 480)
   const options = {
@@ -40,14 +40,7 @@ async function initialize(generation: number) {
   }
   send({ type: "ready", generation, delegate })
 }
-self.onmessage = async (
-  event: MessageEvent<{
-    type: string
-    generation: number
-    scene: SceneObservation
-    bitmap: ImageBitmap
-  }>
-) => {
+self.onmessage = async (event: MessageEvent<HandWorkerRequest>) => {
   const message = event.data
   try {
     if (message.type === "init") {
@@ -56,7 +49,9 @@ self.onmessage = async (
       await initialize(message.generation)
     } else if (message.type === "frame") {
       try {
-        if (!detector) throw new Error("The hand detector has not loaded yet.")
+        if (!detector) {
+          throw new Error("The hand detector has not loaded yet.")
+        }
         const started = performance.now()
         const result = detector.detectForVideo(
           message.bitmap,

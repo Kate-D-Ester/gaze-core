@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createIrProcessor } from "../../apps/web/src/features/remote-eye-tracking/ir-processor"
 import { face } from "./face-fixture"
-import type { RemoteSettings } from "../../apps/web/src/features/remote-eye-tracking/types"
+import type { RemoteSettings } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 
 // Bun has no worker canvas. This adapter supplies real cropped pixel data to the real OpenCV processor.
 type Pixels = ImageBitmap & { pixels: Uint8ClampedArray }

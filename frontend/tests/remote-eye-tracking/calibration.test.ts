@@ -9,7 +9,7 @@ import type {
   CalibrationSample,
   RemoteObservation,
   Point,
-} from "../../apps/web/src/features/remote-eye-tracking/types"
+} from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 
 function observation(
   target: Point,

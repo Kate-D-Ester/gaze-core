@@ -1,5 +1,4 @@
 import type { SavedCameraOptionProps } from "./saved-camera-option.types"
-
 /** Keep a saved choice visible before permission or device enumeration. */
 export function SavedCameraOption({
   deviceId,

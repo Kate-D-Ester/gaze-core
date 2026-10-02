@@ -1,8 +1,4 @@
 import {
-  NetworkCamera,
-  type NetworkConnectionState,
-} from "../eye-tracking/network-camera"
-import {
   cameraFrameGeometry,
   drawCameraFrame,
   normalizeCameraTransform,
@@ -10,30 +6,14 @@ import {
   saveCameraTransform,
   type CameraTransform,
 } from "../eye-tracking/camera-transform"
+import { NetworkCamera } from "../eye-tracking/network-camera"
 import {
   getCameraErrorMessage,
   waitForVideoDimensions,
 } from "../eye-tracking/video-source"
+import type { SceneCameraSnapshot, SceneSource } from "./scene-camera.types"
 import type { SceneObservation } from "./scene.types"
-
-export type SceneSource = {
-  kind: "camera" | "network"
-  name: string
-  key: string
-  deviceId?: string
-  url?: string
-}
-export type SceneCameraSnapshot = {
-  source: SceneSource | null
-  busy: boolean
-  error: string
-  devices: MediaDeviceInfo[]
-  frame: SceneObservation | null
-  connection: NetworkConnectionState
-  retryAttempt: number
-  transform: CameraTransform
-}
-
+export type { SceneCameraSnapshot, SceneSource } from "./scene-camera.types"
 export class SceneCamera {
   readonly rawCanvas = document.createElement("canvas")
   latest: SceneObservation | null = null
@@ -65,8 +45,9 @@ export class SceneCamera {
   private refreshDevices = async () => {
     try {
       const devices = (await navigator.mediaDevices?.enumerateDevices()) ?? []
-      if (!this.disposed)
+      if (!this.disposed) {
         this.update({ devices: devices.filter((d) => d.kind === "videoinput") })
+      }
     } catch {
       /* Permission-sensitive enumeration can fail before startup. */
     }
@@ -99,8 +80,9 @@ export class SceneCamera {
     this.stream?.getTracks().forEach((track) => track.stop())
     this.stream = null
     if (this.video) {
-      if (this.videoFrameHandle)
+      if (this.videoFrameHandle) {
         this.video.cancelVideoFrameCallback?.(this.videoFrameHandle)
+      }
       this.video.pause()
       this.video.srcObject = null
       this.video.removeAttribute("src")
@@ -134,10 +116,11 @@ export class SceneCamera {
     this.update({ busy: true })
     const epoch = this.generation
     try {
-      if (!navigator.mediaDevices?.getUserMedia)
+      if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(
           "Camera access needs localhost or HTTPS in a supported browser."
         )
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -151,12 +134,13 @@ export class SceneCamera {
         return
       }
       this.stream = stream
-      const track = stream.getVideoTracks()[0],
-        actualId = track?.getSettings().deviceId
-      if (excludedDeviceId && actualId === excludedDeviceId)
+      const track = stream.getVideoTracks()[0]
+      const actualId = track?.getSettings().deviceId
+      if (excludedDeviceId && actualId === excludedDeviceId) {
         throw new Error(
           "Choose a different USB device for the scene camera and the eye camera."
         )
+      }
       const video = document.createElement("video")
       video.muted = true
       video.playsInline = true
@@ -164,7 +148,9 @@ export class SceneCamera {
       this.video = video
       await video.play()
       await waitForVideoDimensions(video)
-      if (epoch !== this.generation) return
+      if (epoch !== this.generation) {
+        return
+      }
       this.activate(
         {
           kind: "camera",
@@ -177,21 +163,24 @@ export class SceneCamera {
       track?.addEventListener(
         "ended",
         () => {
-          if (this.stream === stream)
+          if (this.stream === stream) {
             this.stop("Scene camera disconnected. Reconnect it and try again.")
+          }
         },
         { once: true }
       )
       void this.refreshDevices()
     } catch (error) {
-      if (epoch === this.generation) this.stop(getCameraErrorMessage(error))
+      if (epoch === this.generation) {
+        this.stop(getCameraErrorMessage(error))
+      }
     }
   }
-
   setTransform = (value: CameraTransform) => {
     const transform = normalizeCameraTransform(value)
-    if (JSON.stringify(transform) === JSON.stringify(this.snapshot.transform))
+    if (JSON.stringify(transform) === JSON.stringify(this.snapshot.transform)) {
       return
+    }
     saveCameraTransform("scene", transform)
     this.observationGeneration++
     this.latest = null
@@ -199,8 +188,8 @@ export class SceneCamera {
   }
   async startNetworkStream(input: string) {
     this.stop()
-    const epoch = this.generation,
-      url = input.trim()
+    const epoch = this.generation
+    const url = input.trim()
     const source: SceneSource = {
       kind: "network",
       name: url,
@@ -209,27 +198,35 @@ export class SceneCamera {
     }
     const network = new NetworkCamera({
       onStatus: (connection, retryAttempt) => {
-        if (epoch === this.generation)
+        if (epoch === this.generation) {
           this.update({
             connection,
             retryAttempt,
             busy: connection === "connecting" || connection === "reconnecting",
           })
+        }
       },
       onError: (error) => {
-        if (epoch === this.generation) this.update({ error, busy: false })
+        if (epoch === this.generation) {
+          this.update({ error, busy: false })
+        }
       },
       onFrame: (frame) => {
-        if (epoch !== this.generation) return
+        if (epoch !== this.generation) {
+          return
+        }
         if (!frame) {
           this.latest = null
           this.observationGeneration++
           return
         }
         this.draw(frame.image, frame.width, frame.height, frame.timestamp)
-        if (epoch !== this.generation || !this.latest) return
-        if (!this.snapshot.source)
+        if (epoch !== this.generation || !this.latest) {
+          return
+        }
+        if (!this.snapshot.source) {
           this.update({ source, error: "", busy: false })
+        }
       },
     })
     this.network = network
@@ -241,14 +238,20 @@ export class SceneCamera {
     inputHeight: number,
     timestamp: number
   ) {
-    if (!inputWidth || !inputHeight) return
+    if (!inputWidth || !inputHeight) {
+      return
+    }
     const { width, height } = cameraFrameGeometry(
       inputWidth,
       inputHeight,
       this.snapshot.transform
     )
-    if (this.rawCanvas.width !== width) this.rawCanvas.width = width
-    if (this.rawCanvas.height !== height) this.rawCanvas.height = height
+    if (this.rawCanvas.width !== width) {
+      this.rawCanvas.width = width
+    }
+    if (this.rawCanvas.height !== height) {
+      this.rawCanvas.height = height
+    }
     const ctx = this.rawCanvas.getContext("2d")
     if (!ctx) {
       this.stop("Unable to create a scene preview in this browser.")
@@ -283,7 +286,9 @@ export class SceneCamera {
     this.usesFrameCallbacks = !!video?.requestVideoFrameCallback
     if (video && this.usesFrameCallbacks) {
       const presented: VideoFrameRequestCallback = (now, metadata) => {
-        if (epoch !== this.generation || this.disposed) return
+        if (epoch !== this.generation || this.disposed) {
+          return
+        }
         if (metadata.presentedFrames !== this.lastPresentedFrames) {
           this.lastPresentedFrames = metadata.presentedFrames
           this.videoFrameReady = true
@@ -299,7 +304,9 @@ export class SceneCamera {
       return
     }
     const loop = (time: number) => {
-      if (epoch !== this.generation || this.disposed) return
+      if (epoch !== this.generation || this.disposed) {
+        return
+      }
       const image = this.video
       const quality = !this.usesFrameCallbacks
         ? this.video?.getVideoPlaybackQuality?.()
@@ -314,15 +321,17 @@ export class SceneCamera {
           ? this.videoFrameReady
           : presentedFrames > 0 && presentedFrames !== this.lastPresentedFrames)
       if (fresh && image) {
-        const width = this.video!.videoWidth,
-          height = this.video!.videoHeight
+        const width = this.video!.videoWidth
+        const height = this.video!.videoHeight
         if (width && height) {
           this.videoFrameReady = false
-          if (!this.usesFrameCallbacks)
+          if (!this.usesFrameCallbacks) {
             this.lastPresentedFrames = presentedFrames
+          }
           this.lastArrival = time
-          if (this.usesFrameCallbacks)
+          if (this.usesFrameCallbacks) {
             this.lastArrival = this.videoFrameTimestamp
+          }
           this.draw(image, width, height, this.lastArrival)
         }
       }

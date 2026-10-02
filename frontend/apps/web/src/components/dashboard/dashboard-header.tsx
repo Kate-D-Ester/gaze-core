@@ -1,6 +1,5 @@
 import { Button } from "@workspace/ui/components/button"
 import type { DashboardHeaderProps } from "./dashboard-header.types"
-
 export function DashboardHeader({
   session,
   busy,

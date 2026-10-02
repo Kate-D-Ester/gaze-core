@@ -21,7 +21,9 @@ loadOpenCv()
   )
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const request = event.data
-  if (!engine) return
+  if (!engine) {
+    return
+  }
   try {
     if (generation !== request.generation) {
       engine.reset()

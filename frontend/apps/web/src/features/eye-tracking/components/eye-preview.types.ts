@@ -1,6 +1,6 @@
 import type { Point, Rect } from "../eye-tracking.types"
-import type { TrackerController } from "../use-tracker.types"
 import type { ResizeHandle } from "../roi.types"
+import type { TrackerController } from "../use-tracker.types"
 
 export type EyePreviewProps = {
   tracker: TrackerController

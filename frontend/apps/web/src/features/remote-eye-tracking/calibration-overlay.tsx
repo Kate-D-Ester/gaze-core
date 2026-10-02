@@ -1,28 +1,37 @@
-import { ArrowRight, X, RefreshCcw } from "lucide-react"
+import { ArrowRight, RefreshCcw, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { CalibrationTarget } from "../eye-tracking/calibration-target"
 import { CalibrationFeedback } from "../eye-tracking/calibration-feedback"
-import { IconButton } from "./remote-controls"
+import { CalibrationTarget } from "../eye-tracking/calibration-target"
+import { EyeButtonStyles } from "../tracking-ui/control-styles"
+import {
+  EyeCalibrationTargetStyles,
+  EyeCalibrationWelcomeStyles,
+} from "../tracking-ui/calibration-styles"
+import {
+  RemoteCalibrationStyles,
+  RemoteCalibrationTopStyles,
+} from "../tracking-ui/remote-styles"
 import {
   CALIBRATION_TARGETS,
   VALIDATION_TARGETS,
   poseSupported,
 } from "./calibration"
-import { observationStatus } from "./observation-status"
-import { REQUIRED_TARGET_SAMPLES, TargetCollector } from "./sample-collector"
-import type { CalibrationSample, RemoteObservation } from "./types"
 import type {
   CaptureProgress,
   RemoteCalibrationOverlayProps,
 } from "./calibration-overlay.types"
-
+import { observationStatus } from "./observation-status"
+import { IconButton } from "./remote-controls"
+import type {
+  CalibrationSample,
+  RemoteObservation,
+} from "./remote-eye-tracking.types"
+import { REQUIRED_TARGET_SAMPLES, TargetCollector } from "./sample-collector"
 const TARGET_POP_MS = 260
 const TARGET_TIMEOUT_MS = 20000
-
 function initialProgress(): CaptureProgress {
   return { index: 0, count: 0, reason: "", timedOut: false, bursting: false }
 }
-
 function captureInstruction(
   observation: RemoteObservation | null,
   unsupported: boolean,
@@ -49,7 +58,6 @@ function captureInstruction(
   }
   return ""
 }
-
 export function RemoteCalibrationOverlay({
   latest,
   extended,
@@ -74,14 +82,12 @@ export function RemoteCalibrationOverlay({
     }
     return CALIBRATION_TARGETS
   }, [calibration, extended])
-
   useEffect(() => {
     const selector = running
       ? '[aria-label="Cancel capture"]'
       : ".eye-calibration-start"
     dialog.current?.querySelector<HTMLButtonElement>(selector)?.focus()
   }, [running])
-
   useEffect(() => {
     if (!running) {
       return
@@ -93,7 +99,6 @@ export function RemoteCalibrationOverlay({
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     const samples: CalibrationSample[] = []
     let collector = new TargetCollector(targets[index]!, index, started)
-
     function tick(): void {
       const now = performance.now()
       if (burstStarted !== null) {
@@ -110,7 +115,6 @@ export function RemoteCalibrationOverlay({
         burstStarted = null
         collector = new TargetCollector(targets[index]!, index, started)
       }
-
       const observation = latest.current
       const unsupported = Boolean(
         calibration &&
@@ -137,7 +141,6 @@ export function RemoteCalibrationOverlay({
       }
     }
     animation = requestAnimationFrame(tick)
-
     function cancelAfterResize(): void {
       if (
         window.innerWidth !== viewport.width ||
@@ -153,7 +156,6 @@ export function RemoteCalibrationOverlay({
     }
     // Retry starts the whole sequence again, without mixing interrupted captures.
   }, [running, latest, calibration, retry, targets])
-
   const target = targets[progress.index]!
   const movingPass =
     !calibration && extended && progress.index >= CALIBRATION_TARGETS.length
@@ -183,11 +185,10 @@ export function RemoteCalibrationOverlay({
   if (progress.bursting) {
     instruction = ""
   }
-
   return (
     <div
       ref={dialog}
-      className="remote-calibration"
+      className={`remote-calibration ${RemoteCalibrationStyles}`}
       role="dialog"
       aria-modal="true"
       aria-label={calibration ? "Gaze validation" : "Gaze calibration"}
@@ -215,16 +216,18 @@ export function RemoteCalibrationOverlay({
         }
       }}
     >
-      <div className="remote-calibration-top">
+      <div className={`remote-calibration-top ${RemoteCalibrationTopStyles}`}>
         <span>{running ? "" : label}</span>
         <IconButton label="Cancel capture" icon={X} onClick={onCancel} />
       </div>
       {!running && (
-        <div className="eye-calibration-welcome">
+        <div
+          className={`eye-calibration-welcome ${EyeCalibrationWelcomeStyles}`}
+        >
           <h2>{title}</h2>
           <p>{introduction}</p>
           <button
-            className="eye-button primary eye-calibration-start"
+            className={`eye-button ${EyeButtonStyles} primary eye-calibration-start`}
             onClick={() => setRunning(true)}
           >
             {startLabel}
@@ -235,7 +238,7 @@ export function RemoteCalibrationOverlay({
       {running && (
         <>
           <div
-            className="remote-target eye-calibration-target"
+            className={`remote-target eye-calibration-target ${EyeCalibrationTargetStyles}`}
             style={{ left: `${target[0] * 100}%`, top: `${target[1] * 100}%` }}
           >
             <CalibrationTarget

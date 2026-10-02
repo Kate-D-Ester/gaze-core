@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { MAX_FRAME_AGE_MS } from "./calibration"
 import type { SceneSession } from "./scene-session"
 import type { CalibrationHold, CollectionResult } from "./scene.types"
-import { MAX_FRAME_AGE_MS } from "./calibration"
-
-type Cue = "locked" | "lost" | "saved"
+import type { Cue } from "./use-calibration-feedback.types"
 const CUES = {
   locked: [[520, 0, 0.1]],
   lost: [[140, 0, 0.18]],
@@ -13,8 +12,8 @@ const CUES = {
   ],
 } satisfies Record<Cue, number[][]>
 function createTone(audio: AudioContext, frequency: number, volume: number) {
-  const tone = audio.createOscillator(),
-    gain = audio.createGain()
+  const tone = audio.createOscillator()
+  const gain = audio.createGain()
   tone.frequency.value = frequency
   gain.gain.setValueAtTime(0, audio.currentTime)
   gain.gain.linearRampToValueAtTime(volume, audio.currentTime + 0.01)
@@ -37,7 +36,6 @@ function playCue(audio: AudioContext, cue: Cue) {
     tone.stop(start + duration + 0.01)
   }
 }
-
 const SOUND_KEY = "gaze-core.scene.point-sound"
 export function useCalibrationFeedback(session: SceneSession) {
   const [enabled, setEnabled] = useState(() => {
@@ -54,12 +52,16 @@ export function useCalibrationFeedback(session: SceneSession) {
   const deadline = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastBuzz = useRef(-Infinity)
   const stopProgress = useCallback(() => {
-    if (deadline.current) clearTimeout(deadline.current)
+    if (deadline.current) {
+      clearTimeout(deadline.current)
+    }
     deadline.current = null
-    const current = progressTone.current,
-      audio = context.current
+    const current = progressTone.current
+    const audio = context.current
     progressTone.current = null
-    if (!current || !audio) return
+    if (!current || !audio) {
+      return
+    }
     try {
       current.gain.gain.cancelScheduledValues(audio.currentTime)
       current.gain.gain.setValueAtTime(0.04, audio.currentTime)
@@ -79,7 +81,9 @@ export function useCalibrationFeedback(session: SceneSession) {
     }
   }, [])
   const prepare = useCallback(() => {
-    if (enabled) unlockAudio()
+    if (enabled) {
+      unlockAudio()
+    }
   }, [enabled, unlockAudio])
   useEffect(
     () =>
@@ -95,7 +99,9 @@ export function useCalibrationFeedback(session: SceneSession) {
         const audio = context.current
         const canPlay = enabled && audio?.state === "running"
         const buzz = () => {
-          if (!canPlay || performance.now() - lastBuzz.current < 1000) return
+          if (!canPlay || performance.now() - lastBuzz.current < 1000) {
+            return
+          }
           lastBuzz.current = performance.now()
           playCue(audio, "lost")
         }
@@ -111,7 +117,9 @@ export function useCalibrationFeedback(session: SceneSession) {
           collection.status === "capturing" &&
           collection.samples > 0
         ) {
-          if (!before || before.samples === 0) cue = "locked"
+          if (!before || before.samples === 0) {
+            cue = "locked"
+          }
         }
         try {
           if (collection.status !== "capturing" || !canPlay) {
@@ -122,14 +130,17 @@ export function useCalibrationFeedback(session: SceneSession) {
               ((collection.status === "paused" && before.status !== "paused") ||
                 (before.status === "capturing" &&
                   collection.status === "settling"))
-            )
+            ) {
               buzz()
+            }
           } else if (collection.samples > (before?.samples ?? 0)) {
             if (!progressTone.current) {
               progressTone.current = createTone(audio, 660, 0.04)
               progressTone.current.tone.start()
             }
-            if (deadline.current) clearTimeout(deadline.current)
+            if (deadline.current) {
+              clearTimeout(deadline.current)
+            }
             // Renew only from new paired samples. Repaints cannot sustain sound.
             deadline.current = setTimeout(() => {
               stopProgress()
@@ -142,7 +153,9 @@ export function useCalibrationFeedback(session: SceneSession) {
               }
             }, MAX_FRAME_AGE_MS)
           }
-          if (cue && canPlay) playCue(audio, cue)
+          if (cue && canPlay) {
+            playCue(audio, cue)
+          }
         } catch {
           /* A failed audio device must never interrupt collection. */
         }
@@ -150,7 +163,9 @@ export function useCalibrationFeedback(session: SceneSession) {
     [enabled, session, stopProgress]
   )
   useEffect(() => {
-    if (!enabled) stopProgress()
+    if (!enabled) {
+      stopProgress()
+    }
   }, [enabled, stopProgress])
   useEffect(
     () => () => {
@@ -161,8 +176,11 @@ export function useCalibrationFeedback(session: SceneSession) {
   )
   const toggle = () => {
     const next = !enabled
-    if (next) unlockAudio()
-    else stopProgress()
+    if (next) {
+      unlockAudio()
+    } else {
+      stopProgress()
+    }
     setEnabled(next)
     try {
       localStorage.setItem(SOUND_KEY, next ? "on" : "off")

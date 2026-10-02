@@ -11,7 +11,7 @@ lives on `codex/v3-webcam-gaze`; the existing near-eye tracker remains available
 ## Run locally
 
 ```sh
-cd ~/Desktop/Codex-projects/gaze-core-v3/frontend
+cd /path/to/gaze-core/frontend
 bun install --frozen-lockfile
 bun run dev --host 0.0.0.0 --port 4003
 ```
@@ -277,11 +277,11 @@ flight; the exhaustive evaluation used sequential decoding, not real-time replay
 No new runtime dependencies or vision model downloads were added. IR disables
 unused face blendshape output, retains two-face rejection and head matrices, and
 keeps heavy models lazy. Small-eye filtering is bounded, and processing stays off
-the UI thread. Production Nginx configuration now enables gzip for scripts, WASM
-and binary model assets using [the standard gzip module](https://nginx.org/en/docs/http/ngx_http_gzip_module.html).
+the UI thread. The current app uses Next.js standalone hosting; configure
+model/WASM compression at your deployment proxy when needed.
 The cold IR vision assets measured approximately 26.83 MB raw / 10.50 MB gzip;
-this is an asset-size measurement, not a verified deployed transfer. Nginx was
-not installed locally, so deployed `Content-Encoding` still needs checking.
+this is a historical asset-size measurement, not a verified deployed transfer.
+Deployed `Content-Encoding` still needs checking.
 OpenCV currently reserves a 128 MiB WASM heap. This build is therefore not a
 minimal-memory universal-phone implementation; real iOS/Android startup, sustained
 throughput and memory measurements remain necessary.

@@ -5,40 +5,17 @@ if (typeof document === "undefined") GlobalRegistrator.register()
 const { act, createElement } = await import("../../apps/web/node_modules/react")
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
-const { MemoryRouter } =
-  await import("../../apps/web/node_modules/react-router-dom")
-const { useLocation } =
-  await import("../../apps/web/node_modules/react-router-dom")
 const { ThemeProvider } =
   await import("../../apps/web/src/components/theme-provider")
-const { V2Page } = await import("../../apps/web/src/pages/v2-page")
-const { App } = await import("../../apps/web/src/App")
+const { EyeTrackingWorkspace } =
+  await import("../../apps/web/src/screens/eye-tracking-workspace")
+const { default: nextConfig } = await import("../../apps/web/next.config")
 const { DashboardPage } =
-  await import("../../apps/web/src/pages/dashboard-page")
+  await import("../../apps/web/src/screens/dashboard-page")
 
 const host = document.createElement("div")
 let root: ReturnType<typeof createRoot>
 
-function CurrentPath() {
-  const location = useLocation()
-  return createElement(
-    "output",
-    { "data-testid": "current-path" },
-    location.pathname
-  )
-}
-
-function renderAppAtPath(path: string) {
-  root = createRoot(host)
-  root.render(
-    createElement(
-      MemoryRouter,
-      { initialEntries: [path] },
-      createElement(App),
-      createElement(CurrentPath)
-    )
-  )
-}
 afterEach(async () => {
   if (root) await act(async () => root.unmount())
   host.remove()
@@ -84,14 +61,14 @@ test("V2 keeps its dark camera workspace surface and native controls", async () 
           storageKey: "v2-shell-test-theme",
           disableTransitionOnChange: false,
         },
-        createElement(MemoryRouter, null, createElement(V2Page))
+        createElement(EyeTrackingWorkspace)
       )
     )
   })
   const app = host.querySelector<HTMLElement>(".eye-app")!
   expect(document.documentElement.classList.contains("light")).toBe(true)
-  expect(app.style.colorScheme).toBe("dark")
-  expect(app.style.backgroundColor).toBe("#090909")
+  expect(app.classList.contains("[color-scheme:dark]")).toBe(true)
+  expect(app.classList.contains("bg-[#090909]")).toBe(true)
 })
 
 test("threshold and preview render as separate sibling cards", async () => {
@@ -112,7 +89,7 @@ test("threshold and preview render as separate sibling cards", async () => {
           storageKey: "v2-shell-test-theme",
           disableTransitionOnChange: false,
         },
-        createElement(MemoryRouter, null, createElement(V2Page))
+        createElement(EyeTrackingWorkspace)
       )
     )
   })
@@ -148,28 +125,21 @@ test("threshold and preview render as separate sibling cards", async () => {
   expect(host.querySelectorAll(".eye-viewfinder-corner")).toHaveLength(0)
 })
 
-test("the public tracker opens at /trial/screen-eye-tracking and redirects /v2 links there", async () => {
-  ;(globalThis as any).Worker = class {
-    postMessage() {}
-    terminate() {}
-  }
-  globalThis.requestAnimationFrame = () => 1
-  globalThis.cancelAnimationFrame = () => {}
-  document.body.append(host)
-
-  await act(async () => renderAppAtPath("/trial/screen-eye-tracking"))
-  expect(host.querySelector(".eye-app")).not.toBeNull()
-  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial/screen-eye-tracking"
-  )
-
-  await act(async () => root.unmount())
-  host.replaceChildren()
-  await act(async () => renderAppAtPath("/v2"))
-  expect(host.querySelector(".eye-app")).not.toBeNull()
-  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial/screen-eye-tracking"
-  )
+test("the screen tracker has a public Next page and a permanent v2 redirect", async () => {
+  const source = await Bun.file(
+    new URL(
+      "../../apps/web/src/app/trial/screen-eye-tracking/page.tsx",
+      import.meta.url
+    )
+  ).text()
+  expect(source).toContain(`<TrackingClient mode="screen" />`)
+  expect(
+    (await nextConfig.redirects?.())?.find((route) => route.source === "/v2")
+  ).toEqual({
+    source: "/v2",
+    destination: "/trial/screen-eye-tracking",
+    permanent: true,
+  })
 })
 
 test("dashboard offers exactly three trial cards with working navigation", async () => {
@@ -177,27 +147,22 @@ test("dashboard offers exactly three trial cards with working navigation", async
   await act(async () => {
     root = createRoot(host)
     root.render(
-      createElement(
-        MemoryRouter,
-        { initialEntries: ["/dashboard"] },
-        createElement(DashboardPage, {
-          session: { user: { id: "user-1", email: "kate@example.com" } },
-          busy: false,
-          loadingKeys: false,
-          apiKeys: [],
-          newKeyName: "",
-          createdApiKey: "",
-          message: "",
-          error: "",
-          onSignOut() {},
-          onNewKeyNameChange() {},
-          onCreateKey() {},
-          onCopyCreatedKey() {},
-          onRegenerateKey() {},
-          onDeleteKey() {},
-        }),
-        createElement(CurrentPath)
-      )
+      createElement(DashboardPage, {
+        session: { user: { id: "user-1", email: "kate@example.com" } },
+        busy: false,
+        loadingKeys: false,
+        apiKeys: [],
+        newKeyName: "",
+        createdApiKey: "",
+        message: "",
+        error: "",
+        onSignOut() {},
+        onNewKeyNameChange() {},
+        onCreateKey() {},
+        onCopyCreatedKey() {},
+        onRegenerateKey() {},
+        onDeleteKey() {},
+      })
     )
   })
 
@@ -214,9 +179,5 @@ test("dashboard offers exactly three trial cards with working navigation", async
     expect(card.querySelector("h3")?.textContent).toBe(name)
     expect(link.textContent).toContain("Try it out")
     expect(link.getAttribute("href")).toBe(path)
-    await act(async () => link.click())
-    expect(
-      host.querySelector('[data-testid="current-path"]')?.textContent
-    ).toBe(path)
   }
 })

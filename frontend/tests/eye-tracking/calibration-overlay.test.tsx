@@ -129,7 +129,7 @@ test.each(
     const dot = host.querySelector<HTMLElement>(".eye-live-dot")!
     expect(Number.parseFloat(dot.style.left)).toBeCloseTo(point[0] * 100)
     expect(Number.parseFloat(dot.style.top)).toBeCloseTo(point[1] * 100)
-    expect(dot.parentElement?.className).toBe("eye-focus-view")
+    expect(dot.parentElement?.classList.contains("eye-focus-view")).toBe(true)
   }
 )
 

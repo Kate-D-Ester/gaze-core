@@ -7,7 +7,7 @@ import {
 import type {
   RemoteRequest,
   RemoteResponse,
-} from "../../apps/web/src/features/remote-eye-tracking/types"
+} from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 
 function replayFixture(overrides: Partial<SessionEnvironment> = {}) {
   const states: SessionState[] = []

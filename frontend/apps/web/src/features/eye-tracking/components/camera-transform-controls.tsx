@@ -6,34 +6,34 @@ import {
   Undo2,
 } from "lucide-react"
 import {
+  CameraAngleStyles,
+  CameraTransformControlsStyles,
+} from "../../tracking-ui/camera-styles"
+import {
   DEFAULT_CAMERA_TRANSFORM,
   normalizeCameraTransform,
   type CameraTransform,
 } from "../camera-transform"
-
+import type { CameraTransformControlsProps } from "./camera-transform-controls.types"
 export function CameraTransformControls({
   value,
   onChange: onTransformChange,
   label,
   disabled = false,
-}: {
-  value: CameraTransform
-  onChange: (value: CameraTransform) => void
-  label: string
-  disabled?: boolean
-}) {
+}: CameraTransformControlsProps) {
   function onChange(next: CameraTransform) {
     const normalized = normalizeCameraTransform(next)
     if (
       normalized.rotation !== value.rotation ||
       normalized.mirrorX !== value.mirrorX ||
       normalized.mirrorY !== value.mirrorY
-    )
+    ) {
       onTransformChange(normalized)
+    }
   }
   return (
     <div
-      className="camera-transform-controls"
+      className={`camera-transform-controls ${CameraTransformControlsStyles}`}
       role="group"
       aria-label={label + " orientation"}
     >
@@ -58,7 +58,7 @@ export function CameraTransformControls({
         <RotateCw size={16} aria-hidden="true" />
       </button>
       <label
-        className="camera-angle"
+        className={`camera-angle ${CameraAngleStyles}`}
         title="Clockwise rotation in degrees"
         data-tooltip="Rotation angle · degrees"
       >
@@ -74,8 +74,9 @@ export function CameraTransformControls({
             if (
               event.target.value !== "" &&
               Number.isFinite(event.target.valueAsNumber)
-            )
+            ) {
               onChange({ ...value, rotation: event.target.valueAsNumber })
+            }
           }}
         />
         <span aria-hidden="true">°</span>

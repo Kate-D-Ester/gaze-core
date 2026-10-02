@@ -1,11 +1,20 @@
-import { useState } from "react"
 import { Check, Plus, Save, Trash2, X } from "lucide-react"
+import { useState } from "react"
 import { HelpTip } from "../eye-tracking/components/help-tip"
+import {
+  EyeActionIconStyles,
+  EyeButtonStyles,
+  EyeGuidanceRowStyles,
+  EyeMutedStyles,
+} from "../tracking-ui/control-styles"
+import {
+  SceneProfileControlsStyles,
+  SceneProfileRowStyles,
+} from "../tracking-ui/scene-styles"
 import type {
   CalibrationProfileControlsProps,
   ProfileNameDraft,
 } from "./calibration-profile-controls.types"
-
 export function CalibrationProfileControls({
   controller,
 }: CalibrationProfileControlsProps) {
@@ -13,26 +22,26 @@ export function CalibrationProfileControls({
   const selected = controller.profiles.find(
     (profile) => profile.id === controller.selectedId
   )
-
   function startSave(createNew: boolean) {
     let name = ""
-    if (!createNew && selected) name = selected.name
+    if (!createNew && selected) {
+      name = selected.name
+    }
     setDraft({ name, createNew })
   }
-
   return (
     <section
-      className="scene-profile-controls"
+      className={`scene-profile-controls ${SceneProfileControlsStyles}`}
       aria-label="Saved scene calibrations"
     >
-      <div className="eye-guidance-row">
+      <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
         <span>Calibration profile</span>
         <HelpTip
           label="Calibration profile help"
           text="Named calibrations stay in this browser. The last selected profile loads after camera setup. X/Y adjustments are saved with it. Offsets correct a uniform shift; changed camera angle or fit may need recalibration. Check accuracy whenever needed."
         />
       </div>
-      <div className="scene-profile-row">
+      <div className={`scene-profile-row ${SceneProfileRowStyles}`}>
         <select
           aria-label="Scene calibration profile"
           value={controller.selectedId ?? ""}
@@ -50,7 +59,7 @@ export function CalibrationProfileControls({
         </select>
         <button
           type="button"
-          className="eye-button secondary eye-action-icon"
+          className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Save calibration profile"
           data-tooltip="Save profile"
           disabled={!controller.canSave}
@@ -60,7 +69,7 @@ export function CalibrationProfileControls({
         </button>
         <button
           type="button"
-          className="eye-button secondary eye-action-icon"
+          className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Save as new calibration profile"
           data-tooltip="Save as new"
           disabled={!controller.canSave}
@@ -70,7 +79,7 @@ export function CalibrationProfileControls({
         </button>
         <button
           type="button"
-          className="eye-button secondary eye-action-icon"
+          className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Delete calibration profile"
           data-tooltip="Delete profile"
           disabled={!selected || controller.disabled}
@@ -78,8 +87,9 @@ export function CalibrationProfileControls({
             if (
               selected &&
               window.confirm(`Delete “${selected.name}” from this browser?`)
-            )
+            ) {
               controller.remove()
+            }
           }}
         >
           <Trash2 size={16} aria-hidden="true" />
@@ -87,10 +97,12 @@ export function CalibrationProfileControls({
       </div>
       {draft && (
         <form
-          className="scene-profile-row"
+          className={`scene-profile-row ${SceneProfileRowStyles}`}
           onSubmit={(event) => {
             event.preventDefault()
-            if (controller.save(draft.name, draft.createNew)) setDraft(null)
+            if (controller.save(draft.name, draft.createNew)) {
+              setDraft(null)
+            }
           }}
         >
           <input
@@ -106,7 +118,7 @@ export function CalibrationProfileControls({
           />
           <button
             type="submit"
-            className="eye-button primary eye-action-icon"
+            className={`eye-button ${EyeButtonStyles} primary eye-action-icon ${EyeActionIconStyles}`}
             aria-label="Confirm profile name"
             data-tooltip="Save"
             disabled={!controller.canSave || !draft.name.trim()}
@@ -115,7 +127,7 @@ export function CalibrationProfileControls({
           </button>
           <button
             type="button"
-            className="eye-button secondary eye-action-icon"
+            className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
             aria-label="Cancel profile name"
             data-tooltip="Cancel"
             onClick={() => setDraft(null)}
@@ -130,7 +142,7 @@ export function CalibrationProfileControls({
         </p>
       )}
       {!controller.error && controller.message && (
-        <small className="eye-muted" role="status">
+        <small className={`eye-muted ${EyeMutedStyles}`} role="status">
           {controller.message}
         </small>
       )}

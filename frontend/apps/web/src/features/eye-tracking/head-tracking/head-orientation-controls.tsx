@@ -5,13 +5,14 @@ import {
   RotateCw,
   Undo2,
 } from "lucide-react"
+import { EyeActionRowStyles } from "../../tracking-ui/control-styles"
+import { EyeHeadOrientationStyles } from "../../tracking-ui/head-tracking-styles"
 import { EyeActionButton } from "../components/eye-action-button"
 import {
   DEFAULT_HEAD_CAMERA_TRANSFORM,
   normalizeHeadCameraTransform,
 } from "./head-camera-transform"
 import type { HeadOrientationControlsProps } from "./head-orientation-controls.types"
-
 export function HeadOrientationControls({
   value,
   onChange,
@@ -24,10 +25,9 @@ export function HeadOrientationControls({
       })
     )
   }
-
   return (
     <div
-      className="eye-action-row eye-head-orientation"
+      className={`eye-action-row ${EyeActionRowStyles} eye-head-orientation ${EyeHeadOrientationStyles}`}
       role="group"
       aria-label="Front camera orientation"
     >

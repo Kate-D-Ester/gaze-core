@@ -1,8 +1,8 @@
-import type { SceneSession, SceneSessionSnapshot } from "./scene-session"
 import type {
   SceneCalibrationProfile,
   SceneProfileSetup,
 } from "./calibration-profiles.types"
+import type { SceneSession, SceneSessionSnapshot } from "./scene-session"
 
 export type UseCalibrationProfilesOptions = {
   session: SceneSession

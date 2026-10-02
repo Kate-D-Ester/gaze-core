@@ -1,22 +1,29 @@
 import { Crosshair, Download, Move, RefreshCw } from "lucide-react"
-import type { SceneSession, SceneSessionSnapshot } from "./scene-session"
 import { GazeOffsetControls } from "../eye-tracking/components/gaze-offset-controls"
+import {
+  EyeActionIconStyles,
+  EyeButtonStyles,
+  EyeGuidanceRowStyles,
+} from "../tracking-ui/control-styles"
+import {
+  SceneMetricsStyles,
+  ScenePreviewWarningStyles,
+  SceneValidationPointsStyles,
+  SceneValidationRecoveryStyles,
+} from "../tracking-ui/scene-styles"
 import { download } from "./download"
-
+import type { ValidationRecoveryControlsProps } from "./validation-recovery-controls.types"
 export function ValidationRecoveryControls({
   session,
   state,
   canCapture,
   prepare = () => {},
-}: {
-  session: SceneSession
-  state: SceneSessionSnapshot
-  canCapture: boolean
-  prepare?: () => void
-}) {
+}: ValidationRecoveryControlsProps) {
   const result = state.validation
   const dimensions = state.calibration?.holds[0]?.pairs[0]
-  if (!result || result.passed || !dimensions) return null
+  if (!result || result.passed || !dimensions) {
+    return null
+  }
   const suggested = result.suggestedOffset
   const unchanged = state.offset.every(
     (value, i) => value === (result.offset?.[i] ?? 0)
@@ -25,11 +32,15 @@ export function ValidationRecoveryControls({
     ? state.measurement.position
     : null
   return (
-    <div className="scene-validation-recovery">
-      <div className="eye-guidance-row">
-        <span className="scene-preview-warning">Unverified preview</span>
+    <div
+      className={`scene-validation-recovery ${SceneValidationRecoveryStyles}`}
+    >
+      <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
+        <span className={`scene-preview-warning ${ScenePreviewWarningStyles}`}>
+          Unverified preview
+        </span>
         <button
-          className="eye-button secondary eye-action-icon"
+          className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Download calibration diagnostics"
           data-tooltip="Save check diagnostics"
           title="Save calibration, validation pairs, per-point errors and the applied offset on this device"
@@ -59,7 +70,7 @@ export function ValidationRecoveryControls({
           <Download size={16} aria-hidden="true" />
         </button>
       </div>
-      <div className="scene-metrics">
+      <div className={`scene-metrics ${SceneMetricsStyles}`}>
         <div>
           <span>
             {unchanged ? "Accuracy check" : "Previous accuracy check"}
@@ -71,7 +82,7 @@ export function ValidationRecoveryControls({
         </div>
         {result.points && (
           <div
-            className="scene-validation-points"
+            className={`scene-validation-points ${SceneValidationPointsStyles}`}
             aria-label="Error at each validation point"
           >
             {result.points.map((point) => (
@@ -103,7 +114,7 @@ export function ValidationRecoveryControls({
       />
       {suggested && unchanged && (
         <button
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           aria-label="Apply suggested offset and check accuracy"
           title={`Try X ${(suggested[0] * dimensions.width).toFixed(1)} px, Y ${(suggested[1] * dimensions.height).toFixed(1)} px, then check five new fixations. The nine calibration points are kept.`}
           disabled={!canCapture}
@@ -118,7 +129,7 @@ export function ValidationRecoveryControls({
       )}
       {result.retryIndex != null && unchanged && (
         <button
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           disabled={!canCapture}
           onClick={() => {
             prepare()
@@ -130,7 +141,7 @@ export function ValidationRecoveryControls({
         </button>
       )}
       <button
-        className="eye-button secondary"
+        className={`eye-button ${EyeButtonStyles} secondary`}
         disabled={!canCapture}
         onClick={() => {
           prepare()

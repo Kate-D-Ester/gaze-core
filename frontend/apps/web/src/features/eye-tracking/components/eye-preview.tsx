@@ -1,4 +1,12 @@
 import {
+  Camera,
+  Contrast,
+  Crop,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+} from "lucide-react"
+import {
   useEffect,
   useLayoutEffect,
   useRef,
@@ -7,19 +15,33 @@ import {
   type PointerEvent,
 } from "react"
 import {
-  Camera,
-  Contrast,
-  Crop,
-  Image as ImageIcon,
-  Pencil,
-  Plus,
-} from "lucide-react"
-import { CameraTransformControls } from "./camera-transform-controls"
+  CameraRecoveryBannerStyles,
+  EyeCameraOutlineStyles,
+  EyeCornerModeSwitchStyles,
+  EyeManualCornerHandleStyles,
+  EyeManualCornerLayerStyles,
+  EyeManualModelLineStyles,
+  EyeManualModelMoveTargetStyles,
+  EyeManualModelOverlayStyles,
+  EyePreviewEmptyStyles,
+  EyePreviewHeadingStyles,
+  EyePreviewImageStyles,
+  EyePreviewStageStyles,
+  EyePreviewStyles,
+  EyePreviewSwitchStyles,
+  EyePreviewToolsStyles,
+  EyeRoiEditStyles,
+  EyeRoiHandleStyles,
+  EyeRoiOverlayStyles,
+  EyeRoiToolbarStyles,
+} from "../../tracking-ui/camera-styles"
+import { StatusLightStyles } from "../../tracking-ui/layout-styles"
+import { setCanvasDimensions } from "../canvas-sizing"
 import type { Ellipse, Point, Rect } from "../eye-tracking.types"
+import { fitPreviewCard, fitSquarePreview } from "../preview-layout"
 import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
-import { fitPreviewCard, fitSquarePreview } from "../preview-layout"
-import { setCanvasDimensions } from "../canvas-sizing"
+import { CameraTransformControls } from "./camera-transform-controls"
 import type {
   EyePreviewHandleDefinition,
   EyePreviewProps,
@@ -27,7 +49,6 @@ import type {
   ManualCornerSelection,
   RegionGesture,
 } from "./eye-preview.types"
-
 const HANDLES: EyePreviewHandleDefinition[] = [
   { handle: "nw", label: "top left", x: 0, y: 0 },
   { handle: "n", label: "top", x: 50, y: 0 },
@@ -38,7 +59,6 @@ const HANDLES: EyePreviewHandleDefinition[] = [
   { handle: "sw", label: "bottom left", x: 0, y: 100 },
   { handle: "w", label: "left", x: 0, y: 50 },
 ]
-
 function drawEllipse(
   ctx: CanvasRenderingContext2D,
   e: Ellipse,
@@ -59,7 +79,6 @@ function drawEllipse(
   )
   ctx.stroke()
 }
-
 function moveCornerPair(
   corners: [Point, Point],
   delta: Point,
@@ -72,13 +91,11 @@ function moveCornerPair(
   const maxY = Math.max(corners[0][1], corners[1][1])
   const dx = Math.max(-minX, Math.min(width - maxX, delta[0]))
   const dy = Math.max(-minY, Math.min(height - maxY, delta[1]))
-
   return [
     [corners[0][0] + dx, corners[0][1] + dy],
     [corners[1][0] + dx, corners[1][1] + dy],
   ]
 }
-
 function resizeCornerPair(
   corners: [Point, Point],
   index: number,
@@ -94,8 +111,9 @@ function resizeCornerPair(
   const dx = (point[0] - center[0]) * direction
   const dy = (point[1] - center[1]) * direction
   const requestedRadius = Math.hypot(dx, dy)
-  if (requestedRadius === 0) return corners
-
+  if (requestedRadius === 0) {
+    return corners
+  }
   const unit: Point = [dx / requestedRadius, dy / requestedRadius]
   let maximumRadius = Number.POSITIVE_INFINITY
   if (unit[0] > 0) {
@@ -108,14 +126,12 @@ function resizeCornerPair(
   } else if (unit[1] < 0) {
     maximumRadius = Math.min(maximumRadius, -center[1] / unit[1])
   }
-
   const radius = Math.min(requestedRadius, maximumRadius)
   return [
     [center[0] - unit[0] * radius, center[1] - unit[1] * radius],
     [center[0] + unit[0] * radius, center[1] + unit[1] * radius],
   ]
 }
-
 export function EyePreview({
   tracker,
   selectRegion,
@@ -146,7 +162,6 @@ export function EyePreview({
   const roi = tracker.settings.roi
   const displayRegion = selection ?? roi
   let previewClassName = ""
-
   if (selectRegion) {
     previewClassName = redraw ? "selectable" : "movable"
   } else if (cornerMode === "create") {
@@ -165,11 +180,11 @@ export function EyePreview({
   } else if (cornerMode === "create") {
     previewLabel = "Eye camera preview. Click to place the first eye corner."
   }
-
   useEffect(() => {
-    if (view === "threshold") onThresholdViewChange?.(true)
+    if (view === "threshold") {
+      onThresholdViewChange?.(true)
+    }
   }, [onThresholdViewChange, view])
-
   useLayoutEffect(() => {
     const preview = previewRef.current
     const previewCard = preview?.closest<HTMLElement>(".eye-preview-card")
@@ -183,11 +198,13 @@ export function EyePreview({
       !workspace ||
       (hasSource && !stage) ||
       (!hasSource && !emptyStage)
-    )
+    ) {
       return
+    }
     const Observer = window.ResizeObserver
-    if (!Observer) return
-
+    if (!Observer) {
+      return
+    }
     const heading = preview.querySelector<HTMLElement>(".eye-preview-heading")
     const toolbar = preview.querySelector<HTMLElement>(".eye-roi-toolbar")
     const thresholdCard = workspace.querySelector<HTMLElement>(
@@ -248,7 +265,6 @@ export function EyePreview({
         (besideThreshold ? (thresholdBounds?.width ?? 0) + columnGap : 0) -
         cardBorderWidth
       const maximumHeight = availableHeight - cardBorderHeight
-
       if (!hasSource) {
         previewCard.style.removeProperty("width")
         previewCard.style.removeProperty("height")
@@ -267,8 +283,9 @@ export function EyePreview({
         emptyStage.style.height = `${fitted.height}px`
         return
       }
-
-      if (!stage) return
+      if (!stage) {
+        return
+      }
       const chromeHeight =
         (heading?.getBoundingClientRect().height ?? 0) +
         (toolbar?.getBoundingClientRect().height ?? 0) +
@@ -300,11 +317,21 @@ export function EyePreview({
     const observer = new Observer(resize)
     observer.observe(workspace)
     observer.observe(previewCard)
-    if (thresholdCard) observer.observe(thresholdCard)
-    if (details) observer.observe(details)
-    if (heading) observer.observe(heading)
-    if (toolbar) observer.observe(toolbar)
-    if (emptyStage) observer.observe(emptyStage)
+    if (thresholdCard) {
+      observer.observe(thresholdCard)
+    }
+    if (details) {
+      observer.observe(details)
+    }
+    if (heading) {
+      observer.observe(heading)
+    }
+    if (toolbar) {
+      observer.observe(toolbar)
+    }
+    if (emptyStage) {
+      observer.observe(emptyStage)
+    }
     observer.observe(preview)
     resize()
     return () => observer.disconnect()
@@ -315,14 +342,17 @@ export function EyePreview({
     showModel,
     tracker.source,
   ])
-
   useEffect(() => {
-    const canvas = ref.current,
-      source = tracker.sourceCanvas.current
-    if (!canvas || !source) return
+    const canvas = ref.current
+    const source = tracker.sourceCanvas.current
+    if (!canvas || !source) {
+      return
+    }
     setCanvasDimensions(canvas, source.width, source.height)
     const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    if (!ctx) {
+      return
+    }
     const colors = getComputedStyle(canvas)
     ctx.drawImage(source, 0, 0)
     const preview = frame?.detection.previews[frame.detection.selected]
@@ -423,7 +453,6 @@ export function EyePreview({
     showModel,
     view,
   ])
-
   function point<T extends Element>(event: PointerEvent<T>): Point {
     const canvas = ref.current!
     const box = canvas.getBoundingClientRect()
@@ -458,13 +487,17 @@ export function EyePreview({
     event: PointerEvent<HTMLElement>,
     handle?: ResizeHandle
   ) {
-    if (event.button !== 0 || gesture.current) return
+    if (event.button !== 0 || gesture.current) {
+      return
+    }
     const p = point(event)
     if (cornerMode === "create" && !selectRegion) {
       onCorner(p)
       return
     }
-    if (!selectRegion) return
+    if (!selectRegion) {
+      return
+    }
     event.preventDefault()
     const inside =
       p[0] >= roi.x &&
@@ -484,10 +517,14 @@ export function EyePreview({
     event: PointerEvent<Element>,
     index: number | null
   ) {
-    if (event.button !== 0 || cornerGesture.current || gesture.current) return
+    if (event.button !== 0 || cornerGesture.current || gesture.current) {
+      return
+    }
     const savedCorner =
       index === null ? pendingCorner : tracker.settings.corners?.[index]
-    if (!savedCorner) return
+    if (!savedCorner) {
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
     if (index === null) {
@@ -499,7 +536,9 @@ export function EyePreview({
       setCornerSelection({ target: "pending", point: savedCorner })
     } else {
       const corners = tracker.settings.corners
-      if (!corners) return
+      if (!corners) {
+        return
+      }
       cornerGesture.current = {
         pointerId: event.pointerId,
         target: "point",
@@ -516,7 +555,9 @@ export function EyePreview({
   }
   function beginModelGesture(event: PointerEvent<SVGCircleElement>) {
     const corners = tracker.settings.corners
-    if (event.button !== 0 || !corners || cornerGesture.current) return
+    if (event.button !== 0 || !corners || cornerGesture.current) {
+      return
+    }
     event.preventDefault()
     cornerGesture.current = {
       pointerId: event.pointerId,
@@ -528,7 +569,9 @@ export function EyePreview({
   }
   function moveCornerGesture(event: PointerEvent<HTMLElement>) {
     const current = cornerGesture.current
-    if (!current || current.pointerId !== event.pointerId) return false
+    if (!current || current.pointerId !== event.pointerId) {
+      return false
+    }
     const next = point(event)
     if (current.target === "model") {
       const delta: Point = [
@@ -562,7 +605,9 @@ export function EyePreview({
   }
   function finishCornerGesture(event: PointerEvent<HTMLElement>) {
     const current = cornerGesture.current
-    if (!current || current.pointerId !== event.pointerId) return false
+    if (!current || current.pointerId !== event.pointerId) {
+      return false
+    }
     const next = point(event)
     const moved =
       Math.hypot(next[0] - current.start[0], next[1] - current.start[1]) >= 2
@@ -611,7 +656,9 @@ export function EyePreview({
     const delta = direction[event.key]
     const current =
       index === null ? pendingCorner : tracker.settings.corners?.[index]
-    if (!delta || !current) return
+    if (!delta || !current) {
+      return
+    }
     event.preventDefault()
     const amount = event.altKey ? 10 : 1
     const next: Point = [
@@ -641,7 +688,9 @@ export function EyePreview({
     }
     const delta = direction[event.key]
     const corners = tracker.settings.corners
-    if (!delta || !corners) return
+    if (!delta || !corners) {
+      return
+    }
     event.preventDefault()
     const amount = event.altKey ? 10 : 1
     onMoveCorners(
@@ -655,13 +704,17 @@ export function EyePreview({
   }
   function nextRegion(event: PointerEvent<HTMLElement>) {
     const current = gesture.current
-    if (!current || current.pointerId !== event.pointerId) return null
-    const p = point(event),
-      delta: Point = [p[0] - current.start[0], p[1] - current.start[1]]
-    if (current.mode === "draw")
+    if (!current || current.pointerId !== event.pointerId) {
+      return null
+    }
+    const p = point(event)
+    const delta: Point = [p[0] - current.start[0], p[1] - current.start[1]]
+    if (current.mode === "draw") {
       return regionFromPoints(current.start, p, dimensions)
-    if (current.mode === "move")
+    }
+    if (current.mode === "move") {
       return moveRegion(current.region, delta, dimensions)
+    }
     return resizeRegion(current.region, current.mode, delta, dimensions)
   }
   function commitRegion(next: Rect) {
@@ -670,8 +723,9 @@ export function EyePreview({
       next.y !== roi.y ||
       next.width !== roi.width ||
       next.height !== roi.height
-    )
+    ) {
       onRegion(next)
+    }
   }
   function cancelGesture() {
     gesture.current = null
@@ -680,22 +734,30 @@ export function EyePreview({
     setCornerSelection(null)
   }
   function finishGesture(event: PointerEvent<HTMLElement>) {
-    if (finishCornerGesture(event)) return
-    const current = gesture.current,
-      next = nextRegion(event)
-    if (!current || !next) return
+    if (finishCornerGesture(event)) {
+      return
+    }
+    const current = gesture.current
+    const next = nextRegion(event)
+    if (!current || !next) {
+      return
+    }
     const p = point(event)
     const moved =
       Math.hypot(p[0] - current.start[0], p[1] - current.start[1]) >= 2
     cancelGesture()
     setRedraw(false)
-    if (moved) commitRegion(next)
+    if (moved) {
+      commitRegion(next)
+    }
   }
   function editWithKeyboard(
     event: KeyboardEvent<HTMLElement>,
     handle?: ResizeHandle
   ) {
-    if (!selectRegion) return
+    if (!selectRegion) {
+      return
+    }
     if (event.key === "Escape") {
       cancelGesture()
       setRedraw(false)
@@ -708,7 +770,9 @@ export function EyePreview({
       ArrowDown: [0, 1],
     }
     const delta = direction[event.key]
-    if (!delta) return
+    if (!delta) {
+      return
+    }
     event.preventDefault()
     const amount = event.altKey ? 10 : 1
     const change: Point = [delta[0] * amount, delta[1] * amount]
@@ -718,7 +782,6 @@ export function EyePreview({
         : moveRegion(roi, change, dimensions)
     )
   }
-
   const visiblePendingCorner =
     cornerSelection?.target === "pending"
       ? cornerSelection.point
@@ -745,26 +808,33 @@ export function EyePreview({
         visibleCorners[1][1] - visibleCorners[0][1]
       ) / 2
     : 0
-
+  const cameraRecoveryLabel =
+    tracker.connection === "waiting"
+      ? "Waiting for camera frames…"
+      : "Reconnecting eye camera automatically…"
+  const regionEditingHint = redraw
+    ? "Draw a new box"
+    : "Drag to move · handles to resize"
+  const canvasTabIndex = selectRegion || cornerMode === "create" ? 0 : undefined
   return (
     <div
-      className={`eye-preview ${tracker.source ? "has-source" : "is-empty"}`}
+      className={`eye-preview ${EyePreviewStyles} ${tracker.source ? "has-source" : "is-empty"}`}
       ref={previewRef}
     >
-      <div className="eye-preview-heading">
+      <div className={`eye-preview-heading ${EyePreviewHeadingStyles}`}>
         <span>
           <span
             className={
               tracker.source &&
               (!tracker.connection || tracker.connection === "live")
-                ? "status-light on"
-                : "status-light"
+                ? `status-light ${StatusLightStyles} on`
+                : `status-light ${StatusLightStyles}`
             }
           />
           Eye camera
         </span>
         {tracker.source && !readOnly && (
-          <div className="eye-preview-tools">
+          <div className={`eye-preview-tools ${EyePreviewToolsStyles}`}>
             {tracker.transform && (
               <CameraTransformControls
                 label="Eye camera"
@@ -777,7 +847,7 @@ export function EyePreview({
               />
             )}
             <div
-              className="eye-preview-switch"
+              className={`eye-preview-switch ${EyePreviewSwitchStyles}`}
               role="group"
               aria-label="Preview display"
             >
@@ -805,7 +875,7 @@ export function EyePreview({
             </div>
             {cornerMode && (
               <div
-                className="eye-corner-mode-switch"
+                className={`eye-corner-mode-switch ${EyeCornerModeSwitchStyles}`}
                 role="group"
                 aria-label="Manual eye model mode"
               >
@@ -831,7 +901,7 @@ export function EyePreview({
               </div>
             )}
             <button
-              className={`eye-roi-edit ${selectRegion ? "active" : ""}`}
+              className={`eye-roi-edit ${EyeRoiEditStyles} ${selectRegion ? "active" : ""}`}
               aria-label="Edit eye region"
               title="Edit eye region"
               data-tooltip="Edit eye region"
@@ -852,35 +922,38 @@ export function EyePreview({
           {tracker.source.kind === "network" &&
             (tracker.connection === "waiting" ||
               tracker.connection === "reconnecting") && (
-              <div className="camera-recovery-banner" role="status">
-                {tracker.connection === "waiting"
-                  ? "Waiting for camera frames…"
-                  : "Reconnecting eye camera automatically…"}
+              <div
+                className={`camera-recovery-banner ${CameraRecoveryBannerStyles}`}
+                role="status"
+              >
+                {cameraRecoveryLabel}
               </div>
             )}
           {selectRegion && (
-            <div className="eye-roi-toolbar">
-              <span>
-                {redraw ? "Draw a new box" : "Drag to move · handles to resize"}
-              </span>
+            <div className={`eye-roi-toolbar ${EyeRoiToolbarStyles}`}>
+              <span>{regionEditingHint}</span>
               <button aria-pressed={redraw} onClick={() => setRedraw(!redraw)}>
                 Redraw
               </button>
             </div>
           )}
           <div
-            className="eye-preview-stage"
+            className={`eye-preview-stage ${EyePreviewStageStyles}`}
             style={{
               aspectRatio: dimensions.width / dimensions.height,
             }}
           >
             <div
-              className="eye-preview-image"
+              className={`eye-preview-image ${EyePreviewImageStyles}`}
               style={{ maxWidth: dimensions.width }}
               onPointerMove={(event) => {
-                if (moveCornerGesture(event)) return
+                if (moveCornerGesture(event)) {
+                  return
+                }
                 const next = nextRegion(event)
-                if (next) setSelection(next)
+                if (next) {
+                  setSelection(next)
+                }
               }}
               onPointerUp={finishGesture}
               onPointerCancel={cancelGesture}
@@ -891,29 +964,29 @@ export function EyePreview({
                 width={dimensions.width}
                 height={dimensions.height}
                 aria-label={previewLabel}
-                tabIndex={
-                  selectRegion || cornerMode === "create" ? 0 : undefined
-                }
+                tabIndex={canvasTabIndex}
                 className={previewClassName}
                 onPointerDown={(event) => beginGesture(event)}
                 onKeyDown={(event) => editWithKeyboard(event)}
               />
               {cornerMode && (
-                <div className="eye-manual-corner-layer">
+                <div
+                  className={`eye-manual-corner-layer ${EyeManualCornerLayerStyles}`}
+                >
                   {cornerMode === "edit" && modelCenter && (
                     <svg
-                      className="eye-manual-model-overlay"
+                      className={`eye-manual-model-overlay ${EyeManualModelOverlayStyles}`}
                       viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
                       aria-label="Manual eye model position controls"
                     >
                       <circle
-                        className="eye-manual-model-line"
+                        className={`eye-manual-model-line ${EyeManualModelLineStyles}`}
                         cx={modelCenter[0]}
                         cy={modelCenter[1]}
                         r={modelRadius}
                       />
                       <circle
-                        className="eye-manual-model-move-target"
+                        className={`eye-manual-model-move-target ${EyeManualModelMoveTargetStyles}`}
                         cx={modelCenter[0]}
                         cy={modelCenter[1]}
                         r={modelRadius}
@@ -928,7 +1001,7 @@ export function EyePreview({
                   {cornerMode === "create" && visiblePendingCorner && (
                     <button
                       type="button"
-                      className="eye-manual-corner-handle pending"
+                      className={`eye-manual-corner-handle ${EyeManualCornerHandleStyles} pending`}
                       aria-label="Move first eye corner"
                       title="Drag to reposition the first corner"
                       style={getCornerStyle(visiblePendingCorner)}
@@ -945,7 +1018,7 @@ export function EyePreview({
                         <button
                           key={index}
                           type="button"
-                          className="eye-manual-corner-handle"
+                          className={`eye-manual-corner-handle ${EyeManualCornerHandleStyles}`}
                           aria-label={`Move eye corner ${index + 1}`}
                           title={`Drag to reposition eye corner ${index + 1}`}
                           style={getCornerStyle(corner)}
@@ -964,7 +1037,7 @@ export function EyePreview({
               )}
               {selectRegion && !redraw && (
                 <div
-                  className="eye-roi-overlay"
+                  className={`eye-roi-overlay ${EyeRoiOverlayStyles}`}
                   style={{
                     left: `${(displayRegion.x / dimensions.width) * 100}%`,
                     top: `${(displayRegion.y / dimensions.height) * 100}%`,
@@ -975,7 +1048,7 @@ export function EyePreview({
                   {HANDLES.map(({ handle, label, x, y }) => (
                     <button
                       key={handle}
-                      className={`eye-roi-handle ${handle}`}
+                      className={`eye-roi-handle ${EyeRoiHandleStyles} ${handle}`}
                       aria-label={`Resize ROI ${label}`}
                       title={`Resize ${label}; arrow keys adjust`}
                       style={{ left: `${x}%`, top: `${y}%` }}
@@ -989,8 +1062,8 @@ export function EyePreview({
           </div>
         </>
       ) : (
-        <div className="eye-preview-empty">
-          <div className="eye-camera-outline">
+        <div className={`eye-preview-empty ${EyePreviewEmptyStyles}`}>
+          <div className={`eye-camera-outline ${EyeCameraOutlineStyles}`}>
             <Camera size={30} strokeWidth={1.2} />
           </div>
           <p>No camera connected</p>

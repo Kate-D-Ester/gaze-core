@@ -1,18 +1,22 @@
 import { Usb, Wifi } from "lucide-react"
-
+import {
+  EyeButtonStyles,
+  EyeSourceTypeStyles,
+} from "../../tracking-ui/control-styles"
+import type { CameraSourceTypeProps } from "./camera-source-type.types"
 export function CameraSourceType({
   value,
   onChange,
   label = "Camera type",
-}: {
-  value: "usb" | "network"
-  onChange: (value: "usb" | "network") => void
-  label?: string
-}) {
+}: CameraSourceTypeProps) {
   return (
-    <div className="eye-source-type" role="group" aria-label={label}>
+    <div
+      className={`eye-source-type ${EyeSourceTypeStyles}`}
+      role="group"
+      aria-label={label}
+    >
       <button
-        className="eye-button secondary"
+        className={`eye-button ${EyeButtonStyles} secondary`}
         aria-label="USB camera"
         title="USB camera"
         data-tooltip="USB camera"
@@ -22,7 +26,7 @@ export function CameraSourceType({
         <Usb size={19} aria-hidden="true" />
       </button>
       <button
-        className="eye-button secondary"
+        className={`eye-button ${EyeButtonStyles} secondary`}
         aria-label="Network stream"
         title="Network / IP / mDNS stream"
         data-tooltip="Network / IP / mDNS"

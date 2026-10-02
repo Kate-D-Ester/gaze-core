@@ -1,16 +1,14 @@
 import { expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
-import type { RemoteRequest } from "../../apps/web/src/features/remote-eye-tracking/types"
+import type { RemoteRequest } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 
 if (typeof document === "undefined") GlobalRegistrator.register()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act, createElement } = await import("../../apps/web/node_modules/react")
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
-const { MemoryRouter } =
-  await import("../../apps/web/node_modules/react-router-dom")
 const { RemoteEyeTrackingPage } =
-  await import("../../apps/web/src/pages/remote-eye-tracking-page")
+  await import("../../apps/web/src/screens/remote-eye-tracking-page")
 
 test("the recording picker opens local inspection without camera permission or screen calibration", async () => {
   const originals = {
@@ -118,7 +116,7 @@ test("the recording picker opens local inspection without camera permission or s
     URL.revokeObjectURL = (url) => revoked.push(url)
     await act(async () =>
       root.render(
-        createElement(MemoryRouter, null, createElement(RemoteEyeTrackingPage))
+        createElement(RemoteEyeTrackingPage)
       )
     )
     await act(async () =>

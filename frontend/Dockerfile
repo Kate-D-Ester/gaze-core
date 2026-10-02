@@ -1,24 +1,17 @@
-FROM oven/bun:1.3.3 AS builder
-
+FROM oven/bun:1.3.14-alpine AS builder
 WORKDIR /app
-
-ARG VITE_GAZECORE_BACKEND_URL=
-
-ENV VITE_GAZECORE_BACKEND_URL=${VITE_GAZECORE_BACKEND_URL}
-
 COPY . .
-
 RUN bun install --frozen-lockfile
-
-WORKDIR /app/apps/web
 RUN bun run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runner
-
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
-COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.d/10-runtime-config.sh
-
+FROM oven/bun:1.3.14-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=4001
+COPY --from=builder --chown=bun:bun /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=bun:bun /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=bun:bun /app/apps/web/public ./apps/web/public
+USER bun
 EXPOSE 4001
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["bun", "apps/web/server.js"]
