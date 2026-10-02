@@ -279,7 +279,7 @@ export function ScenePreview({
           {camera.getSnapshot().transform.mirrorX ? " · Mirrored" : ""}
           {camera.getSnapshot().transform.mirrorY ? " · Flipped" : ""}
           {!capturing && gaze?.preview ? " · Unverified preview" : ""}
-          {!capturing && gaze?.estimated ? " · One-point estimate" : ""}
+          {!capturing && gaze?.estimated ? " · Accuracy not checked" : ""}
         </span>
         {frame && (
           <span>

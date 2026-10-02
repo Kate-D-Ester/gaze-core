@@ -132,6 +132,8 @@ test("eye-only recovery is explicit and exposes an icon to retry only head movem
           validationError: 0.01,
         },
         screenPoint: [0.5, 0.5],
+        offset: [0, 0],
+        onOffsetChange() {},
         validation: null,
         usable: true,
         gazeMessage: "",

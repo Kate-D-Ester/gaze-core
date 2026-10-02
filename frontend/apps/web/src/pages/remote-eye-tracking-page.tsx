@@ -1,3 +1,8 @@
+import { GazeOffsetControls } from "@/features/eye-tracking/components/gaze-offset-controls"
+import { useGazeAdjustment } from "@/features/eye-tracking/use-gaze-adjustment"
+import { applyGazeOffset } from "@/features/eye-tracking/gaze-offset"
+import { useCameraSourcePreferences } from "@/features/eye-tracking/use-camera-source-preferences"
+import { SavedCameraOption } from "@/features/eye-tracking/components/saved-camera-option"
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import {
@@ -141,13 +146,17 @@ function HeadReadout({
 export function RemoteEyeTrackingPage() {
   const [mode, setMode] = useState<RemoteMode | null>(null)
   const [step, setStep] = useState(0)
-  const [deviceId, setDeviceId] = useState("")
+  const { deviceId, setDeviceId } = useCameraSourcePreferences(
+    `remote-${mode ?? "webcam"}`
+  )
   const [roi, setRoi] = useState<Rect>(FULL_ROI)
   const [threshold, setThreshold] = useState(0)
   const [selecting, setSelecting] = useState(false)
   const [dragStart, setDragStart] = useState<Point | null>(null)
   const [extended, setExtended] = useState(true)
   const [calibration, setCalibration] = useState<RemoteCalibration | null>(null)
+  const { offset, setOffset } = useGazeAdjustment(calibration)
+  const [validationOffset, setValidationOffset] = useState<Point>([0, 0])
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [samples, setSamples] = useState<CalibrationSample[]>([])
   const [validationSamples, setValidationSamples] = useState<
@@ -192,10 +201,14 @@ export function RemoteEyeTrackingPage() {
   const supported =
     !activeCalibration ||
     poseSupported(activeCalibration, observation?.pose ?? null)
-  const point =
+  const mappedPoint =
     activeCalibration && observation
       ? predictRemoteGaze(activeCalibration, observation)
       : null
+  const point = applyGazeOffset(mappedPoint, offset)
+  const adjustedSinceValidation = offset.some(
+    (value, index) => value !== validationOffset[index]
+  )
 
   useEffect(() => {
     const invalidate = () => {
@@ -225,7 +238,6 @@ export function RemoteEyeTrackingPage() {
     clearCalibration()
     setMode(next)
     setStep(1)
-    setDeviceId("")
     setRoi(FULL_ROI)
     setThreshold(0)
     setNotice("")
@@ -248,6 +260,25 @@ export function RemoteEyeTrackingPage() {
     stopTracker()
     clearCalibration()
     setStep(1)
+  }
+  function returnToCameraChoices() {
+    stopTracker()
+    clearCalibration()
+    setSelecting(false)
+    setDragStart(null)
+    setNotice("")
+    setStep(0)
+    setMode(null)
+  }
+  function goToPreviousStep() {
+    if (step === 1) {
+      returnToCameraChoices()
+      return
+    }
+    setCapture(null)
+    setShowGaze(false)
+    setNotice("")
+    setStep(step - 1)
   }
   function finishCapture(
     collected: CalibrationSample[],
@@ -273,7 +304,8 @@ export function RemoteEyeTrackingPage() {
         calibration,
         collected,
         dimensions.width,
-        dimensions.height
+        dimensions.height,
+        offset
       )
       if (!result || result.targetCount !== 5) {
         setNotice(
@@ -281,6 +313,7 @@ export function RemoteEyeTrackingPage() {
         )
         return
       }
+      setValidationOffset([...offset])
       setValidation(result)
       setValidationSamples(collected)
       setStep(5)
@@ -299,6 +332,9 @@ export function RemoteEyeTrackingPage() {
       validation,
       samples,
       validationSamples,
+      gazeOffset: offset,
+      validationOffset,
+      screenPosition: point,
       coordinates:
         "Normalized screen position; no physical 3D gaze ray or angular accuracy is inferred.",
       headTracking:
@@ -368,16 +404,24 @@ export function RemoteEyeTrackingPage() {
       <div className="remote-content">
         <div className="remote-title">
           <div className="remote-page-heading">
-            <Link
-              className="remote-icon-button"
-              to="/dashboard"
-              aria-label="Dashboard"
-            >
-              <ArrowLeft size={18} />
-              <span className="remote-tooltip" aria-hidden="true">
-                Dashboard
-              </span>
-            </Link>
+            {step === 0 ? (
+              <Link
+                className="remote-icon-button"
+                to="/dashboard"
+                aria-label="Dashboard"
+              >
+                <ArrowLeft size={18} />
+                <span className="remote-tooltip" aria-hidden="true">
+                  Dashboard
+                </span>
+              </Link>
+            ) : (
+              <IconButton
+                label={step === 1 ? "Back to camera choices" : "Previous step"}
+                icon={ArrowLeft}
+                onClick={goToPreviousStep}
+              />
+            )}
             <h1>Remote eye tracking</h1>
           </div>
           <ol className="remote-steps" aria-label="Setup progress">
@@ -430,12 +474,7 @@ export function RemoteEyeTrackingPage() {
               <IconButton
                 label="Change setup"
                 icon={SwitchCamera}
-                onClick={() => {
-                  stopTracker()
-                  clearCalibration()
-                  setStep(0)
-                  setMode(null)
-                }}
+                onClick={returnToCameraChoices}
               />
             </div>
           </div>
@@ -640,6 +679,10 @@ export function RemoteEyeTrackingPage() {
                     <option value="">
                       Default {mode === "mobile" ? "front camera" : "camera"}
                     </option>
+                    <SavedCameraOption
+                      deviceId={deviceId}
+                      devices={tracker.devices}
+                    />
                     {tracker.devices.map((device, i) => (
                       <option
                         key={device.deviceId || i}
@@ -869,6 +912,11 @@ export function RemoteEyeTrackingPage() {
             {step === 5 && validation && (
               <>
                 <h2>Results</h2>
+                {adjustedSinceValidation && (
+                  <p className="remote-muted">
+                    Previous accuracy check · validate your adjustment.
+                  </p>
+                )}
                 {needsCalibration && (
                   <p className="remote-muted">Recalibration recommended.</p>
                 )}
@@ -904,6 +952,12 @@ export function RemoteEyeTrackingPage() {
                     Head moved beyond calibration. Recalibrate.
                   </div>
                 )}
+                <GazeOffsetControls
+                  offset={offset}
+                  width={viewport.width}
+                  height={viewport.height}
+                  onChange={setOffset}
+                />
                 <div className="remote-live-status">
                   <span className={`status-light ${point ? "on" : ""}`} />
                   {point
@@ -917,6 +971,12 @@ export function RemoteEyeTrackingPage() {
                     primary
                     aria-pressed={showGaze}
                     onClick={() => setShowGaze((value) => !value)}
+                  />
+                  <IconButton
+                    label="Validate adjustment"
+                    icon={Crosshair}
+                    disabled={!valid}
+                    onClick={() => setCapture("validate")}
                   />
                   <IconButton
                     label="Export results"
@@ -973,11 +1033,7 @@ export function RemoteEyeTrackingPage() {
                 <IconButton
                   label="Previous step"
                   icon={ArrowLeft}
-                  onClick={() => {
-                    setCapture(null)
-                    setShowGaze(false)
-                    setStep(step - 1)
-                  }}
+                  onClick={goToPreviousStep}
                 />
                 <IconButton label="Stop camera" icon={Square} onClick={stop} />
               </div>

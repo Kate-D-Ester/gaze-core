@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
+import type { CameraSourceRole } from "../../apps/web/src/features/eye-tracking/use-camera-source-preferences.types"
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 
 if (typeof document === "undefined") GlobalRegistrator.register()
@@ -38,14 +39,13 @@ const tracker: TrackerController = {
   setBlink() {},
 }
 
-async function mountControls(): Promise<void> {
+async function mountControls(role: CameraSourceRole = "eye"): Promise<void> {
   await act(async () => {
-    root = createRoot(host)
+    root ??= createRoot(host)
     root.render(
       createElement(SourceControls, {
         tracker,
-        deviceId: "",
-        setDeviceId() {},
+        role,
         resetSource() {},
       })
     )
@@ -90,6 +90,7 @@ test("an unconnected camera URL and selected source mode survive reloading the c
   expect(JSON.parse(localStorage.getItem(storageKey) ?? "null")).toEqual({
     kind: "network",
     url: "http://esp32.local/stream",
+    deviceId: "",
   })
   await act(async () => root?.unmount())
   root = null
@@ -100,6 +101,36 @@ test("an unconnected camera URL and selected source mode survive reloading the c
   ).toBe("http://esp32.local/stream")
   expect(tracker.startCamera).not.toHaveBeenCalled()
   expect(tracker.startNetworkStream).not.toHaveBeenCalled()
+})
+
+test("a saved USB selection survives remounting without opening the camera", async () => {
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ kind: "usb", url: "", deviceId: "eye-usb" })
+  )
+  await mountControls()
+  expect(
+    host.querySelector<HTMLSelectElement>('[aria-label="Eye camera"]')?.value
+  ).toBe("eye-usb")
+  expect(host.textContent).toContain("Saved camera")
+  expect(tracker.startCamera).not.toHaveBeenCalled()
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".primary")!.click()
+  )
+  expect(tracker.startCamera).toHaveBeenCalledWith("eye-usb", undefined)
+  const select = host.querySelector<HTMLSelectElement>(
+    '[aria-label="Eye camera"]'
+  )!
+  await act(async () => {
+    select.value = ""
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await act(async () => root?.unmount())
+  root = null
+  await mountControls()
+  expect(
+    host.querySelector<HTMLSelectElement>('[aria-label="Eye camera"]')?.value
+  ).toBe("")
 })
 
 test("clearing the camera URL replaces the saved value", async () => {
@@ -202,5 +233,67 @@ test("unavailable browser storage does not prevent editing the camera URL", asyn
   } finally {
     readStorage.mockRestore()
     writeStorage.mockRestore()
+  }
+})
+
+for (const role of [
+  "scene-eye",
+  "scene",
+  "head",
+  "remote-webcam",
+  "remote-mobile",
+  "remote-ir",
+] as const) {
+  test(`${role} restores its own device and never overwrites another camera role`, async () => {
+    const key = `gazecore.${role}-camera.source.v1`
+    localStorage.setItem(
+      key,
+      JSON.stringify({ kind: "usb", url: "", deviceId: role })
+    )
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ kind: "usb", url: "", deviceId: "main-eye" })
+    )
+    try {
+      await mountControls(role)
+      expect(host.querySelector<HTMLSelectElement>("select")?.value).toBe(role)
+      await mountControls("eye")
+      expect(host.querySelector<HTMLSelectElement>("select")?.value).toBe(
+        "main-eye"
+      )
+      await mountControls(role)
+      expect(host.querySelector<HTMLSelectElement>("select")?.value).toBe(role)
+      expect(JSON.parse(localStorage.getItem(storageKey)!).deviceId).toBe(
+        "main-eye"
+      )
+      expect(tracker.startCamera).not.toHaveBeenCalled()
+    } finally {
+      localStorage.removeItem(key)
+    }
+  })
+}
+
+test("scene eye cameras inherit the previous shared selection once", async () => {
+  const sceneKey = "gazecore.scene-eye-camera.source.v1"
+  localStorage.removeItem(sceneKey)
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ kind: "network", url: "http://esp32.local/stream" })
+  )
+  try {
+    await mountControls("scene-eye")
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="Network stream URL"]')
+        ?.value
+    ).toBe("http://esp32.local/stream")
+    await enterUrl("http://scene-eye.local/stream")
+    expect(JSON.parse(localStorage.getItem(storageKey)!).url).toBe(
+      "http://esp32.local/stream"
+    )
+    expect(JSON.parse(localStorage.getItem(sceneKey)!).url).toBe(
+      "http://scene-eye.local/stream"
+    )
+  } finally {
+    localStorage.removeItem(sceneKey)
   }
 })

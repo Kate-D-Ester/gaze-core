@@ -190,3 +190,24 @@ test("calibration rejects a new joint head pose even when every axis is inside i
   expect(poseSupported(fitted, unseen.pose)).toBe(false)
   expect(predictRemoteGaze(fitted, unseen)).toBeNull()
 })
+
+test("validation measures the adjusted gaze without modifying calibration samples", () => {
+  const fitted = fitRemoteCalibration("webcam", samples())!
+  const sample: CalibrationSample = {
+    target: [0.3, 0.7],
+    targetId: 0,
+    observation: observation([0.32, 0.68], 0, 0),
+  }
+  const before = JSON.stringify({ fitted, sample })
+  const raw = evaluateRemoteValidation(fitted, [sample], 1000, 500)!
+  const adjusted = evaluateRemoteValidation(
+    fitted,
+    [sample],
+    1000,
+    500,
+    [-0.02, 0.02]
+  )!
+  expect(raw.meanPixels).toBeGreaterThan(20)
+  expect(adjusted.meanPixels).toBeLessThan(1)
+  expect(JSON.stringify({ fitted, sample })).toBe(before)
+})

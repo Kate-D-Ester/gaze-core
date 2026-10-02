@@ -1,3 +1,4 @@
+import { applyGazeOffset } from "../eye-tracking/gaze-offset"
 import type {
   CalibrationSample,
   HeadPose,
@@ -287,12 +288,16 @@ export function evaluateRemoteValidation(
   calibration: RemoteCalibration,
   samples: CalibrationSample[],
   width: number,
-  height: number
+  height: number,
+  offset: Point = [0, 0]
 ): ValidationResult | null {
   if (width <= 0 || height <= 0) return null
   const groups = new Map<string, { point: Point; error: number }[]>()
   for (const sample of samples) {
-    const point = predictRemoteGaze(calibration, sample.observation)
+    const point = applyGazeOffset(
+      predictRemoteGaze(calibration, sample.observation),
+      offset
+    )
     if (!point) continue
     const pixels: Point = [point[0] * width, point[1] * height]
     const error = Math.hypot(

@@ -524,41 +524,6 @@
   font-size: 12px;
   color: #a3a6a3;
 }
-.remote-target {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  border: 1px solid #a7d7c5;
-  border-radius: 50%;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 0 8px #a7d7c511;
-}
-.remote-target span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #a7d7c5;
-}
-.remote-calibration-help {
-  position: absolute;
-  left: 15%;
-  right: 15%;
-  bottom: 17%;
-  text-align: center;
-  font-size: 13px;
-  pointer-events: none;
-}
-.remote-calibration-help p {
-  font-size: 11px;
-  color: #a3a6a3;
-  margin: 6px 0;
-}
-.remote-calibration-help button {
-  pointer-events: auto;
-  margin-top: 10px;
-}
 .remote-live-dot {
   position: fixed;
   z-index: 95;
@@ -641,12 +606,6 @@
     left: auto;
     right: 0;
     transform: none;
-  }
-  .remote-calibration-help {
-    left: 12%;
-    right: 12%;
-    font-size: 12px;
-    bottom: 18%;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   CameraSourceKind,
   CameraSourceRole,
@@ -10,11 +10,18 @@ import type {
 const DEFAULT_PREFERENCES: CameraSourcePreferences = {
   kind: "usb",
   url: "",
+  deviceId: "",
 }
 
-function readCameraSourcePreferences(key: string): CameraSourcePreferences {
+function readCameraSourcePreferences(
+  key: string,
+  fallbackKey?: string
+): CameraSourcePreferences {
   try {
-    const serialized = globalThis.localStorage?.getItem(key)
+    let serialized = globalThis.localStorage?.getItem(key)
+    if (!serialized && fallbackKey) {
+      serialized = globalThis.localStorage?.getItem(fallbackKey)
+    }
     if (!serialized) {
       return DEFAULT_PREFERENCES
     }
@@ -26,6 +33,7 @@ function readCameraSourcePreferences(key: string): CameraSourcePreferences {
 
     let kind: CameraSourceKind = "usb"
     let url = ""
+    let deviceId = ""
     if ("kind" in value && value.kind === "network") {
       kind = "network"
     }
@@ -33,7 +41,11 @@ function readCameraSourcePreferences(key: string): CameraSourcePreferences {
       url = value.url
     }
 
-    return { kind, url }
+    if ("deviceId" in value && typeof value.deviceId === "string") {
+      deviceId = value.deviceId
+    }
+
+    return { kind, url, deviceId }
   } catch {
     return DEFAULT_PREFERENCES
   }
@@ -44,14 +56,34 @@ export function useCameraSourcePreferences(
   source?: CameraSourceSnapshot | null
 ): CameraSourcePreferenceController {
   const key = `gazecore.${role}-camera.source.v1`
-  const [preferences, setPreferences] = useState(() => {
-    const saved = readCameraSourcePreferences(key)
-    if (!source) return saved
-    return {
-      kind: source.kind === "network" ? ("network" as const) : ("usb" as const),
-      url: source.url ?? saved.url,
+  const saved = useMemo(() => {
+    // Scene and screen formerly shared one eye-camera preference.
+    const fallbackKey =
+      role === "scene-eye" ? "gazecore.eye-camera.source.v1" : undefined
+    return readCameraSourcePreferences(key, fallbackKey)
+  }, [key, role])
+  const [selection, setSelection] = useState(() => {
+    let preferences = saved
+    if (source) {
+      preferences = {
+        ...saved,
+        kind: source.kind === "network" ? "network" : "usb",
+        url: source.url ?? saved.url,
+        deviceId: source.deviceId ?? saved.deviceId,
+      }
     }
+    return { key, preferences }
   })
+  // Remote camera modes can change without unmounting the page. Never copy
+  // the previous mode's device or URL into the newly selected mode's key.
+  const preferences = selection.key === key ? selection.preferences : saved
+
+  function updatePreferences(patch: Partial<CameraSourcePreferences>): void {
+    setSelection((current) => {
+      const previous = current.key === key ? current.preferences : saved
+      return { key, preferences: { ...previous, ...patch } }
+    })
+  }
 
   useEffect(() => {
     try {
@@ -62,12 +94,16 @@ export function useCameraSourcePreferences(
   }, [key, preferences])
 
   function setKind(kind: CameraSourceKind): void {
-    setPreferences((current) => ({ ...current, kind }))
+    updatePreferences({ kind })
   }
 
   function setUrl(url: string): void {
-    setPreferences((current) => ({ ...current, url }))
+    updatePreferences({ url })
   }
 
-  return { ...preferences, setKind, setUrl }
+  function setDeviceId(deviceId: string): void {
+    updatePreferences({ deviceId })
+  }
+
+  return { ...preferences, setKind, setUrl, setDeviceId }
 }

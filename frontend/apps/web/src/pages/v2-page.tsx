@@ -29,6 +29,8 @@ import {
 } from "@/features/eye-tracking/calibration-orientation"
 import type { GazeOrientation } from "@/features/eye-tracking/calibration.types"
 import { HeadControls } from "@/features/eye-tracking/head-tracking/head-controls"
+import { useGazeAdjustment } from "@/features/eye-tracking/use-gaze-adjustment"
+import { applyGazeOffset } from "@/features/eye-tracking/gaze-offset"
 import { useCalibratedGaze } from "@/features/eye-tracking/use-calibrated-gaze"
 import { mapCalibrationSample } from "@/features/eye-tracking/calibration"
 import { fitCalibrationInWorker } from "@/features/eye-tracking/calibration-fit"
@@ -108,7 +110,6 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
   let activeOrientation = orientation
   if (source?.kind === "sample") activeOrientation = SAMPLE_GAZE_ORIENTATION
   const [step, setStep] = useState(0),
-    [deviceId, setDeviceId] = useState(""),
     [regionStepComplete, setRegionStepComplete] = useState(false),
     [pipelineOpen, setPipelineOpen] = useState(false),
     [thresholdViewOpen, setThresholdViewOpen] = useState(false)
@@ -208,7 +209,8 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
     headHistory: head.history,
     onDiagnosticReading: recordDiagnosticReading,
   })
-  const screenPoint = gazeReading.point
+  const { offset, setOffset } = useGazeAdjustment(calibration)
+  const screenPoint = applyGazeOffset(gazeReading.point, offset)
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
   let allowed = [
     true,
@@ -271,7 +273,10 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
         setCapture(null)
         const mse =
           samples.reduce((sum, s) => {
-            const p = mapCalibrationSample(calibration, s)
+            const p = applyGazeOffset(
+              mapCalibrationSample(calibration, s),
+              offset
+            )
             if (!p) return Infinity
             return (
               sum +
@@ -338,7 +343,7 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
         setNotice("Calibration saved for this session.")
       }
     },
-    [capture, calibration, activeOrientation, diagnostics]
+    [capture, calibration, activeOrientation, diagnostics, offset]
   )
   const canRetryHead =
     head.enabled &&
@@ -413,6 +418,7 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
       eyeModel: frame?.model ?? null,
       gaze: frame?.gaze ?? null,
       screenPosition: screenPoint,
+      gazeOffset: offset,
       calibration,
       headPose: head.latest.current,
       validationErrorPixels: validation,
@@ -583,8 +589,7 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
               <SourceControls
                 tracker={tracker}
                 excludedDeviceId={sceneMode ? sceneStatus.deviceId : undefined}
-                deviceId={deviceId}
-                setDeviceId={setDeviceId}
+                role={sceneMode ? "scene-eye" : "eye"}
                 resetSource={resetSource}
               />
             )}
@@ -652,6 +657,11 @@ export function V2Page({ sceneMode = false }: V2PageProps) {
                 onRecalibrate={() => {
                   clearCalibration()
                   setStep(4)
+                }}
+                offset={offset}
+                onOffsetChange={(value) => {
+                  setOffset(value)
+                  setValidation(null)
                 }}
                 onExport={exportResult}
               />

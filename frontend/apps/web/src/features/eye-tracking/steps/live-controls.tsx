@@ -6,6 +6,7 @@ import {
   Maximize2,
   UserRound,
 } from "lucide-react"
+import { GazeOffsetControls } from "../components/gaze-offset-controls"
 import { EyeActionButton } from "../components/eye-action-button"
 import { HelpTip } from "../components/help-tip"
 import type { LiveControlsProps } from "./live-controls.types"
@@ -24,6 +25,8 @@ export function LiveControls({
   onValidate,
   onRecalibrate,
   onExport,
+  offset,
+  onOffsetChange,
 }: LiveControlsProps) {
   const { source, frame } = tracker
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
@@ -106,6 +109,13 @@ export function LiveControls({
           <Download size={17} aria-hidden="true" />
         </EyeActionButton>
       </div>
+      <GazeOffsetControls
+        offset={offset}
+        width={window.innerWidth}
+        height={window.innerHeight}
+        disabled={!calibration}
+        onChange={onOffsetChange}
+      />
       <div className="eye-validation">
         <span>
           {source?.kind === "sample" ? "Simulated error" : "Validation error"}

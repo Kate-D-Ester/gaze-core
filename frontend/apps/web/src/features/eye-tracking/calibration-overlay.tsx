@@ -4,6 +4,7 @@ import { gazeFeature, mapGaze } from "./calibration"
 import { CalibrationSession } from "./calibration-session"
 import { HeadPreview } from "./head-tracking/head-preview"
 import { CalibrationTarget } from "./calibration-target"
+import { CalibrationFeedback } from "./calibration-feedback"
 import type { CalibrationOverlayProps } from "./calibration-overlay.types"
 import type { CalibrationObservation } from "./calibration-session.types"
 import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
@@ -171,7 +172,7 @@ export function CalibrationOverlay({
       }}
     >
       <div className="eye-calibration-top">
-        <span>{snapshot.label}</span>
+        <span>{intro || failed || fitting ? snapshot.label : ""}</span>
         <button
           className="eye-icon-button"
           autoFocus={!intro}
@@ -244,12 +245,11 @@ export function CalibrationOverlay({
               bursting={snapshot.phase === "burst"}
             />
           </div>
-          <p
-            className={waiting ? "eye-calibration-feedback" : "eye-sr-only"}
-            role="status"
-          >
-            {snapshot.instruction}
-          </p>
+          <CalibrationFeedback
+            target={snapshot.target}
+            label={snapshot.label}
+            instruction={waiting ? snapshot.instruction : undefined}
+          />
         </>
       )}
     </div>

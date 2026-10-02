@@ -88,7 +88,7 @@ test("explains how to start the local camera relay", async () => {
 
   await expect(
     openNetworkSource("http://esp32.local/stream", new AbortController().signal)
-  ).rejects.toThrow(/camera relay is not running.*bun run.*camera-relay/i)
+  ).rejects.toThrow(/camera relay.*bun run dev.*bun run camera-relay/i)
 })
 
 test("rejects non-HTTP network source URLs before fetching", async () => {

@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useCameraSourcePreferences } from "../use-camera-source-preferences"
+import { SavedCameraOption } from "../components/saved-camera-option"
 import { ArrowRightToLine, Camera, CameraOff } from "lucide-react"
 import { EyeActionButton } from "../components/eye-action-button"
 import { HeadPreview } from "./head-preview"
@@ -14,12 +15,13 @@ export function HeadControls({
   onConfigurationChange,
   onSkip,
 }: HeadControlsProps) {
-  const [deviceId, setDeviceId] = useState("")
+  const { deviceId, setDeviceId } = useCameraSourcePreferences("head")
   const availableDevices = devices.filter(
     (device) => device.deviceId !== eyeDeviceId
   )
   let status = "Optional · use a front camera."
-  const cameraUnavailable = !!eyeDeviceId && availableDevices.length === 0
+  const cameraUnavailable =
+    !!eyeDeviceId && (availableDevices.length === 0 || deviceId === eyeDeviceId)
   if (cameraUnavailable) {
     status = "Needs a second camera. Connect one or skip."
   }
@@ -72,6 +74,12 @@ export function HeadControls({
           onChange={(event) => setDeviceId(event.target.value)}
         >
           <option value="">Built-in / front camera</option>
+          <SavedCameraOption deviceId={deviceId} devices={devices} />
+          {deviceId && deviceId === eyeDeviceId && (
+            <option value={deviceId} disabled>
+              In use by eye camera
+            </option>
+          )}
           {availableDevices.map((device, index) => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label || `Camera ${index + 1}`}

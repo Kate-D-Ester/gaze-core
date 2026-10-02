@@ -1,4 +1,7 @@
-import { openNetworkSource } from "./network-source"
+import {
+  CameraRelayUnavailableError,
+  openNetworkSource,
+} from "./network-source"
 import type { NetworkSource } from "./network-source.types"
 
 export type NetworkConnectionState =
@@ -29,6 +32,9 @@ export const NETWORK_CONNECTION_LABELS: Record<NetworkConnectionState, string> =
     reconnecting: "Reconnecting automatically…",
     error: "Connection unavailable",
   }
+
+const MAX_RECONNECT_ATTEMPTS = 4
+const CONNECTION_TIMEOUT_MS = 15_000
 
 // Owns the network media and retries. Consumers only borrow its latest image.
 export class NetworkCamera {
@@ -101,7 +107,12 @@ export class NetworkCamera {
     const abort = new AbortController()
     this.abort = abort
     this.hasFrame = false
-    this.deadline = setTimeout(() => this.reconnect(token), 15000)
+    this.deadline = setTimeout(() => {
+      this.reconnect(
+        token,
+        "The camera did not send a readable frame within 15 seconds. Check that its stream is available."
+      )
+    }, CONNECTION_TIMEOUT_MS)
     try {
       const source = await openNetworkSource(this.input, abort.signal)
       if (!this.current(token)) {
@@ -139,8 +150,15 @@ export class NetworkCamera {
         this.publish(this.bitmap, performance.now(), token)
         void this.readFrames(source.frames, token)
       }
-    } catch {
-      if (this.current(token)) this.reconnect(token)
+    } catch (error) {
+      if (!this.current(token)) return
+      if (error instanceof CameraRelayUnavailableError) {
+        this.fail(error.message)
+        return
+      }
+      const message =
+        error instanceof Error ? error.message : "Camera connection failed."
+      this.reconnect(token, message)
     }
   }
 
@@ -266,8 +284,21 @@ export class NetworkCamera {
     }
   }
 
-  private reconnect(token: number) {
+  private fail(message: string) {
+    this.stop()
+    this.status("error")
+    this.callbacks.onError(message)
+  }
+
+  private reconnect(
+    token: number,
+    message = "The camera stream keeps disconnecting. Check its connection and try again."
+  ) {
     if (!this.current(token)) return
+    if (this.retries >= MAX_RECONNECT_ATTEMPTS) {
+      this.fail(message)
+      return
+    }
     this.token++
     this.callbacks.onFrame(null)
     this.releaseMedia()

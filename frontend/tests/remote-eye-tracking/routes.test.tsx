@@ -125,3 +125,37 @@ test("camera selection and permission unlock are available before tracking start
   ).toBe(true)
   expect(host.querySelector("video")?.srcObject).toBeNull()
 })
+
+test.each([
+  "Mobile eye tracker",
+  "Webcam-based eye tracker",
+  "IR webcam-based eye tracker",
+])(
+  "the setup back arrow returns %s to camera choices while dashboard navigation stays separate",
+  async (title) => {
+    await render("/trial/remote-eye-tracking")
+    await act(async () => {
+      buttons()
+        .find((button) => button.getAttribute("aria-label") === title)!
+        .click()
+    })
+    const back = host.querySelector<HTMLButtonElement>(
+      '.remote-page-heading button[aria-label="Back to camera choices"]'
+    )
+    expect(back).not.toBeNull()
+    expect(host.querySelector("a.eye-brand")?.getAttribute("href")).toBe(
+      "/dashboard"
+    )
+    await act(async () => back!.click())
+    expect(host.querySelector("h1")?.textContent).toBe("Remote eye tracking")
+    expect(host.querySelectorAll(".remote-mode-card")).toHaveLength(3)
+    expect(
+      host.querySelector(".remote-workspace")?.hasAttribute("hidden")
+    ).toBe(true)
+    expect(
+      host
+        .querySelector('.remote-page-heading a[aria-label="Dashboard"]')
+        ?.getAttribute("href")
+    ).toBe("/dashboard")
+  }
+)

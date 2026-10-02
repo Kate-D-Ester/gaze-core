@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run prepare:vision && vite",
+    "dev": "bun run prepare:vision && bun scripts/dev.ts",
     "build": "bun run prepare:vision && tsc -b && vite build",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
