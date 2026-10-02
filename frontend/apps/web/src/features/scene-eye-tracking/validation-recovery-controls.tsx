@@ -1,6 +1,6 @@
 import { Crosshair, Download, Move, RefreshCw } from "lucide-react"
 import type { SceneSession, SceneSessionSnapshot } from "./scene-session"
-import { GazeOffsetControls } from "./gaze-offset-controls"
+import { GazeOffsetControls } from "../eye-tracking/components/gaze-offset-controls"
 import { download } from "./download"
 
 export function ValidationRecoveryControls({

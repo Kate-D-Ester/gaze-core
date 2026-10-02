@@ -9,7 +9,9 @@ import { useSceneCamera } from "./use-scene-camera"
 import { useHandTracker } from "./use-hand-tracker"
 import { useMarkerTracker } from "./use-marker-tracker"
 import { useSceneSession } from "./use-scene-session"
-import { hasCurrentAccuracyCheck } from "./scene-session"
+import { canUseSceneCalibration } from "./scene-session"
+import { useCalibrationProfiles } from "./use-calibration-profiles"
+import { CalibrationProfileControls } from "./calibration-profile-controls"
 import { MAX_HAND_RECOVERY_MS } from "./calibration"
 import { ScenePreview } from "./scene-preview"
 import { CalibrationEyePreview } from "./calibration-eye-preview"
@@ -63,6 +65,21 @@ export function SceneWorkspace({
     scene.frame?.height,
   ])
   const state = useSceneSession(tracker, scene.camera, identity)
+  const profiles = useCalibrationProfiles({
+    session: state.session,
+    state,
+    setup: {
+      trackerFormat: tracker.settings.format,
+      orientation: { eye: tracker.transform, scene: scene.transform },
+    },
+    ready:
+      step >= 1 &&
+      scene.connection === "live" &&
+      !!scene.frame &&
+      tracker.settings.locked,
+    disabled: recording || !!state.capture,
+    onLoaded: () => onStepChange(2),
+  })
   const isMarker = state.method === "marker"
   const hands = useHandTracker(
     scene.camera,
@@ -82,9 +99,7 @@ export function SceneWorkspace({
     else if (!isMarker && hands.hand)
       state.session.observeHand(hands.hand, performance.now())
   }, [hands.hand, isMarker, markers.marker, state.session])
-  const calibrated =
-    !!state.calibration &&
-    (hasCurrentAccuracyCheck(state) || state.method === "one-point")
+  const calibrated = canUseSceneCalibration(state)
   useEffect(() => {
     onStatus({
       connected: !!scene.source,
@@ -259,6 +274,7 @@ export function SceneWorkspace({
           ) : undefined
         }
       >
+        {active >= 1 && <CalibrationProfileControls controller={profiles} />}
         {active === 0 && (
           <SceneSourceControls
             camera={scene.camera}
@@ -282,6 +298,7 @@ export function SceneWorkspace({
           <SceneLiveControls
             session={state.session}
             state={state}
+            sceneDimensions={scene.frame ?? undefined}
             canValidate={canCapture}
             recording={recording}
             onMethodChange={(method) => {

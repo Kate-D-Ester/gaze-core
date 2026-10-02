@@ -13,7 +13,10 @@ import { HelpTip } from "../eye-tracking/components/help-tip"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
 import type { SceneCamera } from "./scene-camera"
 import type { SceneSessionSnapshot } from "./scene-session"
-import { hasCurrentAccuracyCheck } from "./scene-session"
+import {
+  canUseSceneCalibration,
+  hasCurrentAccuracyCheck,
+} from "./scene-session"
 import type { HandObservation } from "./scene.types"
 import { SessionRecorder } from "./session-recorder"
 import { exportSessionCsv, exportSessionJson } from "./session"
@@ -43,10 +46,7 @@ export function RecordingControls({
     recorder.subscribe,
     recorder.getSnapshot
   )
-  const canRecord =
-    !!state.calibration &&
-    !state.capture &&
-    (hasCurrentAccuracyCheck(state) || state.method === "one-point")
+  const canRecord = !state.capture && canUseSceneCalibration(state)
   useEffect(() => {
     onRecordingChange?.(recording.recording || recording.finalizing)
   }, [onRecordingChange, recording.recording, recording.finalizing])
@@ -84,6 +84,10 @@ export function RecordingControls({
   function start() {
     setHeatmapUrl(null)
     setExportError("")
+    let accuracy = "one-point-estimate"
+    if (hasCurrentAccuracyCheck(state)) accuracy = "independently-checked"
+    else if (state.reusedCalibration)
+      accuracy = "reused-calibration-not-rechecked"
     recorder.start(
       camera.rawCanvas,
       tracker.sourceCanvas.current,
@@ -100,9 +104,7 @@ export function RecordingControls({
         eyeModel: tracker.frame?.model,
         calibration: state.calibration,
         calibrationMethod: state.method,
-        accuracy: hasCurrentAccuracyCheck(state)
-          ? "independently-checked"
-          : "one-point-estimate",
+        accuracy,
         validation: state.validation,
         gazeOffset: { normalized: state.offset },
         delayMs: state.delayMs,

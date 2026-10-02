@@ -210,7 +210,7 @@ test("the recovery overlay offers only the head pass while keeping the saved gaz
   expect(host.querySelector("h2")?.textContent).toBe("Retry head movements")
   const start = host.querySelector<HTMLButtonElement>(".eye-calibration-start")!
   await act(async () => start.click())
-  expect(host.querySelector(".eye-calibration-top span")?.textContent).toBe(
+  expect(host.querySelector(".eye-calibration-caption")?.textContent).toBe(
     "HEAD MOVEMENT · 1 / 12"
   )
 })
@@ -369,6 +369,11 @@ test("diagnostics record a rejected head/eye pair before calibration gating disc
       target: [0.5, 0.5],
     })
     expect(host.textContent).toContain("Face lost")
+    const feedback = host.querySelector<HTMLElement>(
+      ".eye-calibration-feedback"
+    )!
+    expect(feedback.textContent).toContain("Face lost")
+    expect(feedback.style.top).toContain("50%")
   } finally {
     interval.mockRestore()
     clock.mockRestore()

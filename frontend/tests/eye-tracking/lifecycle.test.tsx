@@ -458,8 +458,6 @@ test("source controls show numbered USB cameras and only USB or network modes", 
     root.render(
       createElement(SourceControls, {
         tracker: controller,
-        deviceId: "",
-        setDeviceId: () => {},
         resetSource: () => {},
       })
     )
@@ -760,8 +758,6 @@ test("eye source selection disables the active scene USB device", async () => {
     root!.render(
       createElement(SourceControls, {
         tracker: controller,
-        deviceId: "",
-        setDeviceId: () => {},
         resetSource: () => {},
         excludedDeviceId: "camera-1",
       })

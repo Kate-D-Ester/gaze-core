@@ -183,11 +183,30 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     await click("Start camera")
     await tick()
     await click("Check your position")
+    await act(async () => {
+      host
+        .querySelector<HTMLButtonElement>(
+          '.remote-page-heading button[aria-label="Previous step"]'
+        )!
+        .click()
+    })
+    expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
+      "Camera"
+    )
+    expect(stopped).toBe(0)
+    await click("Back to camera choices")
+    expect(host.querySelectorAll(".remote-mode-card")).toHaveLength(3)
+    expect(stopped).toBe(1)
+    await click("Webcam-based eye tracker")
+    await click("Start camera")
+    await tick()
+    await click("Check your position")
     await click("Continue to calibration")
     await act(async () => {
       host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click()
     })
     await click("Start 9-target calibration")
+    await click("Start calibration")
     for (let i = 0; i < 400 && host.querySelector(".remote-calibration"); i++)
       await tick()
     expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
@@ -195,10 +214,39 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     )
     expect(host.textContent).toContain("162 synchronized samples")
     await click("Validate gaze")
+    await click("Start validation")
     for (let i = 0; i < 250 && host.querySelector(".remote-calibration"); i++)
       await tick()
     expect(host.textContent).toContain("Mean target error")
     expect(host.textContent).toContain("5 targets")
+    await click("Show live gaze")
+    const originalLeft = parseFloat(
+      host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
+    )
+    const offsetInput = host.querySelector<HTMLInputElement>(
+      '[aria-label="Gaze offset X (pixels)"]'
+    )!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )!.set!.call(offsetInput, "20")
+      offsetInput.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const adjustedLeft = parseFloat(
+      host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
+    )
+    expect(adjustedLeft - originalLeft).toBeCloseTo(
+      (20 / window.innerWidth) * 100
+    )
+    expect(host.textContent).toContain("Previous accuracy check")
+    await click("Reset gaze offset")
+    expect(
+      parseFloat(
+        host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
+      )
+    ).toBeCloseTo(originalLeft)
+    expect(host.textContent).not.toContain("Previous accuracy check")
     await act(async () => window.dispatchEvent(new Event("resize")))
     expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
       "Calibration"
@@ -212,7 +260,7 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     await act(async () => ended?.())
     expect(host.textContent).toContain("Camera disconnected")
     expect(buttons().some((b) => b.textContent === "Start camera")).toBe(true)
-    expect(stopped).toBe(1)
+    expect(stopped).toBe(2)
   } finally {
     await act(async () => root.unmount())
     host.remove()

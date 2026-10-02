@@ -15,4 +15,6 @@ export type LiveControlsProps = {
   onValidate: () => void
   onRecalibrate: () => void
   onExport: () => void
+  offset: Point
+  onOffsetChange: (offset: Point) => void
 }

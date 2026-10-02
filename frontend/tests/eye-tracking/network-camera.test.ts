@@ -192,7 +192,7 @@ test("stopping cancels retries and closes a decode that finishes late", async ()
 test("failed connections back off and disconnect cancels the next attempt", async () => {
   globalThis.fetch = (async () => {
     fetches++
-    throw Error("offline")
+    return Response.json({ error: "The camera is offline." }, { status: 502 })
   }) as typeof fetch
   await camera.start("http://esp32.local/stream")
   for (const delay of [1000, 2000, 4000]) {
@@ -208,5 +208,50 @@ test("failed connections back off and disconnect cancels the next attempt", asyn
   expect(status).toBe("reconnecting")
   expect(errors).toEqual([])
   camera.stop()
+  expect(timers.size).toBe(0)
+})
+
+test("an unavailable relay reports its cause and releases the connection controls", async () => {
+  globalThis.fetch = (async () => {
+    throw new TypeError("Failed to fetch")
+  }) as typeof fetch
+
+  await camera.start("http://esp32.local/stream")
+
+  expect(status).toBe("error")
+  expect(errors).toHaveLength(1)
+  expect(errors[0]).toMatch(/camera relay.*bun run dev/i)
+  expect(latest).toBeNull()
+  expect(timers.size).toBe(0)
+})
+
+test("persistent camera failures stop retrying and retain the actual error", async () => {
+  globalThis.fetch = (async () => {
+    fetches++
+    return Response.json(
+      {
+        error:
+          "The camera relay could not reach the camera: DNS lookup failed.",
+      },
+      { status: 502 }
+    )
+  }) as typeof fetch
+
+  await camera.start("http://esp32.local/stream")
+  for (const delay of [1000, 2000, 4000, 8000]) {
+    const retry = [...timers.entries()].find(
+      ([, timer]) => timer.delay === delay
+    )!
+    expect(retry).toBeDefined()
+    timers.delete(retry[0])
+    retry[1].callback()
+    await flush()
+  }
+
+  expect(fetches).toBe(5)
+  expect(status).toBe("error")
+  expect(errors).toEqual([
+    "The camera relay could not reach the camera: DNS lookup failed.",
+  ])
   expect(timers.size).toBe(0)
 })

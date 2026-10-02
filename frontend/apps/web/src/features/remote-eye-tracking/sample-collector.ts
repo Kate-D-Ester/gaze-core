@@ -1,4 +1,6 @@
 import type { CalibrationSample, Point, RemoteObservation } from "./types"
+
+export const REQUIRED_TARGET_SAMPLES = 18
 /** Records synchronized eye + head observations; head motion is never averaged away. */
 export class TargetCollector {
   readonly samples: CalibrationSample[] = []
@@ -36,6 +38,6 @@ export class TargetCollector {
     return true
   }
   get complete(): boolean {
-    return this.samples.length >= 18
+    return this.samples.length >= REQUIRED_TARGET_SAMPLES
   }
 }

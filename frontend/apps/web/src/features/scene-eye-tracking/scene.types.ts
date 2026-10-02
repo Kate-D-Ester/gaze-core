@@ -133,7 +133,7 @@ export type GazeMeasurement = {
   position: Point | null
   pixels: Point | null
   valid: boolean
-  /** Fresh tracking from an experimental mapping, without independent accuracy. */
+  /** Fresh tracking from a one-point, reused or offset-adjusted mapping without a current accuracy check. */
   estimated?: boolean
   /** A fresh, in-frame prediction for diagnosis only; never valid recording data. */
   preview?: boolean

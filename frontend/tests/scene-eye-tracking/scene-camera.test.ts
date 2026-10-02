@@ -270,6 +270,20 @@ test("abort releases a pending MJPEG response reader", async () => {
   expect(c.getSnapshot().error).toBe("")
 })
 
+test("a missing relay shows a useful error and leaves Connect available", async () => {
+  globalThis.fetch = (async () => {
+    throw new TypeError("Failed to fetch")
+  }) as typeof fetch
+  const c = camera()
+
+  await c.startNetworkStream("http://esp32.local/stream")
+
+  expect(c.getSnapshot().connection).toBe("error")
+  expect(c.getSnapshot().busy).toBe(false)
+  expect(c.getSnapshot().error).toMatch(/camera relay.*bun run dev/i)
+  expect(c.getSnapshot().source).toBeNull()
+})
+
 test("media-clock advancement without a presented frame neither refreshes scene evidence nor hides a stall", async () => {
   const c = camera(),
     start = c.startCamera("scene")

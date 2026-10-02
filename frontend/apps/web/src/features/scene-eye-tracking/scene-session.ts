@@ -3,7 +3,6 @@ import {
   createCollector,
   inspectSceneCalibration,
   repeatCollectedPoint,
-  type CalibrationFitResult,
   eyeEvidenceIssue,
   inspectReferenceObservation,
   lockCalibrationPoint,
@@ -23,8 +22,6 @@ import { fitOnePointCalibration } from "./one-point-calibration"
 import type {
   CalibrationMethod,
   CameraOrientation,
-  CalibrationHold,
-  CollectionResult,
   Collector,
   EyeObservation,
   GazeMeasurement,
@@ -32,33 +29,30 @@ import type {
   ReferenceObservation,
   SceneCalibration,
   SceneObservation,
-  ValidationResult,
 } from "./scene.types"
 import type { Point } from "../eye-tracking/eye-tracking.types"
+import type { SceneProfileCalibration } from "./calibration-profiles.types"
+import type { SceneSessionSnapshot } from "./scene-session.types"
+export type { SceneSessionSnapshot } from "./scene-session.types"
 import {
   DEFAULT_CAMERA_TRANSFORM,
   normalizeCameraTransform,
 } from "../eye-tracking/camera-transform"
 
-export type SceneSessionSnapshot = {
-  method: CalibrationMethod
-  calibration: SceneCalibration | null
-  validation: ValidationResult | null
-  capture: Collector["mode"] | null
-  collection: CollectionResult | null
-  notice: string
-  delayMs: number
-  offset: Point
-  measurement: GazeMeasurement | null
-  trace: GazeMeasurement[]
-  fitFailure: (CalibrationFitResult & { holds: CalibrationHold[] }) | null
-}
 export function hasCurrentAccuracyCheck(state: SceneSessionSnapshot) {
   return (
     !!state.validation?.passed &&
     state.offset.every(
       (value, index) => value === (state.validation?.offset?.[index] ?? 0)
     )
+  )
+}
+export function canUseSceneCalibration(state: SceneSessionSnapshot) {
+  return (
+    !!state.calibration &&
+    (hasCurrentAccuracyCheck(state) ||
+      state.method === "one-point" ||
+      !!state.reusedCalibration)
   )
 }
 export class SceneSession {
@@ -158,7 +152,9 @@ export class SceneSession {
     }
     this.drainHands(now)
   }
-  invalidate(reason = "Camera or eye setup changed. Calibrate again.") {
+  invalidate(
+    reason = "Camera or eye setup changed. Load a saved profile or calibrate."
+  ) {
     const hadMapping = !!this.snapshot.calibration || !!this.snapshot.capture
     this.collector = null
     this.eyes = []
@@ -180,6 +176,19 @@ export class SceneSession {
       notice: hadMapping ? reason : "",
       fitFailure: null,
       offset: [0, 0],
+      reusedCalibration: false,
+    })
+  }
+  restoreCalibration(profile: SceneProfileCalibration) {
+    if (this.snapshot.capture) return
+    this.invalidate("")
+    this.update({
+      calibration: structuredClone(profile.calibration),
+      method: profile.method,
+      offset: [...profile.offset],
+      delayMs: profile.delayMs,
+      reusedCalibration: true,
+      notice: "",
     })
   }
   setMethod(method: CalibrationMethod) {
@@ -248,6 +257,8 @@ export class SceneSession {
       return
     this.update({
       offset: [...offset],
+      reusedCalibration:
+        !!this.snapshot.reusedCalibration || !!this.snapshot.validation?.passed,
       measurement: null,
       trace: [],
       notice: "",
@@ -316,7 +327,12 @@ export class SceneSession {
       validation: null,
       fitFailure: null,
       ...(mode === "calibration"
-        ? { calibration: null, trace: [], offset: [0, 0] as Point }
+        ? {
+            calibration: null,
+            trace: [],
+            offset: [0, 0] as Point,
+            reusedCalibration: false,
+          }
         : {}),
     })
   }
@@ -482,6 +498,7 @@ export class SceneSession {
       }
       this.update({
         validation,
+        reusedCalibration: false,
         capture: null,
         collection,
         notice,
@@ -604,12 +621,17 @@ export class SceneSession {
     const inFrame = !!position && position.every((v) => v >= 0 && v <= 1)
     if (position && !inFrame) reason = "Gaze outside the scene camera view"
     const verified = hasCurrentAccuracyCheck(this.snapshot)
-    const estimated = this.snapshot.method === "one-point" && !verified
+    const estimated =
+      !verified &&
+      (this.snapshot.method === "one-point" ||
+        !!this.snapshot.reusedCalibration)
     const preview = inFrame && !verified && !estimated && !this.snapshot.capture
-    if (inFrame && !verified)
-      reason = estimated
-        ? "One-point estimate · accuracy not measured"
-        : "Accuracy check required"
+    if (inFrame && !verified) {
+      reason = "Accuracy check required"
+      if (this.snapshot.reusedCalibration)
+        reason = "Reused calibration · accuracy not rechecked"
+      else if (estimated) reason = "One-point estimate · accuracy not measured"
+    }
     const extrapolated =
       !!mapped &&
       mapped.some(

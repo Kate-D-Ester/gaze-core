@@ -341,7 +341,9 @@ test("recording exports the applied offset and finalizes before a programmatic o
   s.setOffset([0.05, 0])
   await render()
   expect(host.textContent).not.toContain("Stop")
-  expect((host.querySelector(".eye-button.primary") as HTMLButtonElement).disabled).toBe(true)
+  expect(
+    (host.querySelector(".eye-button.primary") as HTMLButtonElement).disabled
+  ).toBe(false)
   const createUrl = URL.createObjectURL
   const click = HTMLAnchorElement.prototype.click
   let exported: Blob | null = null
@@ -361,6 +363,19 @@ test("recording exports the applied offset and finalizes before a programmatic o
     expect(json.metadata.validation.offset).toEqual([0.025, -0.025])
     expect(json.metadata.accuracy).toBe("independently-checked")
     expect(s.getSnapshot().offset).toEqual([0.05, 0])
+    await act(async () =>
+      (host.querySelector(".eye-button.primary") as HTMLButtonElement).click()
+    )
+    await act(async () =>
+      (host.querySelector(".eye-button.primary") as HTMLButtonElement).click()
+    )
+    const newExport = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "JSON"
+    )!
+    await act(async () => newExport.click())
+    const adjusted = JSON.parse(await exported!.text())
+    expect(adjusted.metadata.accuracy).toBe("reused-calibration-not-rechecked")
+    expect(adjusted.metadata.gazeOffset).toEqual({ normalized: [0.05, 0] })
   } finally {
     URL.createObjectURL = createUrl
     HTMLAnchorElement.prototype.click = click

@@ -13,6 +13,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
+import { SavedCameraOption } from "../eye-tracking/components/saved-camera-option"
 import { CameraSourceType } from "../eye-tracking/components/camera-source-type"
 import { useCameraSourcePreferences } from "../eye-tracking/use-camera-source-preferences"
 import type { SceneCamera, SceneCameraSnapshot } from "./scene-camera"
@@ -21,11 +22,11 @@ import { hasCurrentAccuracyCheck } from "./scene-session"
 import type { HandTrackerSnapshot } from "./hand-tracker"
 import { useCalibrationFeedback } from "./use-calibration-feedback"
 import { download } from "./download"
-import { GazeOffsetControls } from "./gaze-offset-controls"
+import { GazeOffsetControls } from "../eye-tracking/components/gaze-offset-controls"
 import { ValidationRecoveryControls } from "./validation-recovery-controls"
 import { CalibrationMethodControls } from "./calibration-method-controls"
 import { markerSvg } from "./marker-detector"
-import type { CalibrationMethod } from "./scene.types"
+import type { SceneLiveControlsProps } from "./scene-controls.types"
 const SOUND_HELP =
   "Low tone: stable lock. Continuous tone: collecting samples. Short buzz: tracking interrupted. Rising double tone: point saved."
 export function SceneSourceControls({
@@ -42,11 +43,8 @@ export function SceneSourceControls({
   active?: boolean
 }) {
   const advanceOnConnect = useRef(false)
-  const { kind, setKind, url, setUrl } = useCameraSourcePreferences(
-    "scene",
-    state.source
-  )
-  const [deviceId, setDeviceId] = useState("")
+  const { kind, setKind, url, setUrl, deviceId, setDeviceId } =
+    useCameraSourcePreferences("scene", state.source)
   useEffect(() => {
     if (!active) {
       advanceOnConnect.current = false
@@ -86,6 +84,7 @@ export function SceneSourceControls({
             onChange={(e) => setDeviceId(e.target.value)}
           >
             <option value="">Default camera</option>
+            <SavedCameraOption deviceId={deviceId} devices={state.devices} />
             {state.devices.map((d, i) => (
               <option
                 key={d.deviceId || i}
@@ -324,7 +323,9 @@ export function FingerControls({
           {state.fitFailure.retryIndex + 1}
         </button>
       )}
-      {hands.status !== "ready" && <p role="status">{trackerNotice}</p>}
+      {hands.status !== "ready" && !state.capture && (
+        <p role="status">{trackerNotice}</p>
+      )}
       {hands.status === "error" && (
         <button className="eye-button secondary" onClick={retry}>
           <RefreshCw size={16} aria-hidden="true" /> Retry
@@ -457,14 +458,8 @@ export function SceneLiveControls({
   canValidate,
   recording = false,
   onMethodChange,
-}: {
-  session: SceneSession
-  state: SceneSessionSnapshot
-  onCalibrate: () => void
-  canValidate: boolean
-  recording?: boolean
-  onMethodChange?: (method: CalibrationMethod) => void
-}) {
+  sceneDimensions,
+}: SceneLiveControlsProps) {
   const p = state.measurement?.position
   const [gainEditing, setGainEditing] = useState<{
     axis: number
@@ -487,7 +482,7 @@ export function SceneLiveControls({
         </button>
       </>
     )
-  const dimensions = state.calibration?.holds[0]?.pairs[0]
+  const dimensions = sceneDimensions ?? state.calibration?.holds[0]?.pairs[0]
   const currentValidation = state.offset.every(
     (value, index) => value === (state.validation?.offset?.[index] ?? 0)
   )
@@ -496,6 +491,8 @@ export function SceneLiveControls({
     : "Gaze in scene"
   if (state.method === "one-point" && !hasCurrentAccuracyCheck(state))
     gazeLabel = "One-point estimate"
+  if (state.reusedCalibration && !hasCurrentAccuracyCheck(state))
+    gazeLabel = "Reused calibration"
   let onePointLabel = "Estimated projection"
   if (state.calibration?.onePoint?.basis === "previous")
     onePointLabel = "Previous mapping · reanchored"

@@ -4,6 +4,13 @@ import type { NetworkSource } from "./network-source.types"
 
 const VIDEO_READY_TIMEOUT_MS = 15_000
 
+export class CameraRelayUnavailableError extends Error {
+  constructor() {
+    super(getCameraRelayErrorMessage())
+    this.name = "CameraRelayUnavailableError"
+  }
+}
+
 export async function openNetworkSource(
   input: string,
   signal: AbortSignal
@@ -51,7 +58,7 @@ async function fetchCameraResponse(
       throw createAbortError()
     }
 
-    throw new Error(getCameraRelayErrorMessage())
+    throw new CameraRelayUnavailableError()
   }
 
   if (!response.ok) {
@@ -245,7 +252,7 @@ function disposeVideo(video: HTMLVideoElement): void {
 }
 
 function getCameraRelayErrorMessage(): string {
-  return "The local camera relay is not running or this app origin is not allowed. Start it from frontend/apps/web with `bun run camera-relay`, then reconnect. For a hosted app, add its origin to GAZE_CAMERA_RELAY_ALLOWED_ORIGINS."
+  return "Cannot reach the local camera relay. Restart with `bun run dev`, or run `bun run camera-relay` separately, then reconnect. If it is already running, check this site's local-network permission and the relay's allowed origins."
 }
 
 function throwIfAborted(signal: AbortSignal): void {

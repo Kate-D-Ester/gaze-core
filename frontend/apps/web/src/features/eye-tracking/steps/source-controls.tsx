@@ -1,3 +1,4 @@
+import { SavedCameraOption } from "../components/saved-camera-option"
 import { useCameraSourcePreferences } from "../use-camera-source-preferences"
 import { LoaderCircle, Plug, RefreshCw, X } from "lucide-react"
 import { CameraSourceType } from "../components/camera-source-type"
@@ -5,17 +6,18 @@ import type { SourceControlsProps } from "./source-controls.types"
 
 export function SourceControls({
   tracker,
-  deviceId,
-  setDeviceId,
+  role = "eye",
   resetSource,
   excludedDeviceId,
 }: SourceControlsProps) {
   const {
+    deviceId,
+    setDeviceId,
     kind,
     setKind,
     url: streamUrl,
     setUrl: setStreamUrl,
-  } = useCameraSourcePreferences("eye", tracker.source)
+  } = useCameraSourcePreferences(role, tracker.source)
   const cameras = tracker.devices.filter((device) => device.deviceId)
   let previewButtonLabel = "Connect"
 
@@ -48,6 +50,7 @@ export function SourceControls({
             onChange={(event) => setDeviceId(event.target.value)}
           >
             <option value="">Default camera</option>
+            <SavedCameraOption deviceId={deviceId} devices={cameras} />
             {cameras.map((device, index) => (
               <option
                 key={device.deviceId}

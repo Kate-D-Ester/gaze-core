@@ -195,8 +195,9 @@ test("post-calibration X/Y offsets shift live and exported coordinates without c
   expect(measurement.position![1]).toBeCloseTo(0.675)
   expect(measurement.pixels![0]).toBeCloseTo(400)
   expect(measurement.pixels![1]).toBeCloseTo(324)
-  expect(measurement.valid).toBe(false)
-  expect(measurement.preview).toBe(true)
+  expect(measurement.valid).toBe(true)
+  expect(measurement.estimated).toBe(true)
+  expect(measurement.reason).toContain("accuracy not rechecked")
   expect(s.getSnapshot().validation?.passed).toBe(true)
   const log = createSessionLog(time, { gazeOffset: s.getSnapshot().offset })
   appendMeasurement(log, measurement)
@@ -762,4 +763,65 @@ test("eye arrival 200 to 500 ms after scene supports deferred calibration and li
     expect(m.eyeTimestamp! - m.sceneTimestamp!).toBe(-delay)
     expect(m.position![0]).toBeCloseTo(0.7, 6)
   }
+})
+
+test("a saved mapping resumes without collecting points and requires fresh paired camera evidence", () => {
+  const original = calibrate().s.getSnapshot()
+  const restored = new SceneSession()
+  restored.restoreCalibration({
+    calibration: original.calibration!,
+    method: original.method,
+    offset: [0.02, -0.03],
+    delayMs: 0,
+  })
+  expect(restored.getSnapshot().capture).toBeNull()
+  expect(restored.getSnapshot().validation).toBeNull()
+  expect(restored.getSnapshot().measurement).toBeNull()
+  restored.measure(handAt(1, 100).scene, 100)
+  expect(restored.getSnapshot().measurement?.valid).toBe(false)
+  restored.addEye({
+    id: 2,
+    timestamp: 150,
+    feature: [0, 0],
+    confidence: 0.95,
+    valid: true,
+  })
+  restored.measure(handAt(2, 150).scene, 150)
+  expect(restored.getSnapshot().measurement?.position![0]).toBeCloseTo(0.52)
+  expect(restored.getSnapshot().measurement?.position![1]).toBeCloseTo(0.47)
+  expect(restored.getSnapshot().measurement?.valid).toBe(true)
+  expect(restored.getSnapshot().measurement?.estimated).toBe(true)
+  restored.addEye({
+    id: 3,
+    timestamp: 200,
+    feature: null,
+    confidence: 0,
+    valid: false,
+  })
+  restored.measure(handAt(3, 200).scene, 200)
+  expect(restored.getSnapshot().measurement?.valid).toBe(false)
+})
+
+test("a failed fresh check cannot be overridden by a reused profile", () => {
+  const original = calibrate().s.getSnapshot()
+  const restored = new SceneSession()
+  restored.restoreCalibration({
+    calibration: original.calibration!,
+    method: original.method,
+    offset: [0, 0],
+    delayMs: 0,
+  })
+  restored.startCapture("validation")
+  const { id, time } = collectValidation(restored, 0, () => [0.25, 0.25])
+  expect(restored.getSnapshot().validation?.passed).toBe(false)
+  expect(restored.getSnapshot().reusedCalibration).toBe(false)
+  restored.addEye({
+    id: id + 1,
+    timestamp: time + 50,
+    feature: [0, 0],
+    confidence: 0.95,
+    valid: true,
+  })
+  restored.measure(handAt(id + 1, time + 50).scene, time + 50)
+  expect(restored.getSnapshot().measurement?.valid).toBe(false)
 })
