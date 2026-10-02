@@ -1,3 +1,7 @@
+import {
+  SceneWorkspace,
+  type SceneStatus,
+} from "@/features/scene-eye-tracking/scene-workspace"
 import { LiveControls } from "@/features/eye-tracking/steps/live-controls"
 import { CalibrationControls } from "@/features/eye-tracking/steps/calibration-controls"
 import { ModelControls } from "@/features/eye-tracking/steps/model-controls"
@@ -5,7 +9,7 @@ import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowLeft, ArrowRight, Eye } from "lucide-react"
+import { ArrowLeft, ArrowRight, Eye, ScanEye } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
 import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
@@ -41,7 +45,7 @@ import type {
   Point,
   Rect,
 } from "@/features/eye-tracking/eye-tracking.types"
-import type { V2StepName } from "./v2-page.types"
+import type { V2PageProps, V2StepName } from "./v2-page.types"
 import "./v2.css"
 
 const STEPS: readonly V2StepName[] = [
@@ -60,7 +64,29 @@ const STEP_HELP: readonly string[] = [
   "Look at each dot until it pops, then follow the next one. Keep your face visible if head tracking is enabled.",
   "Check your gaze, validate accuracy, recalibrate, or export a result.",
 ]
-export function V2Page() {
+const SCENE_STEPS = [
+  "Camera",
+  "Eye region",
+  "Eye model",
+  "Scene camera",
+  "Calibration",
+  "Live scene gaze",
+] as const
+const SCENE_STEP_HELP = [
+  ...STEP_HELP.slice(0, 3),
+  "Connect and orient the outward scene camera.",
+  "Choose a hand, marker, or one-point reference to calibrate the scene.",
+  "View, adjust, and record scene gaze.",
+] as const
+
+export function V2Page({ sceneMode = false }: V2PageProps) {
+  const steps = sceneMode ? SCENE_STEPS : STEPS
+  const stepHelp = sceneMode ? SCENE_STEP_HELP : STEP_HELP
+  const [sceneStatus, setSceneStatus] = useState<SceneStatus>({
+    connected: false,
+    calibrated: false,
+  })
+  const [eyeRevision, setEyeRevision] = useState(0)
   const [diagnostics] = useState(() => new CalibrationDiagnostics())
   const [diagnosticsAvailable, setDiagnosticsAvailable] = useState(false)
   const recordDiagnosticReading = useCallback(
@@ -75,7 +101,7 @@ export function V2Page() {
   useEffect(() => () => pendingFit.current?.abort(), [])
   const tracker = useTracker(),
     { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
-  const head = useHeadTracking(!!source)
+  const head = useHeadTracking(!sceneMode && !!source)
   const [orientation, setOrientation] = useState<GazeOrientation>(
     DEFAULT_GAZE_ORIENTATION
   )
@@ -109,8 +135,8 @@ export function V2Page() {
       else activeCornerMode = "create"
     }
   }
-  const clearCalibration = useCallback(() => {
-    pendingFit.current?.abort()
+  const resetCalibrationState = useCallback(() => {
+    setEyeRevision((revision) => revision + 1)
     setFitting(false)
     setCalibration(null)
     setValidation(null)
@@ -120,14 +146,37 @@ export function V2Page() {
     setSavedGazeGrid([])
     setHeadCalibrationIssue(null)
     setRetryHeadPass(false)
-    diagnostics.clear()
     setDiagnosticsAvailable(false)
-  }, [diagnostics])
+  }, [])
+  const clearCalibration = useCallback(() => {
+    pendingFit.current?.abort()
+    diagnostics.clear()
+    resetCalibrationState()
+  }, [diagnostics, resetCalibrationState])
+  const geometry = `${tracker.dimensions.width}:${tracker.dimensions.height}:${source?.key ?? ""}`
+  const [calibrationGeometry, setCalibrationGeometry] = useState(geometry)
+  if (calibrationGeometry !== geometry) {
+    setCalibrationGeometry(geometry)
+    resetCalibrationState()
+  }
+  useEffect(() => {
+    pendingFit.current?.abort()
+    diagnostics.clear()
+  }, [diagnostics, geometry])
   useEffect(() => {
     setPreviewMasksEnabled(
-      !!source && (thresholdViewOpen || (pipelineOpen && step >= 2))
+      !!source &&
+        (!sceneMode || step < 3) &&
+        (thresholdViewOpen || (pipelineOpen && step >= 2))
     )
-  }, [pipelineOpen, setPreviewMasksEnabled, source, step, thresholdViewOpen])
+  }, [
+    pipelineOpen,
+    sceneMode,
+    setPreviewMasksEnabled,
+    source,
+    step,
+    thresholdViewOpen,
+  ])
   const update = useCallback(
     (next: Partial<FrameSettings>) => {
       configure(next)
@@ -161,7 +210,7 @@ export function V2Page() {
   })
   const screenPoint = gazeReading.point
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
-  const allowed = [
+  let allowed = [
     true,
     !!source,
     regionStepComplete && !!source,
@@ -171,6 +220,19 @@ export function V2Page() {
       (!head.enabled || head.status === "tracking"),
     !!calibration && !!source,
   ]
+  if (sceneMode) {
+    allowed = [
+      true,
+      !!source,
+      regionStepComplete && !!source,
+      settings.locked && !!source,
+      settings.locked && !!source && sceneStatus.connected,
+      settings.locked &&
+        !!source &&
+        sceneStatus.connected &&
+        sceneStatus.calibrated,
+    ]
+  }
   let eyeDeviceId = ""
   if (source?.kind === "camera") {
     const activeCamera = tracker.devices.find(
@@ -187,7 +249,7 @@ export function V2Page() {
     continueDisabled = head.enabled && head.status !== "tracking"
   }
   let focusTitle = "Gaze outside this view"
-  let stepDescription = STEP_HELP[step]
+  let stepDescription = stepHelp[step]
   if (!screenPoint) {
     focusTitle = gazeReading.message
   } else if (onscreen) {
@@ -371,7 +433,7 @@ export function V2Page() {
   }
   return (
     <main
-      className="eye-app"
+      className={sceneMode ? "eye-app scene-mode" : "eye-app"}
       style={{ colorScheme: "dark", backgroundColor: "#090909" }}
     >
       <EyeTooltipLayer />
@@ -380,10 +442,13 @@ export function V2Page() {
           <span className="eye-logo">
             <Eye size={21} />
           </span>
-          GazeCore<span className="eye-version">V2</span>
+          GazeCore
+          <span className="eye-version">{sceneMode ? "SCENE" : "V2"}</span>
         </Link>
         <div className="eye-header-right">
-          <Link to="/trial/remote-eye-tracking" className="remote-trial-link">Remote eye tracking</Link>
+          <Link to="/trial/remote-eye-tracking" className="remote-trial-link">
+            Remote eye tracking
+          </Link>
           <span className="eye-local">
             <span className="status-light on" />
             On-device processing
@@ -392,12 +457,16 @@ export function V2Page() {
       </header>
       <div className="eye-title-row">
         <div>
-          <h1>Eye tracking</h1>
+          <h1>
+            {sceneMode ? "Scene camera eye tracking" : "Screen eye tracking"}
+          </h1>
         </div>
         <div className="eye-formats" aria-label="Tracker format">
           {(["classic", "spatial"] as const).map((format, i) => (
             <button
               key={format}
+              aria-label={`Eye Tracker ${i + 1}: ${i === 0 ? "Manual" : "Auto"} tracking`}
+              title={i === 0 ? "Manual eye model" : "Automatic eye model"}
               aria-pressed={settings.format === format}
               onClick={() => {
                 if (format === settings.format) return
@@ -408,14 +477,18 @@ export function V2Page() {
                 setManualCornerMode(null)
               }}
             >
-              <span>Eye Tracker {i + 1}</span>
-              <small>{i === 0 ? "Manual tracker" : "Auto tracker"}</small>
+              {i === 0 ? (
+                <Eye size={16} aria-hidden="true" />
+              ) : (
+                <ScanEye size={16} aria-hidden="true" />
+              )}
+              <span>{i === 0 ? "Manual" : "Auto"}</span>
             </button>
           ))}
         </div>
       </div>
       <V2StepNavigation
-        steps={STEPS}
+        steps={steps}
         activeStep={step}
         completedSteps={
           new Set(
@@ -431,7 +504,16 @@ export function V2Page() {
         }
         onSelectStep={go}
       />
-      <div className="eye-workspace">
+      {sceneMode && (
+        <SceneWorkspace
+          tracker={tracker}
+          step={step - 3}
+          onStepChange={(next) => setStep(next + 3)}
+          onStatus={setSceneStatus}
+          eyeRevision={eyeRevision}
+        />
+      )}
+      <div className="eye-workspace" hidden={sceneMode && step >= 3}>
         <section
           className="eye-preview-column"
           aria-label="Eye preview and tuning"
@@ -456,6 +538,14 @@ export function V2Page() {
                 setNotice("")
               }}
               onThresholdViewChange={setThresholdViewOpen}
+              transformDisabled={sceneStatus.recording}
+              onTransformChange={() => {
+                resetSource()
+                setStep(1)
+                setNotice(
+                  "Camera orientation changed. Select the eye region and rebuild the eye model."
+                )
+              }}
             />
             <details
               className="eye-details eye-pipeline-details"
@@ -479,92 +569,95 @@ export function V2Page() {
             </details>
           </div>
         </section>
-        <V2StepPanel
-          stepName={STEPS[step]}
-          description={stepDescription}
-          error={tracker.error}
-          message={notice}
-        >
-          {head.enabled && step !== 3 && !capture && !focus && (
-            <HeadPreview head={head} inline />
-          )}
-          {step === 0 && (
-            <SourceControls
-              tracker={tracker}
-              deviceId={deviceId}
-              setDeviceId={setDeviceId}
-              resetSource={resetSource}
-            />
-          )}
-          {step === 1 && (
-            <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
-          )}
-          {step === 2 && (
-            <ModelControls
-              tracker={tracker}
-              corner={corner}
-              update={update}
-              setNotice={setNotice}
-            />
-          )}
-          {step === 3 && (
-            <HeadControls
-              head={head}
-              devices={tracker.devices}
-              eyeDeviceId={eyeDeviceId}
-              simulated={source?.kind === "sample"}
-              onConfigurationChange={clearCalibration}
-              onSkip={() => {
-                head.stop()
-                clearCalibration()
-                setStep(4)
-              }}
-            />
-          )}
-          {step === 4 && (
-            <CalibrationControls
-              usable={usable}
-              locked={settings.locked}
-              headReady={!head.enabled || head.status === "tracking"}
-              headEnabled={head.enabled}
-              onExportDiagnostics={
-                diagnosticsAvailable ? exportResult : undefined
-              }
-              orientation={activeOrientation}
-              onOrientationChange={(next) => {
-                clearCalibration()
-                setOrientation(next)
-              }}
-              onStart={() => {
-                setNotice("")
-                setRetryHeadPass(false)
-                setCapture("calibration")
-              }}
-            />
-          )}
-          {step === 5 && (
-            <LiveControls
-              tracker={tracker}
-              calibration={calibration}
-              screenPoint={screenPoint}
-              validation={validation}
-              usable={usable}
-              gazeMessage={gazeReading.message}
-              headCompensated={!!calibration?.headCompensation}
-              onRetryHeadCalibration={
-                canRetryHead ? retryHeadCalibration : undefined
-              }
-              retryHeadDisabled={head.status !== "tracking"}
-              onFocus={() => setFocus(true)}
-              onValidate={() => setCapture("validation")}
-              onRecalibrate={() => {
-                clearCalibration()
-                setStep(4)
-              }}
-              onExport={exportResult}
-            />
-          )}
-        </V2StepPanel>
+        {(!sceneMode || step < 3) && (
+          <V2StepPanel
+            stepName={steps[step]}
+            description={stepDescription}
+            error={tracker.error}
+            message={notice}
+          >
+            {head.enabled && step !== 3 && !capture && !focus && (
+              <HeadPreview head={head} inline />
+            )}
+            {step === 0 && (
+              <SourceControls
+                tracker={tracker}
+                excludedDeviceId={sceneMode ? sceneStatus.deviceId : undefined}
+                deviceId={deviceId}
+                setDeviceId={setDeviceId}
+                resetSource={resetSource}
+              />
+            )}
+            {step === 1 && (
+              <RegionControls tracker={tracker} chooseRegion={chooseRegion} />
+            )}
+            {step === 2 && (
+              <ModelControls
+                tracker={tracker}
+                corner={corner}
+                update={update}
+                setNotice={setNotice}
+              />
+            )}
+            {step === 3 && (
+              <HeadControls
+                head={head}
+                devices={tracker.devices}
+                eyeDeviceId={eyeDeviceId}
+                simulated={source?.kind === "sample"}
+                onConfigurationChange={clearCalibration}
+                onSkip={() => {
+                  head.stop()
+                  clearCalibration()
+                  setStep(4)
+                }}
+              />
+            )}
+            {step === 4 && (
+              <CalibrationControls
+                usable={usable}
+                locked={settings.locked}
+                headReady={!head.enabled || head.status === "tracking"}
+                headEnabled={head.enabled}
+                onExportDiagnostics={
+                  diagnosticsAvailable ? exportResult : undefined
+                }
+                orientation={activeOrientation}
+                onOrientationChange={(next) => {
+                  clearCalibration()
+                  setOrientation(next)
+                }}
+                onStart={() => {
+                  setNotice("")
+                  setRetryHeadPass(false)
+                  setCapture("calibration")
+                }}
+              />
+            )}
+            {step === 5 && (
+              <LiveControls
+                tracker={tracker}
+                calibration={calibration}
+                screenPoint={screenPoint}
+                validation={validation}
+                usable={usable}
+                gazeMessage={gazeReading.message}
+                headCompensated={!!calibration?.headCompensation}
+                onRetryHeadCalibration={
+                  canRetryHead ? retryHeadCalibration : undefined
+                }
+                retryHeadDisabled={head.status !== "tracking"}
+                onFocus={() => setFocus(true)}
+                onValidate={() => setCapture("validation")}
+                onRecalibrate={() => {
+                  clearCalibration()
+                  setStep(4)
+                }}
+                onExport={exportResult}
+              />
+            )}
+          </V2StepPanel>
+        )}
       </div>
       <footer
         className={`eye-bottom-bar ${step === 2 ? "has-model-status" : ""}`}
@@ -597,7 +690,7 @@ export function V2Page() {
               {modelLockStatus.blocker === "ready" && "Model ready"}
             </span>
           )}
-          {step < 4 && (
+          {(step < 3 || (!sceneMode && step === 3)) && (
             <button
               className="eye-button primary"
               disabled={continueDisabled}

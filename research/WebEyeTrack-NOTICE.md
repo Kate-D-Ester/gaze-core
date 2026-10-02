@@ -75,7 +75,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## MediaPipe and TensorFlow.js
 
-MediaPipe Tasks Vision runtime: `@mediapipe/tasks-vision` 1.0.1, Google LLC,
+MediaPipe Tasks Vision runtime: `@mediapipe/tasks-vision` 1.0.1 (installed as
+`@mediapipe/tasks-vision-remote` to isolate it from the head/hand runtime), Google LLC,
 Apache-2.0. The bundled `vision_wasm_module_internal.js` and matching WASM binary
 are unchanged copies of that installed package. Runtime model loading uses the
 ES-module factory to support browser module workers; GPU delegate initialization

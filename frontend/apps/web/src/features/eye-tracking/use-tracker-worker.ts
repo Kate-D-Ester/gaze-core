@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react"
 import { shouldIncludePreviewMasks } from "./preview-mask-policy"
 import { drawSample } from "./sample"
+import { drawCameraFrame, isDefaultCameraTransform } from "./camera-transform"
 import type { TrackingFrame } from "./eye-tracking.types"
 import type { WorkerRequest, WorkerResponse } from "./tracker.worker.types"
 import type { TrackerRuntime } from "./use-tracker.types"
@@ -57,6 +58,11 @@ export function useTrackerWorker(
         return
       }
       if (message.type === "frame") {
+        if (
+          c.source?.kind === "network" &&
+          (!c.networkFrame || message.frame.timestamp < c.networkInterruptedAt)
+        )
+          return
         const canvas = sourceCanvas.current
         if (canvas)
           canvas
@@ -112,6 +118,7 @@ export function useTrackerWorker(
     }
     worker.onmessageerror = () =>
       fail("The vision engine returned data the page could not read.")
+    const sampleCanvas = document.createElement("canvas")
     const captureCanvas = document.createElement("canvas"),
       previewMasks = new Map<string, Uint8Array>()
     let raf = 0,
@@ -131,17 +138,47 @@ export function useTrackerWorker(
       }
       const ctx = canvas.getContext("2d", { willReadFrequently: true })
       if (!ctx) return
+
       let timestamp = time
-      if (c.source.kind === "sample")
-        drawSample(ctx, time, c.sampleTarget, c.blink)
-      else if (c.mjpegFrame) {
-        if (c.lastMjpegSequence === c.mjpegSequence) {
+      if (c.source.kind === "sample") {
+        if (isDefaultCameraTransform(c.transform))
+          drawSample(ctx, time, c.sampleTarget, c.blink)
+        else {
+          sampleCanvas.width = c.inputDimensions.width
+          sampleCanvas.height = c.inputDimensions.height
+          const sampleCtx = sampleCanvas.getContext("2d")
+          if (!sampleCtx) return
+          drawSample(sampleCtx, time, c.sampleTarget, c.blink)
+          drawCameraFrame(
+            ctx,
+            sampleCanvas,
+            sampleCanvas.width,
+            sampleCanvas.height,
+            c.transform,
+            canvas
+          )
+        }
+      } else if (c.source.kind === "network") {
+        const frame = c.networkFrame
+        if (
+          !frame ||
+          frame.sequence === c.lastNetworkSequence ||
+          time - frame.timestamp > 700
+        ) {
           if (latest.current && time - latest.current.timestamp > 700)
             clearFrame()
           return
         }
-        c.lastMjpegSequence = c.mjpegSequence
-        ctx.drawImage(c.mjpegFrame, 0, 0, canvas.width, canvas.height)
+        c.lastNetworkSequence = frame.sequence
+        timestamp = frame.timestamp
+        drawCameraFrame(
+          ctx,
+          frame.image,
+          frame.width,
+          frame.height,
+          c.transform,
+          canvas
+        )
       } else {
         if (
           !c.video ||
@@ -155,7 +192,14 @@ export function useTrackerWorker(
         c.lastVideoTime = c.video.currentTime
         frameClock.watch(c.video)
         timestamp = frameClock.read(time)
-        ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height)
+        drawCameraFrame(
+          ctx,
+          c.video,
+          c.video.videoWidth,
+          c.video.videoHeight,
+          c.transform,
+          canvas
+        )
       }
       last = time
       if (previewMaskRequestGeneration !== c.generation) {
@@ -196,11 +240,10 @@ export function useTrackerWorker(
       c.worker = null
       c.generation++
       c.sourceEpoch++
-      c.networkAbort?.abort()
-      c.networkAbort = null
+      c.network?.stop()
+      c.network = null
+      c.networkFrame = null
       c.stream?.getTracks().forEach((t) => t.stop())
-      c.mjpegFrame?.close()
-      c.mjpegFrame = null
       c.video?.pause()
       if (c.video) c.video.srcObject = null
       if (c.url) URL.revokeObjectURL(c.url)

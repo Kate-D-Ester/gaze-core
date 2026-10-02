@@ -9,3 +9,10 @@ export type CameraSourcePreferenceController = CameraSourcePreferences & {
   setKind: (kind: CameraSourceKind) => void
   setUrl: (url: string) => void
 }
+
+export type CameraSourceRole = "eye" | "scene"
+
+export type CameraSourceSnapshot = {
+  kind: string
+  url?: string
+}

@@ -1,4 +1,10 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
+import type { CameraTransform } from "./camera-transform"
+import type {
+  NetworkCamera,
+  NetworkCameraFrame,
+  NetworkConnectionState,
+} from "./network-camera"
 import type {
   FrameDimensions,
   FrameSettings,
@@ -9,18 +15,21 @@ import type {
 export type TrackerSource = {
   kind: "camera" | "network" | "video" | "sample"
   name: string
-  /** Actual capture device, independent of a pending source-selector choice. */
   deviceId?: string
+  url?: string
+  key?: string
 }
 
 export type TrackerRuntimeState = {
   settings: FrameSettings
   source: TrackerSource | null
   video: HTMLVideoElement | null
-  mjpegFrame: ImageBitmap | null
-  mjpegSequence: number
-  lastMjpegSequence: number
-  networkAbort: AbortController | null
+  network: NetworkCamera | null
+  networkFrame: NetworkCameraFrame | null
+  lastNetworkSequence: number
+  networkInterruptedAt: number
+  transform: CameraTransform
+  inputDimensions: FrameDimensions
   stream: MediaStream | null
   url: string
   generation: number
@@ -42,6 +51,10 @@ export type TrackerRuntime = {
 }
 
 export type TrackerController = {
+  transform: CameraTransform
+  setTransform: (value: CameraTransform) => void
+  connection: NetworkConnectionState
+  reconnectAttempt: number
   dimensions: FrameDimensions
   settings: FrameSettings
   configure: (next: Partial<FrameSettings>, invalidate?: boolean) => void
@@ -54,7 +67,7 @@ export type TrackerController = {
   setError: Dispatch<SetStateAction<string>>
   engineReady: boolean
   devices: MediaDeviceInfo[]
-  startCamera: (deviceId: string) => Promise<void>
+  startCamera: (deviceId: string, excludedDeviceId?: string) => Promise<void>
   startNetworkStream: (input: string) => Promise<void>
   startVideo: (file: File) => Promise<void>
   startSample: () => void

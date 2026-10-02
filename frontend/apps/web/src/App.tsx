@@ -17,6 +17,10 @@ import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
   const location = useLocation()
+  if (location.pathname === "/trial/scene-camera-eye-tracking") {
+    return <V2Page key="scene" sceneMode />
+  }
+
   if (location.pathname === "/trial/remote-eye-tracking") {
     return <RemoteEyeTrackingPage />
   }
@@ -26,10 +30,14 @@ export function App() {
   }
 
   if (location.pathname === "/trial/screen-eye-tracking") {
-    return <V2Page />
+    return <V2Page key="screen" />
   }
 
-  if (location.pathname === "/v2" || location.pathname === "/trial" || location.pathname === "/trials") {
+  if (
+    location.pathname === "/v2" ||
+    location.pathname === "/trial" ||
+    location.pathname === "/trials"
+  ) {
     return <Navigate to="/trial/screen-eye-tracking" replace />
   }
 

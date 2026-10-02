@@ -3,7 +3,7 @@ import { useId, useState } from "react"
 import { EyeTooltip } from "./eye-tooltip"
 import type { HelpTipProps } from "./help-tip.types"
 
-export function HelpTip({ text, label }: HelpTipProps) {
+export function HelpTip({ text, label = "Help" }: HelpTipProps) {
   const id = useId()
   const [open, setOpen] = useState(false)
   const [dismissed, setDismissed] = useState(false)
@@ -29,6 +29,7 @@ export function HelpTip({ text, label }: HelpTipProps) {
         className="eye-icon-button"
         aria-label={label}
         aria-describedby={id}
+        aria-expanded={visible}
         onClick={() => {
           setDismissed(open)
           setOpen(!open)

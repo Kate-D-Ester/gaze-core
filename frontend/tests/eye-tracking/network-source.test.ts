@@ -54,7 +54,7 @@ function createMjpegResponse() {
   })
 }
 
-test("opens MJPEG directly from its network URL", async () => {
+test("opens MJPEG through the local camera relay", async () => {
   let requestedUrl = ""
   globalThis.fetch = async (input) => {
     requestedUrl = String(input)
@@ -66,7 +66,10 @@ test("opens MJPEG directly from its network URL", async () => {
     new AbortController().signal
   )
 
-  expect(requestedUrl).toBe("http://esp32.local/stream")
+  const relayUrl = new URL(requestedUrl)
+  expect(relayUrl.origin).toBe("http://127.0.0.1:4022")
+  expect(relayUrl.pathname).toBe("/stream")
+  expect(relayUrl.searchParams.get("url")).toBe("http://esp32.local/stream")
   expect(source.kind).toBe("mjpeg")
   if (source.kind !== "mjpeg") throw new Error("Expected an MJPEG source")
   expect(new TextDecoder().decode(source.firstFrame)).toBe("JPEG1")
@@ -78,89 +81,14 @@ test("opens MJPEG directly from its network URL", async () => {
   expect(remainingFrames).toEqual(["JPEG2"])
 })
 
-test.each(["esp32.local", "192.168.1.11"])(
-  "retries the standard ESP32 stream port for %s after a default-port failure",
-  async (hostname) => {
-    const requested: string[] = []
-    globalThis.fetch = async (input) => {
-      const url = String(input)
-      requested.push(url)
-      if (!url.includes(":81/")) throw new TypeError("Failed to fetch")
-      return createMjpegResponse()
-    }
-    const source = await openNetworkSource(
-      `http://${hostname}/stream`,
-      new AbortController().signal
-    )
-    expect(requested).toEqual([
-      `http://${hostname}/stream`,
-      `http://${hostname}:81/stream`,
-    ])
-    expect(source.kind).toBe("mjpeg")
-    if (source.kind === "mjpeg") await source.frames.return(undefined)
-  }
-)
-
-test("retries port 81 when a local web server returns HTML instead of a stream", async () => {
-  const requested: string[] = []
-  globalThis.fetch = async (input) => {
-    const url = String(input)
-    requested.push(url)
-    if (url.includes(":81/")) return createMjpegResponse()
-    return new Response("Camera page", {
-      headers: { "Content-Type": "text/html" },
-    })
-  }
-  const source = await openNetworkSource(
-    "http://esp32.local/stream",
-    new AbortController().signal
-  )
-  expect(requested).toEqual([
-    "http://esp32.local/stream",
-    "http://esp32.local:81/stream",
-  ])
-  if (source.kind === "mjpeg") await source.frames.return(undefined)
-})
-
-test.each(["http://esp32.local:8080/stream", "https://camera.example/stream"])(
-  "never substitutes an explicit port or a public camera URL: %s",
-  async (url) => {
-    const requested: string[] = []
-    globalThis.fetch = async (input) => {
-      requested.push(String(input))
-      throw new TypeError("Failed to fetch")
-    }
-    await expect(
-      openNetworkSource(url, new AbortController().signal)
-    ).rejects.toThrow(/could not reach or read/)
-    expect(requested).toEqual([url])
-  }
-)
-
-test("cancelling a local-camera connection never starts the fallback request", async () => {
-  const requested: string[] = []
-  const controller = new AbortController()
-  globalThis.fetch = async (input) => {
-    requested.push(String(input))
-    controller.abort()
-    throw new DOMException("Stopped", "AbortError")
-  }
-  await expect(
-    openNetworkSource("http://esp32.local/stream", controller.signal)
-  ).rejects.toMatchObject({ name: "AbortError" })
-  expect(requested).toEqual(["http://esp32.local/stream"])
-})
-
-test("explains network, CORS, and default ESP32 stream port failures", async () => {
+test("explains how to start the local camera relay", async () => {
   globalThis.fetch = async () => {
     throw new TypeError("Failed to fetch")
   }
 
   await expect(
     openNetworkSource("http://esp32.local/stream", new AbortController().signal)
-  ).rejects.toThrow(
-    /could not reach or read.*esp32\.local:81\/stream.*same network.*Access-Control-Allow-Origin/is
-  )
+  ).rejects.toThrow(/camera relay is not running.*bun run.*camera-relay/i)
 })
 
 test("rejects non-HTTP network source URLs before fetching", async () => {
@@ -185,6 +113,21 @@ test("reports HTTP errors from the camera directly", async () => {
       new AbortController().signal
     )
   ).rejects.toThrow("The camera returned HTTP 503")
+})
+
+test("shows the local relay's camera resolution error", async () => {
+  globalThis.fetch = async () =>
+    Response.json(
+      {
+        error:
+          "The camera relay could not reach the camera: DNS lookup failed.",
+      },
+      { status: 502 }
+    )
+
+  await expect(
+    openNetworkSource("http://esp32.local/stream", new AbortController().signal)
+  ).rejects.toThrow("DNS lookup failed")
 })
 
 test("rejects MJPEG responses that do not declare a boundary", async () => {
@@ -224,11 +167,12 @@ test("opens browser-playable network video after checking its response type", as
   expect(source.kind).toBe("video")
   if (source.kind !== "video") throw new Error("Expected a video source")
   expect(source.video.crossOrigin).toBe("anonymous")
+  expect(source.video.src).toContain("127.0.0.1:4022/stream")
   expect(source.video.videoWidth).toBe(640)
   source.video.pause()
 })
 
-test("reports when the browser cannot decode a network video", async () => {
+test("reports when the browser cannot decode a relayed video", async () => {
   globalThis.fetch = async () =>
     new Response("video", {
       headers: { "Content-Type": "video/mp4" },
@@ -242,7 +186,45 @@ test("reports when the browser cannot decode a network video", async () => {
       "https://camera.example/eye.mp4",
       new AbortController().signal
     )
-  ).rejects.toThrow(/could not play.*reachable.*CORS/i)
+  ).rejects.toThrow(/could not play.*camera relay/i)
+})
+test("aborting video startup cancels an unresolved play and releases its URL", async () => {
+  globalThis.fetch = async () =>
+    new Response("video", { headers: { "Content-Type": "video/mp4" } })
+  let video!: HTMLVideoElement, releasePlay!: () => void
+  const controller = new AbortController()
+  HTMLVideoElement.prototype.play = function () {
+    video = this
+    return new Promise<void>((resolve) => {
+      releasePlay = resolve
+    })
+  }
+  const pending = openNetworkSource(
+    "http://camera.local/stream.mp4",
+    controller.signal
+  ).then(
+    (value) => {
+      if (value.kind === "video") {
+        value.video.pause()
+        value.video.removeAttribute("src")
+      }
+      return "resolved"
+    },
+    (error) => error.name
+  )
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    controller.abort()
+    const outcome = await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 20)),
+    ])
+    expect(outcome).toBe("AbortError")
+    expect(video.getAttribute("src")).toBeNull()
+  } finally {
+    releasePlay()
+    await pending
+  }
 })
 
 test("aborting an MJPEG source releases the pending response reader", async () => {

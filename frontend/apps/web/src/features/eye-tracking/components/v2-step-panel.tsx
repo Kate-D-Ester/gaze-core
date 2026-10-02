@@ -7,17 +7,22 @@ export function V2StepPanel({
   description,
   error,
   message,
+  stage,
   children,
 }: V2StepPanelProps) {
   const headingId = useId()
   const statusMessage = error || message
 
   return (
-    <aside className="eye-controls" aria-labelledby={headingId}>
+    <aside
+      className={stage ? "eye-controls has-stage" : "eye-controls"}
+      aria-labelledby={headingId}
+    >
       <div className="eye-controls-heading">
         <h2 id={headingId}>{stepName}</h2>
         <HelpTip text={description} label={`${stepName} help`} />
       </div>
+      {stage}
       <div className="eye-controls-body">
         {statusMessage && (
           <p
