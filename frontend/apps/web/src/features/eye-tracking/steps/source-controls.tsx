@@ -1,6 +1,6 @@
-import { LoaderCircle, Plug, RefreshCw, Usb, Wifi, X } from "lucide-react"
-import { EyeActionButton } from "../components/eye-action-button"
 import { useCameraSourcePreferences } from "../use-camera-source-preferences"
+import { LoaderCircle, Plug, RefreshCw, X } from "lucide-react"
+import { CameraSourceType } from "../components/camera-source-type"
 import type { SourceControlsProps } from "./source-controls.types"
 
 export function SourceControls({
@@ -8,13 +8,14 @@ export function SourceControls({
   deviceId,
   setDeviceId,
   resetSource,
+  excludedDeviceId,
 }: SourceControlsProps) {
   const {
     kind,
-    url: streamUrl,
     setKind,
+    url: streamUrl,
     setUrl: setStreamUrl,
-  } = useCameraSourcePreferences()
+  } = useCameraSourcePreferences("eye", tracker.source)
   const cameras = tracker.devices.filter((device) => device.deviceId)
   let previewButtonLabel = "Connect"
 
@@ -24,44 +25,20 @@ export function SourceControls({
   if (tracker.busy) {
     previewButtonLabel = "Connecting…"
   }
+  if (tracker.connection === "reconnecting")
+    previewButtonLabel = "Reconnecting…"
   let ConnectionIcon = tracker.source ? RefreshCw : Plug
-  if (tracker.busy) {
-    ConnectionIcon = LoaderCircle
-  }
+  if (tracker.busy) ConnectionIcon = LoaderCircle
 
   function startPreview() {
     resetSource()
-    if (kind === "usb") {
-      void tracker.startCamera(deviceId)
-    } else {
-      void tracker.startNetworkStream(streamUrl)
-    }
+    if (kind === "usb") void tracker.startCamera(deviceId, excludedDeviceId)
+    else void tracker.startNetworkStream(streamUrl)
   }
 
   return (
     <>
-      <div className="eye-source-type" role="group" aria-label="Camera type">
-        <button
-          className="eye-button secondary"
-          aria-label="USB camera"
-          title="USB camera"
-          data-tooltip="USB camera"
-          aria-pressed={kind === "usb"}
-          onClick={() => setKind("usb")}
-        >
-          <Usb size={19} aria-hidden="true" />
-        </button>
-        <button
-          className="eye-button secondary"
-          aria-label="Network stream"
-          title="Network / IP / mDNS stream"
-          data-tooltip="Network / IP / mDNS stream"
-          aria-pressed={kind === "network"}
-          onClick={() => setKind("network")}
-        >
-          <Wifi size={19} aria-hidden="true" />
-        </button>
-      </div>
+      <CameraSourceType value={kind} onChange={setKind} />
 
       {kind === "usb" ? (
         <label className="eye-field">
@@ -72,8 +49,15 @@ export function SourceControls({
           >
             <option value="">Default camera</option>
             {cameras.map((device, index) => (
-              <option key={device.deviceId} value={device.deviceId}>
+              <option
+                key={device.deviceId}
+                value={device.deviceId}
+                disabled={
+                  !!excludedDeviceId && device.deviceId === excludedDeviceId
+                }
+              >
                 {device.label.trim() || `Camera ${index + 1}`}
+                {device.deviceId === excludedDeviceId ? " (scene camera)" : ""}
               </option>
             ))}
           </select>
@@ -101,16 +85,22 @@ export function SourceControls({
           onClick={startPreview}
         >
           <ConnectionIcon
+            className={tracker.busy ? "camera-spinner" : undefined}
             size={16}
-            className={tracker.busy ? "eye-spinner" : undefined}
             aria-hidden="true"
           />
           {previewButtonLabel}
         </button>
         {tracker.busy && (
-          <EyeActionButton label="Cancel connection" onClick={tracker.stop}>
+          <button
+            className="eye-button secondary eye-action-icon"
+            aria-label="Cancel connection"
+            title="Cancel connection"
+            data-tooltip="Cancel connection"
+            onClick={tracker.stop}
+          >
             <X size={17} aria-hidden="true" />
-          </EyeActionButton>
+          </button>
         )}
       </div>
     </>

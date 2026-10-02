@@ -39,6 +39,7 @@
     "./globals.css": "./src/styles/globals.css",
     "./lib/gaze-core": "./src/lib/gaze-core/index.ts",
     "./lib/*": "./src/lib/*.ts",
+    "./components/button-variants": "./src/components/button-variants.ts",
     "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts"
   }

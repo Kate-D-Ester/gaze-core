@@ -5,5 +5,6 @@ export type V2StepPanelProps = {
   description: string
   error?: string | null
   message?: string
+  stage?: ReactNode
   children: ReactNode
 }

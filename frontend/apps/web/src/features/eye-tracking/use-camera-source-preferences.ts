@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react"
 import type {
   CameraSourceKind,
+  CameraSourceRole,
+  CameraSourceSnapshot,
   CameraSourcePreferenceController,
   CameraSourcePreferences,
 } from "./use-camera-source-preferences.types"
 
-const STORAGE_KEY = "gazecore.eye-camera.source.v1"
 const DEFAULT_PREFERENCES: CameraSourcePreferences = {
   kind: "usb",
   url: "",
 }
 
-function readCameraSourcePreferences(): CameraSourcePreferences {
+function readCameraSourcePreferences(key: string): CameraSourcePreferences {
   try {
-    const serialized = globalThis.localStorage?.getItem(STORAGE_KEY)
+    const serialized = globalThis.localStorage?.getItem(key)
     if (!serialized) {
       return DEFAULT_PREFERENCES
     }
@@ -38,16 +39,27 @@ function readCameraSourcePreferences(): CameraSourcePreferences {
   }
 }
 
-export function useCameraSourcePreferences(): CameraSourcePreferenceController {
-  const [preferences, setPreferences] = useState(readCameraSourcePreferences)
+export function useCameraSourcePreferences(
+  role: CameraSourceRole = "eye",
+  source?: CameraSourceSnapshot | null
+): CameraSourcePreferenceController {
+  const key = `gazecore.${role}-camera.source.v1`
+  const [preferences, setPreferences] = useState(() => {
+    const saved = readCameraSourcePreferences(key)
+    if (!source) return saved
+    return {
+      kind: source.kind === "network" ? ("network" as const) : ("usb" as const),
+      url: source.url ?? saved.url,
+    }
+  })
 
   useEffect(() => {
     try {
-      globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(preferences))
+      globalThis.localStorage?.setItem(key, JSON.stringify(preferences))
     } catch {
       // Camera controls remain usable when browser storage is unavailable.
     }
-  }, [preferences])
+  }, [key, preferences])
 
   function setKind(kind: CameraSourceKind): void {
     setPreferences((current) => ({ ...current, kind }))

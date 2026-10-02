@@ -10,8 +10,3 @@ export type NetworkSource =
       name: string
       video: HTMLVideoElement
     }
-
-export type CameraResponse = {
-  url: URL
-  response: Response
-}

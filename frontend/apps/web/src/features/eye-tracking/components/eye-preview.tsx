@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
 } from "lucide-react"
+import { CameraTransformControls } from "./camera-transform-controls"
 import type { Ellipse, Point, Rect } from "../eye-tracking.types"
 import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
@@ -128,6 +129,9 @@ export function EyePreview({
   onEditRegion,
   onThresholdViewChange,
   showModel = false,
+  onTransformChange,
+  transformDisabled = false,
+  readOnly = false,
 }: EyePreviewProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -750,12 +754,28 @@ export function EyePreview({
       <div className="eye-preview-heading">
         <span>
           <span
-            className={tracker.source ? "status-light on" : "status-light"}
+            className={
+              tracker.source &&
+              (!tracker.connection || tracker.connection === "live")
+                ? "status-light on"
+                : "status-light"
+            }
           />
-          {tracker.source ? "Eye view" : "Preview"}
+          Eye camera
         </span>
-        {tracker.source && (
+        {tracker.source && !readOnly && (
           <div className="eye-preview-tools">
+            {tracker.transform && (
+              <CameraTransformControls
+                label="Eye camera"
+                value={tracker.transform}
+                disabled={transformDisabled}
+                onChange={(value) => {
+                  tracker.setTransform(value)
+                  onTransformChange?.()
+                }}
+              />
+            )}
             <div
               className="eye-preview-switch"
               role="group"
@@ -829,6 +849,15 @@ export function EyePreview({
       </div>
       {tracker.source ? (
         <>
+          {tracker.source.kind === "network" &&
+            (tracker.connection === "waiting" ||
+              tracker.connection === "reconnecting") && (
+              <div className="camera-recovery-banner" role="status">
+                {tracker.connection === "waiting"
+                  ? "Waiting for camera frames…"
+                  : "Reconnecting eye camera automatically…"}
+              </div>
+            )}
           {selectRegion && (
             <div className="eye-roi-toolbar">
               <span>
@@ -964,8 +993,7 @@ export function EyePreview({
           <div className="eye-camera-outline">
             <Camera size={30} strokeWidth={1.2} />
           </div>
-          <h2>Connect an eye camera</h2>
-          <p>Select a camera source to begin.</p>
+          <p>No camera connected</p>
         </div>
       )}
     </div>

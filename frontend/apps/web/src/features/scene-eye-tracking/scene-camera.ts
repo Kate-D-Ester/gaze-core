@@ -1,0 +1,339 @@
+import {
+  NetworkCamera,
+  type NetworkConnectionState,
+} from "../eye-tracking/network-camera"
+import {
+  cameraFrameGeometry,
+  drawCameraFrame,
+  normalizeCameraTransform,
+  readCameraTransform,
+  saveCameraTransform,
+  type CameraTransform,
+} from "../eye-tracking/camera-transform"
+import {
+  getCameraErrorMessage,
+  waitForVideoDimensions,
+} from "../eye-tracking/video-source"
+import type { SceneObservation } from "./scene.types"
+
+export type SceneSource = {
+  kind: "camera" | "network"
+  name: string
+  key: string
+  deviceId?: string
+  url?: string
+}
+export type SceneCameraSnapshot = {
+  source: SceneSource | null
+  busy: boolean
+  error: string
+  devices: MediaDeviceInfo[]
+  frame: SceneObservation | null
+  connection: NetworkConnectionState
+  retryAttempt: number
+  transform: CameraTransform
+}
+
+export class SceneCamera {
+  readonly rawCanvas = document.createElement("canvas")
+  latest: SceneObservation | null = null
+  stream: MediaStream | null = null
+  private snapshot: SceneCameraSnapshot = {
+    source: null,
+    busy: false,
+    error: "",
+    devices: [],
+    frame: null,
+    connection: "idle",
+    retryAttempt: 0,
+    transform: readCameraTransform("scene"),
+  }
+  private listeners = new Set<() => void>()
+  private video: HTMLVideoElement | null = null
+  private network: NetworkCamera | null = null
+  private observationGeneration = 0
+  private generation = 0
+  private sequence = 0
+  private raf = 0
+  private videoFrameHandle = 0
+  private usesFrameCallbacks = false
+  private videoFrameReady = false
+  private videoFrameTimestamp = 0
+  private lastPresentedFrames = -1
+  private lastArrival = 0
+  private disposed = false
+  private refreshDevices = async () => {
+    try {
+      const devices = (await navigator.mediaDevices?.enumerateDevices()) ?? []
+      if (!this.disposed)
+        this.update({ devices: devices.filter((d) => d.kind === "videoinput") })
+    } catch {
+      /* Permission-sensitive enumeration can fail before startup. */
+    }
+  }
+  getSnapshot = () => this.snapshot
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+  private update(next: Partial<SceneCameraSnapshot>) {
+    this.snapshot = { ...this.snapshot, ...next }
+    this.listeners.forEach((listener) => listener())
+  }
+  mount() {
+    this.disposed = false
+    void this.refreshDevices()
+    navigator.mediaDevices?.addEventListener(
+      "devicechange",
+      this.refreshDevices
+    )
+  }
+  stop(error = "") {
+    this.generation++
+    this.observationGeneration++
+    this.network?.stop()
+    this.network = null
+    cancelAnimationFrame(this.raf)
+    this.stream?.getTracks().forEach((track) => track.stop())
+    this.stream = null
+    if (this.video) {
+      if (this.videoFrameHandle)
+        this.video.cancelVideoFrameCallback?.(this.videoFrameHandle)
+      this.video.pause()
+      this.video.srcObject = null
+      this.video.removeAttribute("src")
+      this.video.load()
+    }
+    this.video = null
+    this.latest = null
+    this.videoFrameHandle = 0
+    this.usesFrameCallbacks = false
+    this.videoFrameReady = false
+    this.lastPresentedFrames = -1
+    this.update({
+      source: null,
+      busy: false,
+      error,
+      frame: null,
+      connection: error ? "error" : "idle",
+      retryAttempt: 0,
+    })
+  }
+  dispose() {
+    this.disposed = true
+    this.stop()
+    navigator.mediaDevices?.removeEventListener(
+      "devicechange",
+      this.refreshDevices
+    )
+  }
+  async startCamera(deviceId: string, excludedDeviceId?: string) {
+    this.stop()
+    this.update({ busy: true })
+    const epoch = this.generation
+    try {
+      if (!navigator.mediaDevices?.getUserMedia)
+        throw new Error(
+          "Camera access needs localhost or HTTPS in a supported browser."
+        )
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      })
+      if (epoch !== this.generation) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      this.stream = stream
+      const track = stream.getVideoTracks()[0],
+        actualId = track?.getSettings().deviceId
+      if (excludedDeviceId && actualId === excludedDeviceId)
+        throw new Error(
+          "Choose a different USB device for the scene camera and the eye camera."
+        )
+      const video = document.createElement("video")
+      video.muted = true
+      video.playsInline = true
+      video.srcObject = stream
+      this.video = video
+      await video.play()
+      await waitForVideoDimensions(video)
+      if (epoch !== this.generation) return
+      this.activate(
+        {
+          kind: "camera",
+          name: track?.label || "Scene camera",
+          key: `usb:${actualId || deviceId}:${epoch}`,
+          deviceId: actualId,
+        },
+        epoch
+      )
+      track?.addEventListener(
+        "ended",
+        () => {
+          if (this.stream === stream)
+            this.stop("Scene camera disconnected. Reconnect it and try again.")
+        },
+        { once: true }
+      )
+      void this.refreshDevices()
+    } catch (error) {
+      if (epoch === this.generation) this.stop(getCameraErrorMessage(error))
+    }
+  }
+
+  setTransform = (value: CameraTransform) => {
+    const transform = normalizeCameraTransform(value)
+    if (JSON.stringify(transform) === JSON.stringify(this.snapshot.transform))
+      return
+    saveCameraTransform("scene", transform)
+    this.observationGeneration++
+    this.latest = null
+    this.update({ transform, frame: null })
+  }
+  async startNetworkStream(input: string) {
+    this.stop()
+    const epoch = this.generation,
+      url = input.trim()
+    const source: SceneSource = {
+      kind: "network",
+      name: url,
+      url,
+      key: "network:" + url + ":" + epoch,
+    }
+    const network = new NetworkCamera({
+      onStatus: (connection, retryAttempt) => {
+        if (epoch === this.generation)
+          this.update({
+            connection,
+            retryAttempt,
+            busy: connection === "connecting" || connection === "reconnecting",
+          })
+      },
+      onError: (error) => {
+        if (epoch === this.generation) this.update({ error, busy: false })
+      },
+      onFrame: (frame) => {
+        if (epoch !== this.generation) return
+        if (!frame) {
+          this.latest = null
+          this.observationGeneration++
+          return
+        }
+        this.draw(frame.image, frame.width, frame.height, frame.timestamp)
+        if (epoch !== this.generation || !this.latest) return
+        if (!this.snapshot.source)
+          this.update({ source, error: "", busy: false })
+      },
+    })
+    this.network = network
+    await network.start(url)
+  }
+  private draw(
+    image: HTMLVideoElement | ImageBitmap,
+    inputWidth: number,
+    inputHeight: number,
+    timestamp: number
+  ) {
+    if (!inputWidth || !inputHeight) return
+    const { width, height } = cameraFrameGeometry(
+      inputWidth,
+      inputHeight,
+      this.snapshot.transform
+    )
+    if (this.rawCanvas.width !== width) this.rawCanvas.width = width
+    if (this.rawCanvas.height !== height) this.rawCanvas.height = height
+    const ctx = this.rawCanvas.getContext("2d")
+    if (!ctx) {
+      this.stop("Unable to create a scene preview in this browser.")
+      return
+    }
+    try {
+      drawCameraFrame(
+        ctx,
+        image,
+        inputWidth,
+        inputHeight,
+        this.snapshot.transform,
+        { width, height }
+      )
+    } catch {
+      this.latest = null
+      return
+    }
+    this.latest = {
+      id: ++this.sequence,
+      timestamp,
+      width,
+      height,
+      generation: this.observationGeneration,
+    }
+    this.update({ frame: this.latest })
+  }
+  private activate(source: SceneSource, epoch: number) {
+    this.lastArrival = performance.now()
+    this.update({ source, busy: false, error: "", connection: "live" })
+    const video = this.video
+    this.usesFrameCallbacks = !!video?.requestVideoFrameCallback
+    if (video && this.usesFrameCallbacks) {
+      const presented: VideoFrameRequestCallback = (now, metadata) => {
+        if (epoch !== this.generation || this.disposed) return
+        if (metadata.presentedFrames !== this.lastPresentedFrames) {
+          this.lastPresentedFrames = metadata.presentedFrames
+          this.videoFrameReady = true
+          this.videoFrameTimestamp = now
+        }
+        this.videoFrameHandle = video.requestVideoFrameCallback(presented)
+      }
+      this.videoFrameHandle = video.requestVideoFrameCallback(presented)
+    } else if (video && typeof video.getVideoPlaybackQuality !== "function") {
+      this.stop(
+        "Scene video needs video-frame callbacks or playback frame counters. Use a current browser."
+      )
+      return
+    }
+    const loop = (time: number) => {
+      if (epoch !== this.generation || this.disposed) return
+      const image = this.video
+      const quality = !this.usesFrameCallbacks
+        ? this.video?.getVideoPlaybackQuality?.()
+        : null
+      const presentedFrames = quality
+        ? quality.totalVideoFrames - quality.droppedVideoFrames
+        : -1
+      const fresh =
+        !!image &&
+        this.video!.readyState >= 2 &&
+        (this.usesFrameCallbacks
+          ? this.videoFrameReady
+          : presentedFrames > 0 && presentedFrames !== this.lastPresentedFrames)
+      if (fresh && image) {
+        const width = this.video!.videoWidth,
+          height = this.video!.videoHeight
+        if (width && height) {
+          this.videoFrameReady = false
+          if (!this.usesFrameCallbacks)
+            this.lastPresentedFrames = presentedFrames
+          this.lastArrival = time
+          if (this.usesFrameCallbacks)
+            this.lastArrival = this.videoFrameTimestamp
+          this.draw(image, width, height, this.lastArrival)
+        }
+      }
+      if (time - this.lastArrival > 2000) {
+        this.stop(
+          "The scene camera stopped sending frames. Reconnect it and try again."
+        )
+        return
+      }
+      this.raf = requestAnimationFrame(loop)
+    }
+    this.raf = requestAnimationFrame(loop)
+  }
+}

@@ -1,6 +1,6 @@
 # Eye tracking process
 
-The `/trial/screen-eye-tracking` experience runs all camera processing in the browser. USB camera capture uses `getUserMedia`; network video and MJPEG streams are read directly by browser APIs. Frames go from the source video to a local Web Worker for detection and are not sent to the backend.
+The `/trial/screen-eye-tracking` experience runs all camera processing in the browser. USB camera capture uses `getUserMedia`; network video and MJPEG streams are read through the local camera relay. Frames go from the source video to a local Web Worker for detection and are not sent to the backend.
 
 ## User workflow
 
@@ -14,7 +14,7 @@ The `/trial/screen-eye-tracking` experience runs all camera processing in the br
 ## Processing boundary
 
 - USB and network source handling, thresholding, pupil detection, model fitting, calibration, and gaze estimation stay on the client.
-- Network streams must be reachable from the browser and permit cross-origin reads (CORS). There is no camera relay or eye-tracking API on the backend.
+- Network streams use the independent local camera relay on port 4022 for readable pixels and exact local URL resolution. It does not perform eye tracking or use the auth backend.
 - The backend remains for authentication, email verification, health, and API-key management.
 
 For camera placement, detector behavior, mathematical conventions, limitations, and checks, see [Eye tracking V2](eye-tracking-v2.md).

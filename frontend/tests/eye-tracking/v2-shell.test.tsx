@@ -172,7 +172,7 @@ test("the public tracker opens at /trial/screen-eye-tracking and redirects /v2 l
   )
 })
 
-test("dashboard offers one Try it out action to the public tracker", async () => {
+test("dashboard offers exactly three trial cards with working navigation", async () => {
   document.body.append(host)
   await act(async () => {
     root = createRoot(host)
@@ -201,19 +201,22 @@ test("dashboard offers one Try it out action to the public tracker", async () =>
     )
   })
 
-  const tryItOutLinks = Array.from(
-    host.querySelectorAll("a"),
-    (link) => link
-  ).filter((link) => link.textContent?.trim() === "Try it out")
-  const tryItOutButtons = Array.from(host.querySelectorAll("button")).filter(
-    (button) => button.textContent?.trim() === "Try it out"
-  )
-  expect(tryItOutLinks).toHaveLength(1)
-  expect(tryItOutLinks[0]?.getAttribute("href")).toBe("/trial/screen-eye-tracking")
-  expect(tryItOutButtons).toHaveLength(1)
-
-  await act(async () => tryItOutButtons[0]?.click())
-  expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial/screen-eye-tracking"
-  )
+  expect(host.querySelector("header")?.textContent).not.toContain("Try it out")
+  const expected = [
+    ["Screen eye tracking", "/trial/screen-eye-tracking"],
+    ["Remote eye tracking", "/trial/remote-eye-tracking"],
+    ["Scene camera eye tracking", "/trial/scene-camera-eye-tracking"],
+  ]
+  expect(host.querySelectorAll("article")).toHaveLength(3)
+  for (const [name, path] of expected) {
+    const card = host.querySelector(`article[aria-label="${name}"]`)!
+    const link = card.querySelector<HTMLAnchorElement>("a")!
+    expect(card.querySelector("h3")?.textContent).toBe(name)
+    expect(link.textContent).toContain("Try it out")
+    expect(link.getAttribute("href")).toBe(path)
+    await act(async () => link.click())
+    expect(
+      host.querySelector('[data-testid="current-path"]')?.textContent
+    ).toBe(path)
+  }
 })

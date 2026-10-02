@@ -12,9 +12,9 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Visit `http://localhost:4001/trial`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye. A normal webcam may not resolve the pupil well enough. USB cameras and network streams are supported; frames are processed in a Web Worker and are not uploaded. Network streams must be reachable by the browser and allow cross-origin access (CORS); the tracker does not use a server relay.
+Visit `http://localhost:4001/trial/screen-eye-tracking`. Camera capture requires localhost or HTTPS and browser camera permission. Prefer a close, steady view of one eye. A normal webcam may not resolve the pupil well enough. USB cameras and network streams are supported; frames are processed in a Web Worker and are not uploaded. Network streams use the local camera relay on port 4022. Run `bun run camera-relay` from `frontend/apps/web`; the relay supplies readable pixels without requiring camera-side CORS changes. Tracking still runs in the browser, independently of the auth backend.
 
-For local `.local` or private IPv4 `/stream` URLs without a port, connection first uses the entered URL, then tries port `81` if the request fails or returns HTML. Explicit ports and public camera URLs are preserved. This follows the default [Espressif CameraWebServer stream endpoint](https://github.com/espressif/arduino-esp32/blob/master/libraries/ESP32/examples/Camera/CameraWebServer/app_httpd.cpp), which also sets the CORS response header. Name resolution still belongs to the browser/operating system; this fallback cannot bypass missing mDNS, local-network permissions, mixed-content restrictions or CORS. The entered URL remains in local preferences.
+The relay preserves the entered local-camera host, port, and path, including `.local` and private-IP streams. It does not silently change the endpoint to port 81. Name resolution happens on the relay host; the camera must be reachable from that machine. URLs and camera orientation preferences are remembered locally. The relay binds to loopback and limits accepted app origins and upstream destinations; see the scene-camera guide for hosted-origin configuration.
 
 ## Use the pipeline
 

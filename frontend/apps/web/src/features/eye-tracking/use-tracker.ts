@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { openNetworkSource } from "./network-source"
+import { NetworkCamera, type NetworkConnectionState } from "./network-camera"
+import {
+  cameraFrameGeometry,
+  normalizeCameraTransform,
+  readCameraTransform,
+  saveCameraTransform,
+  type CameraTransform,
+} from "./camera-transform"
 import { useTrackerWorker } from "./use-tracker-worker"
 import {
   getCameraErrorMessage,
@@ -49,13 +56,12 @@ function defaultSettingsFor(
   }
 }
 
-function jpegBlob(bytes: Uint8Array) {
-  const buffer = new ArrayBuffer(bytes.byteLength)
-  new Uint8Array(buffer).set(bytes)
-  return new Blob([buffer], { type: "image/jpeg" })
-}
-
 export function useTracker(): TrackerController {
+  const [transform, setTransformState] = useState(() =>
+    readCameraTransform("eye")
+  )
+  const [connection, setConnection] = useState<NetworkConnectionState>("idle")
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [preferences] = useState(readTrackerPreferences)
   const preferencesRef = useRef(preferences)
   const activeFormat = "spatial"
@@ -88,10 +94,12 @@ export function useTracker(): TrackerController {
     settings,
     source: null,
     video: null,
-    mjpegFrame: null,
-    mjpegSequence: 0,
-    lastMjpegSequence: -1,
-    networkAbort: null,
+    network: null,
+    networkFrame: null,
+    lastNetworkSequence: -1,
+    networkInterruptedAt: 0,
+    transform,
+    inputDimensions: DEFAULT_DIMENSIONS,
     stream: null,
     url: "",
     generation: 0,
@@ -137,12 +145,12 @@ export function useTracker(): TrackerController {
     // that request before a restarted source can submit the next frame.
     c.stream?.getTracks().forEach((track) => track.stop())
     c.stream = null
-    c.networkAbort?.abort()
-    c.networkAbort = null
-    c.mjpegFrame?.close()
-    c.mjpegFrame = null
-    c.mjpegSequence = 0
-    c.lastMjpegSequence = -1
+    c.network?.stop()
+    c.network = null
+    c.networkFrame = null
+    c.lastNetworkSequence = -1
+    setConnection("idle")
+    setReconnectAttempt(0)
     if (c.video) {
       c.video.pause()
       c.video.srcObject = null
@@ -226,22 +234,16 @@ export function useTracker(): TrackerController {
         video?.videoWidth ?? frameSize?.width ?? DEFAULT_DIMENSIONS.width
       const inputHeight =
         video?.videoHeight ?? frameSize?.height ?? DEFAULT_DIMENSIONS.height
-      const scale =
-        video || frameSize
-          ? Math.min(
-              DEFAULT_DIMENSIONS.width / inputWidth,
-              DEFAULT_DIMENSIONS.height / inputHeight,
-              1
-            )
-          : 1
-      const width =
-          video || frameSize
-            ? Math.max(2, Math.round(inputWidth * scale))
-            : DEFAULT_DIMENSIONS.width,
-        height =
-          video || frameSize
-            ? Math.max(2, Math.round(inputHeight * scale))
-            : DEFAULT_DIMENSIONS.height
+
+      c.inputDimensions = { width: inputWidth, height: inputHeight }
+      const rotated = cameraFrameGeometry(inputWidth, inputHeight, c.transform)
+      const scale = Math.min(
+        DEFAULT_DIMENSIONS.width / rotated.width,
+        DEFAULT_DIMENSIONS.height / rotated.height,
+        1
+      )
+      const width = Math.max(2, Math.round(rotated.width * scale)),
+        height = Math.max(2, Math.round(rotated.height * scale))
       c.settings = resizeTrackerSettings(
         {
           frameDimensions: dimensionsRef.current,
@@ -260,11 +262,12 @@ export function useTracker(): TrackerController {
       setSettings(c.settings)
       setSource(next)
       setBusy(false)
+      setConnection("live")
     },
     []
   )
   const startCamera = useCallback(
-    async (deviceId: string) => {
+    async (deviceId: string, excludedDeviceId?: string) => {
       stop()
       setBusy(true)
       setError("")
@@ -288,6 +291,12 @@ export function useTracker(): TrackerController {
           return
         }
         c.stream = stream
+        const actualId =
+          stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId
+        if (excludedDeviceId && actualId === excludedDeviceId)
+          throw new Error(
+            "Choose different USB devices for the eye camera and the scene camera."
+          )
         const video = document.createElement("video")
         video.muted = true
         video.playsInline = true
@@ -300,7 +309,8 @@ export function useTracker(): TrackerController {
           {
             kind: "camera",
             name: stream.getVideoTracks()[0]?.label || "Camera",
-            deviceId: stream.getVideoTracks()[0]?.getSettings?.().deviceId,
+            deviceId:
+              stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId,
           },
           video
         )
@@ -324,105 +334,97 @@ export function useTracker(): TrackerController {
     },
     [stop, activate, refreshDevices]
   )
+
   const startNetworkStream = useCallback(
     async (input: string) => {
       stop()
-      setBusy(true)
       setError("")
       const c = control.current,
-        generation = c.sourceEpoch
-      try {
-        const abort = new AbortController()
-        c.networkAbort = abort
-        const networkSource = await openNetworkSource(input, abort.signal)
-        if (generation !== c.sourceEpoch) {
-          if (networkSource.kind === "mjpeg") {
-            await networkSource.frames.return(undefined)
-          } else {
-            networkSource.video.pause()
-            networkSource.video.removeAttribute("src")
-            networkSource.video.load()
+        epoch = c.sourceEpoch,
+        url = input.trim()
+      const next: TrackerSource = { kind: "network", name: url, url }
+      const network = new NetworkCamera({
+        onStatus: (state, attempt) => {
+          if (epoch !== c.sourceEpoch) return
+          setConnection(state)
+          setReconnectAttempt(attempt)
+          setBusy(state === "connecting" || state === "reconnecting")
+        },
+        onError: (message) => {
+          if (epoch === c.sourceEpoch) {
+            setError(message)
+            setBusy(false)
           }
-          return
-        }
-
-        if (networkSource.kind === "video") {
-          activate(
-            { kind: "network", name: networkSource.name },
-            networkSource.video
-          )
-          networkSource.video.addEventListener(
-            "error",
-            () => {
-              if (c.video === networkSource.video) {
-                stop()
-                setError(
-                  "This network video stopped. Check its stream URL and CORS settings."
-                )
-              }
-            },
-            { once: true }
-          )
-          return
-        }
-
-        const firstBitmap = await createImageBitmap(
-          jpegBlob(networkSource.firstFrame)
-        )
-        if (generation !== c.sourceEpoch) {
-          firstBitmap.close()
-          await networkSource.frames.return(undefined)
-          return
-        }
-        c.mjpegFrame = firstBitmap
-        c.mjpegSequence++
-        c.lastMjpegSequence = -1
-        activate({ kind: "network", name: networkSource.name }, null, {
-          width: firstBitmap.width,
-          height: firstBitmap.height,
-        })
-
-        void (async () => {
-          try {
-            for await (const jpeg of networkSource.frames) {
-              if (generation !== c.sourceEpoch) return
-              const bitmap = await createImageBitmap(jpegBlob(jpeg))
-              if (generation !== c.sourceEpoch) {
-                bitmap.close()
-                return
-              }
-              const previous = c.mjpegFrame
-              c.mjpegFrame = bitmap
-              c.mjpegSequence++
-              previous?.close()
-            }
-            if (generation === c.sourceEpoch) {
-              stop()
-              setError("The camera stream ended. Reconnect it and try again.")
-            }
-          } catch (cause) {
-            if (generation === c.sourceEpoch && !abort.signal.aborted) {
-              stop()
-              setError(
-                cause instanceof Error
-                  ? cause.message
-                  : "The camera stream stopped unexpectedly."
-              )
-            }
+        },
+        onFrame: (frame) => {
+          if (epoch !== c.sourceEpoch) return
+          c.networkFrame = frame
+          if (!frame) {
+            c.networkInterruptedAt = performance.now()
+            clearFrame()
+            return
           }
-        })()
-      } catch (cause) {
-        if (generation === c.sourceEpoch) {
-          stop()
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "Unable to load the network stream."
-          )
-        }
-      }
+          const resized =
+            c.inputDimensions.width !== frame.width ||
+            c.inputDimensions.height !== frame.height
+          if (!c.source || resized) {
+            if (c.source) {
+              c.generation++
+              clearFrame()
+            }
+            activate(
+              {
+                ...next,
+                key: url + ":" + epoch + ":" + frame.width + "x" + frame.height,
+              },
+              null,
+              { width: frame.width, height: frame.height }
+            )
+          }
+        },
+      })
+      c.network = network
+      await network.start(url)
     },
-    [stop, activate]
+    [stop, activate, clearFrame]
+  )
+  const setTransform = useCallback(
+    (value: CameraTransform) => {
+      const c = control.current,
+        next = normalizeCameraTransform(value)
+      if (JSON.stringify(c.transform) === JSON.stringify(next)) return
+      c.transform = next
+      saveCameraTransform("eye", next)
+      setTransformState(next)
+      const rotated = cameraFrameGeometry(
+        c.inputDimensions.width,
+        c.inputDimensions.height,
+        next
+      )
+      const scale = Math.min(640 / rotated.width, 480 / rotated.height, 1)
+      const size = {
+        width: Math.max(2, Math.round(rotated.width * scale)),
+        height: Math.max(2, Math.round(rotated.height * scale)),
+      }
+      dimensionsRef.current = size
+      setDimensions(size)
+      if (sourceCanvas.current) {
+        sourceCanvas.current.width = size.width
+        sourceCanvas.current.height = size.height
+      }
+      c.settings = {
+        ...c.settings,
+        roi: { x: 0, y: 0, ...size },
+        corners: null,
+        locked: false,
+      }
+      c.generation++
+      c.lastNetworkSequence = -1
+      c.lastVideoTime = -1
+      setSettings(c.settings)
+      clearFrame()
+    },
+    [clearFrame]
   )
   const startVideo = useCallback(
     async (file: File) => {
@@ -476,6 +478,10 @@ export function useTracker(): TrackerController {
   })
 
   return {
+    transform,
+    setTransform,
+    connection,
+    reconnectAttempt,
     dimensions,
     settings,
     configure,
