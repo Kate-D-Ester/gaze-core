@@ -17,7 +17,7 @@ dist/
 .idea/shelf
 .wrangler
 .alchemy
-/.next/
+.next/
 .vercel
 prisma/generated/
 
@@ -64,3 +64,6 @@ next-env.d.ts
 # Versioned frontend regression tests
 !frontend/tests/
 !frontend/tests/**
+
+# Generated Next.js type references
+frontend/apps/web/next-env.d.ts

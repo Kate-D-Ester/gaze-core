@@ -1,5 +1,10 @@
-import { createLandmarker } from "./face-landmarker"
 import * as tf from "@tensorflow/tfjs"
+import { createLandmarker } from "./face-landmarker"
+import type {
+  Point,
+  RemoteObservation,
+  RemoteProcessor,
+} from "./remote-eye-tracking.types"
 import {
   buildRgbFeatures,
   extractRgbEyePatch,
@@ -8,14 +13,12 @@ import {
   prepareBlazeGazeGeometry,
   type RgbPixels,
 } from "./rgb-features"
-import type { Point, RemoteObservation, RemoteProcessor } from "./types"
-
+import type { RgbPhysicalModel } from "./rgb-processor.types"
 export const RGB_METHODS = {
   mobile: "Local BlazeGaze + iris + handheld head pose",
   webcam: "Local BlazeGaze + iris + desktop head pose",
 } as const
 const ASSETS = "/models/remote-eye-tracking"
-
 /** Loads and checks the pretrained three-input model before exposing a processor. */
 export async function loadRgbAppearanceModel(
   source: string | tf.io.IOHandler
@@ -38,7 +41,6 @@ export async function loadRgbAppearanceModel(
   model.trainable = false
   return model
 }
-
 /** All tensors, including unwanted prediction outputs, are scoped/disposed per frame. */
 export async function runRgbAppearanceModel(
   model: tf.LayersModel,
@@ -79,7 +81,6 @@ export async function runRgbAppearanceModel(
     output.dispose()
   }
 }
-
 async function initializeTensorBackend(
   mode: "mobile" | "webcam"
 ): Promise<string> {
@@ -102,7 +103,6 @@ async function initializeTensorBackend(
   }
   throw new Error("No local TensorFlow inference backend is available")
 }
-
 /** Lazy, entirely same-origin inference. The caller owns and closes each transferred bitmap. */
 export async function createRgbProcessor(
   mode: "mobile" | "webcam"
@@ -131,21 +131,20 @@ export async function createRgbProcessor(
       "Unable to read camera pixels for local eye appearance inference"
     )
   }
-  let disposed = false,
-    busy = false,
-    lastTimestamp = -Infinity
-  let previous: { faceWidthCm: number; depth: number } | undefined
+  let disposed = false
+  let busy = false
+  let lastTimestamp = -Infinity
+  let previous: RgbPhysicalModel | undefined
   let previousSize = ""
   const method = `${RGB_METHODS[mode]} (${delegate}/${backend})`
-
   return {
     async process(
       frame: ImageBitmap,
       timestamp: number
     ): Promise<RemoteObservation> {
-      const start = performance.now(),
-        width = frame.width,
-        height = frame.height
+      const start = performance.now()
+      const width = frame.width
+      const height = frame.height
       const empty = (reason: string): RemoteObservation => ({
         timestamp,
         width,
@@ -160,15 +159,22 @@ export async function createRgbProcessor(
         method,
         processingMs: performance.now() - start,
       })
-      if (disposed) return empty("processor-disposed")
-      if (busy) return empty("processor-busy")
+      if (disposed) {
+        return empty("processor-disposed")
+      }
+      if (busy) {
+        return empty("processor-busy")
+      }
       if (
         !Number.isFinite(timestamp) ||
         timestamp < 0 ||
         timestamp <= lastTimestamp
-      )
+      ) {
         return empty("stale-frame")
-      if (!(width > 0 && height > 0)) return empty("invalid-frame")
+      }
+      if (!(width > 0 && height > 0)) {
+        return empty("invalid-frame")
+      }
       lastTimestamp = timestamp
       busy = true
       try {
@@ -201,7 +207,9 @@ export async function createRgbProcessor(
           input.faceOrigin
         )
         const feature = buildRgbFeatures(mode, geometry, basePoint)
-        if (disposed) return empty("processor-disposed")
+        if (disposed) {
+          return empty("processor-disposed")
+        }
         if (!feature) {
           previous = undefined
           return empty("invalid-appearance-prediction")
@@ -234,7 +242,9 @@ export async function createRgbProcessor(
       }
     },
     dispose() {
-      if (disposed) return
+      if (disposed) {
+        return
+      }
       disposed = true
       previous = undefined
       model.dispose()

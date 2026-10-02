@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Next worker smoke checks</title>
+  </head>
+  <body>
+    <h1>Next production worker checks</h1>
+    <p>
+      These checks load the exact Next-emitted classic worker entries and their
+      dependencies. Webpack rewrites the source module option to type:undefined
+      for its classic chunk runtime; preparation verifies the emitted
+      constructor. Blank synthetic frames never request camera permission.
+    </p>
+    <label
+      ><input id="send-frame" type="checkbox" checked /> Send one blank frame
+      after ready</label
+    >
+    <p>
+      <button data-worker="tracker">Run pupil tracker</button>
+      <button data-worker="head">Run head tracker</button>
+      <button data-worker="remote" data-mode="mobile">Run remote mobile</button>
+      <button data-worker="remote" data-mode="webcam">Run remote webcam</button>
+      <button data-worker="remote" data-mode="ir">Run remote IR</button>
+      <button id="stop">Stop workers</button>
+    </p>
+    <pre id="entries"></pre>
+    <pre id="results" role="status" aria-live="polite">Ready to run.</pre>
+    <script type="module" src="/webpack-worker-smoke.js"></script>
+  </body>
+</html>

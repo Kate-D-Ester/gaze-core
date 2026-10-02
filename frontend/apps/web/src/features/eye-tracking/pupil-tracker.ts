@@ -1,11 +1,9 @@
 import { detectSpatialPupil, isContinuousPupil } from "./detection"
 import type { PupilDetectionOptions } from "./detection.types"
-import type { Detection, Ellipse, Point } from "./eye-tracking.types"
 import type { PendingPupilFit } from "./engine.types"
+import type { Detection, Ellipse, Point } from "./eye-tracking.types"
 import type { CV } from "./opencv.types"
-
 const pupilMemoryMs = 750
-
 /** Shared acquisition, measured-rim tracking, shape refresh and reacquisition for one eye. */
 export class PupilTracker {
   private previousSelected: number | undefined
@@ -80,7 +78,9 @@ export class PupilTracker {
     width: number,
     height: number
   ): Detection {
-    if (detection.fullShapeSearched) this.shapeCheckedAt = timestamp
+    if (detection.fullShapeSearched) {
+      this.shapeCheckedAt = timestamp
+    }
     this.associate(detection, timestamp, width, height)
     return detection
   }
@@ -90,8 +90,8 @@ export class PupilTracker {
       this.reset()
       return
     }
-    const c = Math.cos(angle),
-      s = Math.sin(angle)
+    const c = Math.cos(angle)
+    const s = Math.sin(angle)
     const map = (e: Ellipse): Ellipse => ({
       ...e,
       center: [
@@ -102,10 +102,15 @@ export class PupilTracker {
       minor: e.minor * scale,
       angle: e.angle + angle,
     })
-    if (this.previous) this.previous = map(this.previous)
-    if (this.trackingAnchor) this.trackingAnchor = map(this.trackingAnchor)
-    if (this.pending)
+    if (this.previous) {
+      this.previous = map(this.previous)
+    }
+    if (this.trackingAnchor) {
+      this.trackingAnchor = map(this.trackingAnchor)
+    }
+    if (this.pending) {
       this.pending = { ...this.pending, ellipse: map(this.pending.ellipse) }
+    }
   }
   /** Never replace a missing measurement with an old gaze. Confirm abrupt relocations. */
   private associate(
@@ -118,8 +123,9 @@ export class PupilTracker {
     if (!candidate) {
       this.pending = null
       detection.tracking = this.previous ? "reacquiring" : "lost"
-      if (this.previous && detection.reason === "Pupil not found")
+      if (this.previous && detection.reason === "Pupil not found") {
         detection.reason = "Reacquiring pupil"
+      }
       return
     }
     const continuous =
@@ -129,15 +135,15 @@ export class PupilTracker {
       this.pending &&
       timestamp - this.pending.time <= 150 &&
       isContinuousPupil(candidate, this.pending.ellipse, width, height)
-    const anchor = this.trackingAnchor,
-      sameScale =
-        anchor &&
-        candidate.major / anchor.major >= 0.55 &&
-        candidate.major / anchor.major <= 1.6,
-      observedMovement =
-        detection.strongEvidence === true &&
-        this.anchorObservations >= 2 &&
-        sameScale
+    const anchor = this.trackingAnchor
+    const sameScale =
+      anchor &&
+      candidate.major / anchor.major >= 0.55 &&
+      candidate.major / anchor.major <= 1.6
+    const observedMovement =
+      detection.strongEvidence === true &&
+      this.anchorObservations >= 2 &&
+      sameScale
     const accepted = continuous
       ? candidate.confidence >= 0.72
       : candidate.confidence >= 0.82 &&
@@ -190,8 +196,9 @@ export class PupilTracker {
           (!establishedAnchor ||
             (candidate.major / this.trackingAnchor.major >= 0.9 &&
               candidate.major / this.trackingAnchor.major <= 1.25)))
-      )
+      ) {
         this.trackingAnchor = candidate
+      }
       this.previousSelected =
         detection.selected >= 0 ? detection.selected : undefined
     } else if (

@@ -5,7 +5,7 @@ import type { CameraTransform } from "../../apps/web/src/features/eye-tracking/c
 import type { CalibrationHold } from "../../apps/web/src/features/scene-eye-tracking/scene.types"
 import { gazeFeature } from "../../apps/web/src/features/eye-tracking/calibration"
 import { gazeFromPupil } from "../../apps/web/src/features/eye-tracking/geometry"
-import { gazeVector3D } from "../../packages/ui/src/lib/gaze-core/geometry"
+import { gazeVector3D } from "../../apps/web/src/features/eye-tracking/manual-gaze-vector"
 
 const plain: CameraTransform = { rotation: 0, mirrorX: false, mirrorY: false }
 const hold: CalibrationHold = {

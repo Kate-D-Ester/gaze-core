@@ -1,8 +1,7 @@
-import { ArrowRight, Monitor, ScanFace, Video } from "lucide-react"
-import { Link } from "react-router-dom"
 import { buttonVariants } from "@workspace/ui/components/button-variants"
+import { ArrowRight, Monitor, ScanFace, Video } from "lucide-react"
+import Link from "next/link"
 import type { TrackingTrial } from "./tracking-trials.types"
-
 const TRIALS: readonly TrackingTrial[] = [
   {
     name: "Screen eye tracking",
@@ -23,7 +22,6 @@ const TRIALS: readonly TrackingTrial[] = [
     icon: Video,
   },
 ]
-
 export function TrackingTrials() {
   return (
     <section aria-labelledby="tracking-trials-heading" className="space-y-3">
@@ -47,7 +45,7 @@ export function TrackingTrials() {
               {description}
             </p>
             <Link
-              to={path}
+              href={path}
               aria-label={`Try it out: ${name}`}
               className={buttonVariants({
                 className: "mt-auto min-h-11 w-full",

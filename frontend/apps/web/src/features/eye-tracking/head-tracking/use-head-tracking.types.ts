@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react"
-import type { HeadPose } from "./head-pose.types"
-import type { HeadCameraState } from "./head-camera.types"
 import type { HeadCameraTransform } from "./head-camera-transform.types"
+import type { HeadCameraState } from "./head-camera.types"
+import type { HeadPose } from "./head-pose.types"
 
 export type HeadTrackingController = HeadCameraState & {
   enabled: boolean

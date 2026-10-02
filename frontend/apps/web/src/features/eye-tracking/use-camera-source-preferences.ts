@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useState } from "react"
 import type {
   CameraSourceKind,
-  CameraSourceRole,
-  CameraSourceSnapshot,
   CameraSourcePreferenceController,
   CameraSourcePreferences,
+  CameraSourceRole,
+  CameraSourceSnapshot,
 } from "./use-camera-source-preferences.types"
-
 const DEFAULT_PREFERENCES: CameraSourcePreferences = {
   kind: "usb",
   url: "",
   deviceId: "",
 }
-
 function readCameraSourcePreferences(
   key: string,
   fallbackKey?: string
@@ -25,12 +23,10 @@ function readCameraSourcePreferences(
     if (!serialized) {
       return DEFAULT_PREFERENCES
     }
-
     const value: unknown = JSON.parse(serialized)
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
       return DEFAULT_PREFERENCES
     }
-
     let kind: CameraSourceKind = "usb"
     let url = ""
     let deviceId = ""
@@ -40,17 +36,14 @@ function readCameraSourcePreferences(
     if ("url" in value && typeof value.url === "string") {
       url = value.url
     }
-
     if ("deviceId" in value && typeof value.deviceId === "string") {
       deviceId = value.deviceId
     }
-
     return { kind, url, deviceId }
   } catch {
     return DEFAULT_PREFERENCES
   }
 }
-
 export function useCameraSourcePreferences(
   role: CameraSourceRole = "eye",
   source?: CameraSourceSnapshot | null
@@ -77,14 +70,12 @@ export function useCameraSourcePreferences(
   // Remote camera modes can change without unmounting the page. Never copy
   // the previous mode's device or URL into the newly selected mode's key.
   const preferences = selection.key === key ? selection.preferences : saved
-
   function updatePreferences(patch: Partial<CameraSourcePreferences>): void {
     setSelection((current) => {
       const previous = current.key === key ? current.preferences : saved
       return { key, preferences: { ...previous, ...patch } }
     })
   }
-
   useEffect(() => {
     try {
       globalThis.localStorage?.setItem(key, JSON.stringify(preferences))
@@ -92,18 +83,14 @@ export function useCameraSourcePreferences(
       // Camera controls remain usable when browser storage is unavailable.
     }
   }, [key, preferences])
-
   function setKind(kind: CameraSourceKind): void {
     updatePreferences({ kind })
   }
-
   function setUrl(url: string): void {
     updatePreferences({ url })
   }
-
   function setDeviceId(deviceId: string): void {
     updatePreferences({ deviceId })
   }
-
   return { ...preferences, setKind, setUrl, setDeviceId }
 }

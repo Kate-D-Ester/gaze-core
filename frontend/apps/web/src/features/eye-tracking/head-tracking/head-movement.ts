@@ -1,7 +1,6 @@
 import type { HeadMovement } from "./head-movement.types"
-import type { HeadPose } from "./head-pose.types"
 import { relativeHeadPose } from "./head-pose"
-
+import type { HeadPose } from "./head-pose.types"
 // Relative translation/depth and radians. Both sides of every degree of freedom are sampled.
 export const HEAD_MOVEMENTS: HeadMovement[] = [
   {
@@ -77,25 +76,28 @@ export const HEAD_MOVEMENTS: HeadMovement[] = [
     instruction: "Tilt the other way · keep looking at the dot",
   },
 ]
-
 export function matchesHeadMovement(
   pose: HeadPose,
   reference: HeadPose,
   movement: HeadMovement
 ): boolean {
   const relative = relativeHeadPose(pose, reference)
-  if (!relative) return false
-  if (movement.direction === 0)
+  if (!relative) {
+    return false
+  }
+  if (movement.direction === 0) {
     return Math.abs(relative[movement.axis]) >= movement.excursion
+  }
   return movement.direction * relative[movement.axis] >= movement.excursion
 }
-
 export function isNeutralHeadPose(
   pose: HeadPose,
   reference: HeadPose
 ): boolean {
   const relative = relativeHeadPose(pose, reference)
-  if (!relative) return false
+  if (!relative) {
+    return false
+  }
   return relative.every(
     (value, axis) => Math.abs(value) < (axis < 3 ? 0.04 : 0.06)
   )

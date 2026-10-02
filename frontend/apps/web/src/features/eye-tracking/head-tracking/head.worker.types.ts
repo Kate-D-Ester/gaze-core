@@ -1,5 +1,5 @@
-import type { HeadPose } from "./head-pose.types"
 import type { HeadCameraTransform } from "./head-camera-transform.types"
+import type { HeadPose } from "./head-pose.types"
 
 export type HeadWorkerRequest =
   | { type: "initialize" }

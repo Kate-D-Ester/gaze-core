@@ -47,7 +47,7 @@ Face frames remain in the browser. The optional feature downloads a pinned Media
 
 ## What the two formats do
 
-**Eye Tracker 1** reuses the existing `frontend/packages/ui/src/lib/gaze-core` grayscale conversion, equalization, detector and `gazeVector3D` implementation. Its manually selected corner midpoint and half corner distance define the original eye model. The V2 adapter adds source handling, invalid-frame gating and the shared previews and calibration. It adapts the original positive-z gaze to the V2 camera convention; this format does not reconstruct metric 3D pupil positions.
+**Manual tracking** shares the current worker pupil detector with automatic tracking. Its two manually selected eye corners define the midpoint and sphere radius. `manual-gaze-vector.ts` converts pupil displacement into the original positive-z direction, which the worker adapts to the current camera convention. It does not reconstruct metric 3D pupil positions. The obsolete standalone UI-package tracker was removed in v3.
 
 **Eye Tracker 2** implements the sequence from Jason Orlosky's [The Hidden Math Behind 3D Eye Tracking](https://www.youtube.com/watch?v=Gh8LS9erugE) and [MIT-licensed reference implementation](https://github.com/JEOresearch/EyeTracker/tree/main/3DTracker):
 

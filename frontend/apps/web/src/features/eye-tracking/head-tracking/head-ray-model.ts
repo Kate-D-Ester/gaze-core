@@ -1,21 +1,24 @@
-import { rotateHeadVector } from "./head-geometry"
 import type { Point, Vector3 } from "../eye-tracking.types"
+import { rotateHeadVector } from "./head-geometry"
 import type { HeadPose } from "./head-pose.types"
 import type { HeadRayGeometry } from "./head-ray-model.types"
-
 function dot(left: Vector3, right: Vector3): number {
   return left.reduce((sum, value, axis) => sum + value * right[axis], 0)
 }
-
 /** A single camera-coordinate ray/plane intersection is used for calibration and live gaze. */
 export function intersectHeadRay(
   geometry: HeadRayGeometry,
   feature: Point,
   pose: HeadPose
 ): Point | null {
-  if (![...feature, ...pose.position, ...pose.rotation].every(Number.isFinite))
+  if (
+    ![...feature, ...pose.position, ...pose.rotation].every(Number.isFinite)
+  ) {
     return null
-  if (pose.position[2] >= -1 || geometry.referenceDepth < 1) return null
+  }
+  if (pose.position[2] >= -1 || geometry.referenceDepth < 1) {
+    return null
+  }
   const x = (feature[0] - geometry.featureCenter[0]) / geometry.featureScale[0]
   const y = (feature[1] - geometry.featureCenter[1]) / geometry.featureScale[1]
   const matrix = geometry.eyeRay
@@ -35,12 +38,16 @@ export function intersectHeadRay(
   const vertical = rotateHeadVector([0, 1, 0], geometry.screenRotation)
   const normal = rotateHeadVector([0, 0, 1], geometry.screenRotation)
   const denominator = dot(ray, normal)
-  if (Math.abs(denominator) / Math.hypot(...ray) < 0.02) return null
+  if (Math.abs(denominator) / Math.hypot(...ray) < 0.02) {
+    return null
+  }
   const difference = geometry.screenCenter.map(
     (value, axis) => value - origin[axis]
   ) as Vector3
   const distance = dot(difference, normal) / denominator
-  if (distance <= 0) return null
+  if (distance <= 0) {
+    return null
+  }
   const intersection = origin.map(
     (value, axis) => value + distance * ray[axis] - geometry.screenCenter[axis]
   ) as Vector3
@@ -50,6 +57,8 @@ export function intersectHeadRay(
       dot(intersection, vertical) /
         (geometry.screenWidth / geometry.screenAspectRatio),
   ]
-  if (!point.every(Number.isFinite)) return null
+  if (!point.every(Number.isFinite)) {
+    return null
+  }
   return point
 }

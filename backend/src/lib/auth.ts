@@ -5,7 +5,7 @@ import { openAPI } from "better-auth/plugins";
 import { Resend } from "resend";
 import { user, session, verification, account, apikey } from "../db/schema";
 import { db } from "@/db";
-import type { VerificationEmailPayload } from "@/types/auth";
+import type { VerificationEmailPayload } from "./auth.types";
 import { getFrontendOrigins } from "./frontend-origins";
 
 const resend = new Resend(process.env.RESEND_API_KEY);

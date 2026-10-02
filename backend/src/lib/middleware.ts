@@ -6,7 +6,7 @@ import { AUTH_MESSAGES } from "./auth-messages";
 import { validateEmailDomain } from "./email-validator";
 import { db } from "@/db";
 import { user } from "@/db/schema";
-import type { EmailRequestBody, MiddlewareErrorResponse, UserIdLookupResult } from "@/types/middleware";
+import type { EmailRequestBody, MiddlewareErrorResponse, UserIdLookupResult } from "./middleware.types";
 import { getFrontendOrigins } from "./frontend-origins";
 
 async function getNormalizedEmailFromRequest(request: Request): Promise<string | null> {

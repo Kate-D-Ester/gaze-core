@@ -1,10 +1,11 @@
 import { swagger } from "@elysiajs/swagger"
 import { Elysia } from "elysia"
 import { auth } from "./lib/auth"
+import type { AuthOpenApiSchema } from "./app.types"
 import { createAuthPlugin } from "./lib/middleware"
 
 function normalizeAuthOpenApiSchema(
-  schema: Awaited<ReturnType<typeof auth.api.generateOpenAPISchema>>
+  schema: AuthOpenApiSchema
 ) {
   const authPaths = Object.fromEntries(
     Object.entries(schema.paths ?? {}).map(([path, pathItem]) => [

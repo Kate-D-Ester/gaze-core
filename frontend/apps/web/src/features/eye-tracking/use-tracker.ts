@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { NetworkCamera, type NetworkConnectionState } from "./network-camera"
 import {
   cameraFrameGeometry,
   normalizeCameraTransform,
@@ -7,29 +6,29 @@ import {
   saveCameraTransform,
   type CameraTransform,
 } from "./camera-transform"
-import { useTrackerWorker } from "./use-tracker-worker"
-import {
-  getCameraErrorMessage,
-  getVideoErrorMessage,
-  waitForVideoDimensions,
-} from "./video-source"
-import {
-  readTrackerPreferences,
-  resizeTrackerSettings,
-  saveTrackerPreferences,
-} from "./tracker-preferences"
 import type {
   FrameDimensions,
   FrameSettings,
   Point,
   TrackingFrame,
 } from "./eye-tracking.types"
+import { NetworkCamera, type NetworkConnectionState } from "./network-camera"
+import {
+  readTrackerPreferences,
+  resizeTrackerSettings,
+  saveTrackerPreferences,
+} from "./tracker-preferences"
+import { useTrackerWorker } from "./use-tracker-worker"
 import type {
   TrackerController,
   TrackerRuntimeState,
   TrackerSource,
 } from "./use-tracker.types"
-
+import {
+  getCameraErrorMessage,
+  getVideoErrorMessage,
+  waitForVideoDimensions,
+} from "./video-source"
 export const DEFAULT_SETTINGS: FrameSettings = {
   format: "spatial",
   roi: { x: 0, y: 0, width: 640, height: 480 },
@@ -41,7 +40,6 @@ export const DEFAULT_SETTINGS: FrameSettings = {
   locked: false,
 }
 const DEFAULT_DIMENSIONS: FrameDimensions = { width: 640, height: 480 }
-
 function defaultSettingsFor(
   format: FrameSettings["format"],
   dimensions: FrameDimensions
@@ -55,7 +53,6 @@ function defaultSettingsFor(
     thresholdMode: classic ? "manual" : "auto",
   }
 }
-
 export function useTracker(): TrackerController {
   const [transform, setTransformState] = useState(() =>
     readCameraTransform("eye")
@@ -120,7 +117,9 @@ export function useTracker(): TrackerController {
   }, [])
   const refreshDevices = useCallback(async () => {
     const mediaDevices = navigator.mediaDevices
-    if (!mediaDevices?.enumerateDevices) return
+    if (!mediaDevices?.enumerateDevices) {
+      return
+    }
     try {
       const list = await mediaDevices.enumerateDevices()
       setDevices(list.filter((device) => device.kind === "videoinput"))
@@ -131,7 +130,9 @@ export function useTracker(): TrackerController {
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices
     void refreshDevices()
-    if (!mediaDevices?.addEventListener) return
+    if (!mediaDevices?.addEventListener) {
+      return
+    }
     const handleDeviceChange = () => void refreshDevices()
     mediaDevices.addEventListener("devicechange", handleDeviceChange)
     return () =>
@@ -158,7 +159,9 @@ export function useTracker(): TrackerController {
       c.video.load()
       c.video = null
     }
-    if (c.url) URL.revokeObjectURL(c.url)
+    if (c.url) {
+      URL.revokeObjectURL(c.url)
+    }
     c.url = ""
     c.source = null
     c.lastVideoTime = -1
@@ -234,7 +237,6 @@ export function useTracker(): TrackerController {
         video?.videoWidth ?? frameSize?.width ?? DEFAULT_DIMENSIONS.width
       const inputHeight =
         video?.videoHeight ?? frameSize?.height ?? DEFAULT_DIMENSIONS.height
-
       c.inputDimensions = { width: inputWidth, height: inputHeight }
       const rotated = cameraFrameGeometry(inputWidth, inputHeight, c.transform)
       const scale = Math.min(
@@ -242,8 +244,8 @@ export function useTracker(): TrackerController {
         DEFAULT_DIMENSIONS.height / rotated.height,
         1
       )
-      const width = Math.max(2, Math.round(rotated.width * scale)),
-        height = Math.max(2, Math.round(rotated.height * scale))
+      const width = Math.max(2, Math.round(rotated.width * scale))
+      const height = Math.max(2, Math.round(rotated.height * scale))
       c.settings = resizeTrackerSettings(
         {
           frameDimensions: dimensionsRef.current,
@@ -271,13 +273,14 @@ export function useTracker(): TrackerController {
       stop()
       setBusy(true)
       setError("")
-      const c = control.current,
-        generation = c.sourceEpoch
+      const c = control.current
+      const generation = c.sourceEpoch
       try {
-        if (!navigator.mediaDevices?.getUserMedia)
+        if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error(
             "Camera access needs localhost or HTTPS in a supported browser."
           )
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
@@ -293,10 +296,11 @@ export function useTracker(): TrackerController {
         c.stream = stream
         const actualId =
           stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId
-        if (excludedDeviceId && actualId === excludedDeviceId)
+        if (excludedDeviceId && actualId === excludedDeviceId) {
           throw new Error(
             "Choose different USB devices for the eye camera and the scene camera."
           )
+        }
         const video = document.createElement("video")
         video.muted = true
         video.playsInline = true
@@ -304,7 +308,9 @@ export function useTracker(): TrackerController {
         c.video = video
         await video.play()
         await waitForVideoDimensions(video)
-        if (generation !== c.sourceEpoch) return
+        if (generation !== c.sourceEpoch) {
+          return
+        }
         activate(
           {
             kind: "camera",
@@ -334,18 +340,19 @@ export function useTracker(): TrackerController {
     },
     [stop, activate, refreshDevices]
   )
-
   const startNetworkStream = useCallback(
     async (input: string) => {
       stop()
       setError("")
-      const c = control.current,
-        epoch = c.sourceEpoch,
-        url = input.trim()
+      const c = control.current
+      const epoch = c.sourceEpoch
+      const url = input.trim()
       const next: TrackerSource = { kind: "network", name: url, url }
       const network = new NetworkCamera({
         onStatus: (state, attempt) => {
-          if (epoch !== c.sourceEpoch) return
+          if (epoch !== c.sourceEpoch) {
+            return
+          }
           setConnection(state)
           setReconnectAttempt(attempt)
           setBusy(state === "connecting" || state === "reconnecting")
@@ -357,7 +364,9 @@ export function useTracker(): TrackerController {
           }
         },
         onFrame: (frame) => {
-          if (epoch !== c.sourceEpoch) return
+          if (epoch !== c.sourceEpoch) {
+            return
+          }
           c.networkFrame = frame
           if (!frame) {
             c.networkInterruptedAt = performance.now()
@@ -390,9 +399,11 @@ export function useTracker(): TrackerController {
   )
   const setTransform = useCallback(
     (value: CameraTransform) => {
-      const c = control.current,
-        next = normalizeCameraTransform(value)
-      if (JSON.stringify(c.transform) === JSON.stringify(next)) return
+      const c = control.current
+      const next = normalizeCameraTransform(value)
+      if (JSON.stringify(c.transform) === JSON.stringify(next)) {
+        return
+      }
       c.transform = next
       saveCameraTransform("eye", next)
       setTransformState(next)
@@ -431,8 +442,8 @@ export function useTracker(): TrackerController {
       stop()
       setBusy(true)
       setError("")
-      const c = control.current,
-        generation = c.sourceEpoch
+      const c = control.current
+      const generation = c.sourceEpoch
       try {
         c.url = URL.createObjectURL(file)
         const video = document.createElement("video")
@@ -443,7 +454,9 @@ export function useTracker(): TrackerController {
         c.video = video
         await video.play()
         await waitForVideoDimensions(video)
-        if (generation !== c.sourceEpoch) return
+        if (generation !== c.sourceEpoch) {
+          return
+        }
         activate({ kind: "video", name: file.name }, video)
       } catch (cause) {
         if (generation === c.sourceEpoch) {
@@ -468,7 +481,6 @@ export function useTracker(): TrackerController {
   const setBlink = useCallback((value: boolean) => {
     control.current.blink = value
   }, [])
-
   useTrackerWorker({ control, latest }, sourceCanvas, {
     clearFrame,
     stop,
@@ -476,7 +488,6 @@ export function useTracker(): TrackerController {
     setError,
     setFrame,
   })
-
   return {
     transform,
     setTransform,

@@ -17,6 +17,7 @@ const inferenceTimestamps: number[] = []
 let lastPacketTimestamp = -1
 let hasFace = true
 const workerScope = {
+  location: { origin: "http://localhost:4001" },
   onmessage: async (_event: MessageEvent<HeadWorkerRequest>) => {},
   postMessage(message: HeadWorkerResponse) {
     responses.push(message)

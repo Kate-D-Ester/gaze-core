@@ -3,7 +3,6 @@ import type {
   CalibrationFitRequest,
   CalibrationFitResponse,
 } from "./calibration.worker.types"
-
 self.onmessage = (event: MessageEvent<CalibrationFitRequest>) => {
   const { samples, orientation, screenAspectRatio } = event.data
   let response: CalibrationFitResponse

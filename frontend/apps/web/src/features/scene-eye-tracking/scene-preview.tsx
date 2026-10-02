@@ -1,20 +1,15 @@
-import { useEffect, useRef } from "react"
-import type { SceneCamera } from "./scene-camera"
-import type { Point } from "../eye-tracking/eye-tracking.types"
-import { MAX_HAND_RECOVERY_MS } from "./calibration"
-import {
-  NETWORK_CONNECTION_LABELS,
-  type NetworkConnectionState,
-} from "../eye-tracking/network-camera"
 import { Camera, LoaderCircle } from "lucide-react"
-import type {
-  CalibrationMethod,
-  CalibrationHold,
-  GazeMeasurement,
-  HandObservation,
-  SceneObservation,
-} from "./scene.types"
-import type { MarkerObservation } from "./marker-detector"
+import { useEffect, useRef } from "react"
+import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
+import {
+  SceneEmptyStyles,
+  ScenePreviewCaptionStyles,
+  ScenePreviewStyles,
+  SceneRecoveryStyles,
+} from "../tracking-ui/scene-styles"
+import { MAX_HAND_RECOVERY_MS } from "./calibration"
+import type { ScenePreviewProps } from "./scene-preview.types"
+import type { GazeMeasurement } from "./scene.types"
 const CONNECTIONS = [
   [0, 1],
   [1, 2],
@@ -53,36 +48,29 @@ export function ScenePreview({
   target,
   progress,
   connection,
-}: {
-  camera: SceneCamera
-  frame: SceneObservation | null
-  hand: HandObservation | null
-  handRecovering?: boolean
-  marker?: MarkerObservation | null
-  hideMarkerPattern?: boolean
-  method?: CalibrationMethod
-  gaze: GazeMeasurement | null
-  trace: GazeMeasurement[]
-  holds: CalibrationHold[]
-  capturing: boolean
-  target: Point | null
-  progress: number
-  connection: NetworkConnectionState
-}) {
+}: ScenePreviewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
-    const element = canvas.current,
-      raw = camera.rawCanvas
-    if (!element || !frame) return
-    if (element.width !== frame.width) element.width = frame.width
-    if (element.height !== frame.height) element.height = frame.height
+    const element = canvas.current
+    const raw = camera.rawCanvas
+    if (!element || !frame) {
+      return
+    }
+    if (element.width !== frame.width) {
+      element.width = frame.width
+    }
+    if (element.height !== frame.height) {
+      element.height = frame.height
+    }
     const ctx = element.getContext("2d")
-    if (!ctx) return
+    if (!ctx) {
+      return
+    }
     ctx.clearRect(0, 0, element.width, element.height)
     ctx.drawImage(raw, 0, 0)
-    const w = element.width,
-      h = element.height,
-      scale = Math.max(1, w / 640)
+    const w = element.width
+    const h = element.height
+    const scale = Math.max(1, w / 640)
     if (
       hideMarkerPattern &&
       marker?.position &&
@@ -92,12 +80,14 @@ export function ScenePreview({
     ) {
       // A same-screen preview must not become another optical calibration
       // target. Mask only the display copy; detector and recordings use rawCanvas.
-      const xs = marker.corners.map(([x]) => x * w),
-        ys = marker.corners.map(([, y]) => y * h)
-      const left = Math.min(...xs),
-        top = Math.min(...ys),
-        width = Math.max(...xs) - left,
-        height = Math.max(...ys) - top
+      const xs = marker.corners.map(([x]) => x * w)
+      // A same-screen preview must not become another optical calibration
+      // target. Mask only the display copy; detector and recordings use rawCanvas.
+      const ys = marker.corners.map(([, y]) => y * h)
+      const left = Math.min(...xs)
+      const top = Math.min(...ys)
+      const width = Math.max(...xs) - left
+      const height = Math.max(...ys) - top
       ctx.fillStyle = "#19231f"
       ctx.fillRect(
         left - width * 0.1,
@@ -152,9 +142,11 @@ export function ScenePreview({
         ctx.lineWidth = 2 * scale
         ctx.strokeStyle = "#7dd3fc"
         for (const [a, b] of CONNECTIONS) {
-          const p = landmarks[a],
-            q = landmarks[b]
-          if (!p || !q) continue
+          const p = landmarks[a]
+          const q = landmarks[b]
+          if (!p || !q) {
+            continue
+          }
           ctx.beginPath()
           ctx.moveTo(p.x * w, p.y * h)
           ctx.lineTo(q.x * w, q.y * h)
@@ -226,7 +218,9 @@ export function ScenePreview({
       if (gaze.valid && !gaze.estimated) {
         ctx.fillStyle = "#f472b6"
         ctx.fill()
-      } else ctx.setLineDash([4 * scale, 3 * scale])
+      } else {
+        ctx.setLineDash([4 * scale, 3 * scale])
+      }
       ctx.lineWidth = 2 * scale
       ctx.strokeStyle = gaze.valid && !gaze.estimated ? "white" : "#fbbf24"
       ctx.stroke()
@@ -249,7 +243,9 @@ export function ScenePreview({
     progress,
   ])
   return (
-    <div className={`scene-preview ${frame ? "has-scene" : ""}`}>
+    <div
+      className={`scene-preview ${ScenePreviewStyles} ${frame ? "has-scene" : ""}`}
+    >
       <canvas
         ref={canvas}
         aria-label={
@@ -260,7 +256,7 @@ export function ScenePreview({
         hidden={!frame}
       />
       {!frame && (
-        <div className="scene-empty">
+        <div className={`scene-empty ${SceneEmptyStyles}`}>
           <Camera size={32} strokeWidth={1.25} aria-hidden="true" />
           <p>No camera connected</p>
         </div>
@@ -268,12 +264,16 @@ export function ScenePreview({
       {(connection === "waiting" ||
         connection === "reconnecting" ||
         connection === "connecting") && (
-        <div className="scene-recovery" role="status" aria-live="polite">
+        <div
+          className={`scene-recovery ${SceneRecoveryStyles}`}
+          role="status"
+          aria-live="polite"
+        >
           <LoaderCircle size={18} aria-hidden="true" />
           <span>{NETWORK_CONNECTION_LABELS[connection]}</span>
         </div>
       )}
-      <div className="scene-preview-caption">
+      <div className={`scene-preview-caption ${ScenePreviewCaptionStyles}`}>
         <span>
           {camera.getSnapshot().transform.rotation}°
           {camera.getSnapshot().transform.mirrorX ? " · Mirrored" : ""}

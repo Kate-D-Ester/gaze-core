@@ -2,7 +2,9 @@
 export function observationStatus(
   reason: string | null | undefined
 ): string | null {
-  if (!reason) return null
+  if (!reason) {
+    return null
+  }
   const messages: Record<string, string> = {
     "face-not-found": "Face the camera so both eyes are visible",
     "multiple-faces": "Keep one person in the camera view",

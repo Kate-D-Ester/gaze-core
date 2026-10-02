@@ -1,30 +1,26 @@
-import { clampRegion } from "./roi"
 import type {
   FrameDimensions,
   FrameSettings,
   Point,
   TrackerFormat,
 } from "./eye-tracking.types"
+import { clampRegion } from "./roi"
 import type {
   PersistedFrameSettings,
   SavedTrackerPreferences,
-  TrackerPreferenceMap,
   SerializedTrackerPreferences,
+  TrackerPreferenceMap,
 } from "./tracker-preferences.types"
-
 const STORAGE_KEY = "gazecore.eye-tracking.preferences.v1"
 const TRACKER_FORMATS: readonly TrackerFormat[] = ["classic", "spatial"]
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
-
 function isDimension(value: unknown): value is number {
   return (
     Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 16384
   )
 }
-
 function isPoint(value: unknown): value is Point {
   return (
     Array.isArray(value) &&
@@ -37,7 +33,6 @@ function isPoint(value: unknown): value is Point {
     )
   )
 }
-
 function isValidSettings(
   format: TrackerFormat,
   value: Record<string, unknown>,
@@ -50,9 +45,9 @@ function isValidSettings(
   const usesManualThreshold = format === "classic" || thresholdMode === "manual"
   const minimumThreshold = usesManualThreshold ? 0 : -50
   const maximumThreshold = usesManualThreshold ? 255 : 80
-
-  if (!isRecord(roi)) return false
-
+  if (!isRecord(roi)) {
+    return false
+  }
   const roiValues = [roi.x, roi.y, roi.width, roi.height]
   const validRoi =
     roiValues.every(
@@ -65,14 +60,12 @@ function isValidSettings(
     Number(roi.height) > 0 &&
     Number(roi.x) + Number(roi.width) <= dimensions.width &&
     Number(roi.y) + Number(roi.height) <= dimensions.height
-
   const validCorners =
     corners === null ||
     (Array.isArray(corners) &&
       corners.length === 2 &&
       isPoint(corners[0]) &&
       isPoint(corners[1]))
-
   return (
     value.format === format &&
     validRoi &&
@@ -92,21 +85,26 @@ function isValidSettings(
     value.radiusMm <= 16
   )
 }
-
 function parseSavedPreferences(
   format: TrackerFormat,
   value: unknown
 ): SavedTrackerPreferences | null {
-  if (!isRecord(value) || !isRecord(value.frameDimensions)) return null
-
+  if (!isRecord(value) || !isRecord(value.frameDimensions)) {
+    return null
+  }
   const width = value.frameDimensions.width
   const height = value.frameDimensions.height
-  if (!isDimension(width) || !isDimension(height) || !isRecord(value.settings))
+  if (
+    !isDimension(width) ||
+    !isDimension(height) ||
+    !isRecord(value.settings)
+  ) {
     return null
-
+  }
   const frameDimensions = { width, height }
-  if (!isValidSettings(format, value.settings, frameDimensions)) return null
-
+  if (!isValidSettings(format, value.settings, frameDimensions)) {
+    return null
+  }
   const settings: PersistedFrameSettings = {
     format,
     roi: {
@@ -133,30 +131,30 @@ function parseSavedPreferences(
             ],
           ],
   }
-
   return { frameDimensions, settings }
 }
-
 export function readTrackerPreferences(): TrackerPreferenceMap {
   try {
     const serialized = globalThis.localStorage?.getItem(STORAGE_KEY)
-    if (!serialized) return {}
-
-    const value: unknown = JSON.parse(serialized)
-    if (!isRecord(value) || value.version !== 1 || !isRecord(value.trackers))
+    if (!serialized) {
       return {}
-
+    }
+    const value: unknown = JSON.parse(serialized)
+    if (!isRecord(value) || value.version !== 1 || !isRecord(value.trackers)) {
+      return {}
+    }
     const preferences: TrackerPreferenceMap = {}
     for (const format of TRACKER_FORMATS) {
       const saved = parseSavedPreferences(format, value.trackers[format])
-      if (saved) preferences[format] = saved
+      if (saved) {
+        preferences[format] = saved
+      }
     }
     return preferences
   } catch {
     return {}
   }
 }
-
 export function saveTrackerPreferences(
   current: TrackerPreferenceMap,
   settings: FrameSettings,
@@ -182,7 +180,6 @@ export function saveTrackerPreferences(
       settings: savedSettings,
     },
   }
-
   try {
     const serializedPreferences: SerializedTrackerPreferences = {
       version: 1,
@@ -195,10 +192,8 @@ export function saveTrackerPreferences(
   } catch {
     // Tracking remains usable when local storage is unavailable or full.
   }
-
   return next
 }
-
 export function resizeTrackerSettings(
   saved: SavedTrackerPreferences,
   dimensions: FrameDimensions
@@ -214,13 +209,10 @@ export function resizeTrackerSettings(
     },
     dimensions
   )
-  const corners = saved.settings.corners?.map(
-    (point): Point => [
-      Math.max(0, Math.min(dimensions.width, Math.round(point[0] * scaleX))),
-      Math.max(0, Math.min(dimensions.height, Math.round(point[1] * scaleY))),
-    ]
-  ) as [Point, Point] | undefined
-
+  const corners = saved.settings.corners?.map((point): Point => [
+    Math.max(0, Math.min(dimensions.width, Math.round(point[0] * scaleX))),
+    Math.max(0, Math.min(dimensions.height, Math.round(point[1] * scaleY))),
+  ]) as [Point, Point] | undefined
   return {
     ...saved.settings,
     roi: scaledRegion,

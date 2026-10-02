@@ -1,17 +1,19 @@
 import { Crosshair, Eye } from "lucide-react"
 import { EyePreview } from "../eye-tracking/components/eye-preview"
-import type { TrackerController } from "../eye-tracking/use-tracker.types"
+import {
+  SceneEyePreviewStyles,
+  SceneEyeStateStyles,
+  SceneEyeStatusStyles,
+  SceneMainPreviewStyles,
+  SceneStatusStripStyles,
+} from "../tracking-ui/scene-styles"
 import { MIN_EYE_CONFIDENCE } from "./calibration"
-import type { sceneEyeEvidence } from "./eye-evidence"
-
+import type { CalibrationEyePreviewProps } from "./calibration-eye-preview.types"
 const noEdit = () => {}
 export function CalibrationEyePreview({
   tracker,
   evidence,
-}: {
-  tracker: TrackerController
-  evidence: ReturnType<typeof sceneEyeEvidence>
-}) {
+}: CalibrationEyePreviewProps) {
   const confidence =
     evidence.confidence !== null && Number.isFinite(evidence.confidence)
       ? `${Math.round(evidence.confidence * 100)}%`
@@ -28,7 +30,7 @@ export function CalibrationEyePreview({
     .join(" · ")
   return (
     <section
-      className="scene-main-preview scene-eye-preview"
+      className={`scene-main-preview ${SceneMainPreviewStyles} scene-eye-preview ${SceneEyePreviewStyles}`}
       aria-label="Calibration eye camera"
     >
       <EyePreview
@@ -44,7 +46,9 @@ export function CalibrationEyePreview({
         onMoveCorners={noEdit}
         onMovePendingCorner={noEdit}
       />
-      <div className="scene-status-strip scene-eye-status">
+      <div
+        className={`scene-status-strip ${SceneStatusStripStyles} scene-eye-status ${SceneEyeStatusStyles}`}
+      >
         <span
           title={`Pupil confidence · ${Math.round(MIN_EYE_CONFIDENCE * 100)}% minimum for calibration`}
           aria-label={`Pupil confidence ${confidence}`}
@@ -52,7 +56,7 @@ export function CalibrationEyePreview({
           <Eye size={16} aria-hidden="true" /> {confidence}
         </span>
         <span
-          className={`scene-eye-state ${evidence.ready ? "ready" : "waiting"}`}
+          className={`scene-eye-state ${SceneEyeStateStyles} ${evidence.ready ? "ready" : "waiting"}`}
           title={details}
           aria-label={evidence.hint}
         >

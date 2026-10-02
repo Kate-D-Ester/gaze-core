@@ -1,6 +1,6 @@
-import type { Point, TrackingFrame } from "./eye-tracking.types"
-import type { CalibrationFitRequest } from "./calibration.worker.types"
 import type { CalibrationFitResult } from "./calibration-result.types"
+import type { CalibrationFitRequest } from "./calibration.worker.types"
+import type { Point, TrackingFrame } from "./eye-tracking.types"
 import type { HeadPose } from "./head-tracking/head-pose.types"
 
 export type DiagnosticReadingInput = {

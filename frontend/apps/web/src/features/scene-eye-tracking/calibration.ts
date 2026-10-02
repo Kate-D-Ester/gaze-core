@@ -1,4 +1,10 @@
+import { pointDistance as distance } from "@/lib/tracking-math"
 import type { Point } from "../eye-tracking/eye-tracking.types"
+import type {
+  CalibrationFitResult,
+  EvidenceIssue,
+  PairInspectionResult,
+} from "./calibration.types"
 import type {
   CalibrationHold,
   CalibrationPair,
@@ -8,10 +14,10 @@ import type {
   HandObservation,
   ReferenceObservation,
   SceneCalibration,
-  ValidationResult,
   ValidationPoint,
+  ValidationResult,
 } from "./scene.types"
-
+export type { CalibrationFitResult } from "./calibration.types"
 export const MAX_FRAME_AGE_MS = 250
 export const MAX_PAIR_SKEW_MS = 100
 export const MAX_HAND_GAP_MS = 350
@@ -24,6 +30,20 @@ const MAX_EYE_SCATTER_RAD = 0.01
 // Normalized image error, not an angular accuracy claim.
 export const MAX_CALIBRATION_RMS = 0.025
 export const MAX_CALIBRATION_POINT_ERROR = 0.05
+const REGION_NAMES = [
+  "Top left",
+  "Top center",
+  "Top right",
+  "Left",
+  "Center",
+  "Right",
+  "Bottom left",
+  "Bottom center",
+  "Bottom right",
+]
+export function sceneRegionLabel(region: number): string {
+  return REGION_NAMES[region] ?? "Point"
+}
 export const CALIBRATION_TARGETS: readonly Point[] = [
   [0.5, 0.5],
   [0.15, 0.15],
@@ -43,18 +63,18 @@ export const VALIDATION_TARGETS: readonly Point[] = [
   [0.7, 0.7],
 ]
 const finite = (values: number[]) => values.every(Number.isFinite)
-const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1])
 export function gazeAngle(a: Point, b: Point): number {
-  if (!finite([...a, ...b])) return Infinity
-  const normA = Math.hypot(...a, 1),
-    normB = Math.hypot(...b, 1)
+  if (!finite([...a, ...b])) {
+    return Infinity
+  }
+  const normA = Math.hypot(...a, 1)
+  const normB = Math.hypot(...b, 1)
   const cosine =
     (a[0] / normA) * (b[0] / normB) +
     (a[1] / normA) * (b[1] / normB) +
     (1 / normA) * (1 / normB)
   return Math.acos(Math.max(-1, Math.min(1, cosine)))
 }
-type EvidenceIssue = { hint: string; canPause: boolean }
 export function eyeEvidenceIssue(
   eye?: EyeObservation | null
 ): EvidenceIssue | null {
@@ -65,18 +85,19 @@ export function eyeEvidenceIssue(
     !finite([...eye.feature, eye.timestamp, eye.confidence]) ||
     eye.confidence < 0 ||
     eye.confidence > 1
-  )
+  ) {
     return { hint: eye?.reason || "Pupil unavailable.", canPause: false }
-  if (eye.confidence < MIN_EYE_CONFIDENCE)
+  }
+  if (eye.confidence < MIN_EYE_CONFIDENCE) {
     return {
       hint: `Waiting for a clearer pupil (${Math.round(eye.confidence * 100)}%).`,
       canPause: true,
     }
+  }
   return null
 }
 export const sceneRegion = (p: Point) =>
   Math.min(2, Math.floor(p[1] * 3)) * 3 + Math.min(2, Math.floor(p[0] * 3))
-
 export function pairObservation(
   eyes: EyeObservation[],
   hand: HandObservation,
@@ -90,23 +111,25 @@ export function inspectPairObservation(
   hand: HandObservation,
   delayMs: number,
   now: number
-): { pair: CalibrationPair | null; issue: EvidenceIssue | null } {
+): PairInspectionResult {
   const reject = (hint: string) => ({
     pair: null,
     issue: { hint, canPause: false },
   })
-  if (hand.landmarks.length !== 1)
+  if (hand.landmarks.length !== 1) {
     return reject(
       hand.reason ?? "Waiting for a fresh scene frame and one hand."
     )
+  }
   const joints = hand.landmarks[0]
   const tip = joints[8]
   if (
     joints.length !== 21 ||
     !tip ||
     joints.some((joint) => !finite([joint.x, joint.y, joint.z]))
-  )
+  ) {
     return reject("Keep your fingertip inside the camera view.")
+  }
   const result = inspectReferenceObservation(
     eyes,
     {
@@ -118,7 +141,9 @@ export function inspectPairObservation(
     delayMs,
     now
   )
-  if (result.pair) result.pair.handedness = hand.handedness[0] ?? "Unknown"
+  if (result.pair) {
+    result.pair.handedness = hand.handedness[0] ?? "Unknown"
+  }
   return result
 }
 export function inspectReferenceObservation(
@@ -126,7 +151,7 @@ export function inspectReferenceObservation(
   reference: ReferenceObservation,
   delayMs: number,
   now: number
-): { pair: CalibrationPair | null; issue: EvidenceIssue | null } {
+): PairInspectionResult {
   const reject = (hint: string) => ({
     pair: null,
     issue: { hint, canPause: false },
@@ -141,15 +166,17 @@ export function inspectReferenceObservation(
     now - scene.timestamp > MAX_FRAME_AGE_MS + Math.max(0, -delayMs) ||
     scene.width <= 0 ||
     scene.height <= 0
-  )
+  ) {
     return reject(reference.reason ?? "Waiting for a fresh scene reference.")
-  if (!position || !finite(position) || position.some((v) => v < 0 || v > 1))
+  }
+  if (!position || !finite(position) || position.some((v) => v < 0 || v > 1)) {
     return reject(
       reference.reason ??
         (reference.kind === "hand"
           ? "Keep your fingertip inside the camera view."
           : "Keep the marker inside the camera view.")
     )
+  }
   // Positive delay means the scene arrives later than the eye stream.
   const targetTime = scene.timestamp - delayMs
   const eye = eyes.reduce<EyeObservation | null>(
@@ -162,15 +189,21 @@ export function inspectReferenceObservation(
     null
   )
   const issue = eyeEvidenceIssue(eye)
-  if (issue) return { pair: null, issue }
-  if (!eye?.feature) return reject("Pupil unavailable.")
+  if (issue) {
+    return { pair: null, issue }
+  }
+  if (!eye?.feature) {
+    return reject("Pupil unavailable.")
+  }
   if (
     now - eye.timestamp < 0 ||
     now - eye.timestamp > MAX_FRAME_AGE_MS + Math.abs(delayMs)
-  )
+  ) {
     return reject("Waiting for a fresh eye frame.")
-  if (Math.abs(eye.timestamp - targetTime) > MAX_PAIR_SKEW_MS)
+  }
+  if (Math.abs(eye.timestamp - targetTime) > MAX_PAIR_SKEW_MS) {
     return reject("Camera frames are out of sync.")
+  }
   return {
     issue: null,
     pair: {
@@ -186,7 +219,6 @@ export function inspectReferenceObservation(
     },
   }
 }
-
 export function createCollector(
   mode: Collector["mode"],
   targets?: readonly Point[]
@@ -229,7 +261,9 @@ export function lockCalibrationPoint(c: Collector) {
 }
 export function repeatCollectedPoint(c: Collector, index: number) {
   const hold = c.holds[index]
-  if (!hold) return
+  if (!hold) {
+    return
+  }
   const targets = collectorTargets(c)
   c.holds = c.holds.filter((_, i) => i !== index)
   c.targetOverride = targets.find((p) => sceneRegion(p) === hold.region) ?? null
@@ -238,8 +272,8 @@ export function repeatCollectedPoint(c: Collector, index: number) {
   clearHold(c)
 }
 const median = (values: number[]) => {
-  const sorted = [...values].sort((a, b) => a - b),
-    mid = Math.floor(sorted.length / 2)
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 function aggregate(pairs: CalibrationPair[]): CalibrationHold {
@@ -297,15 +331,18 @@ export function collectPair(
     c.lastEyeId = pair.eyeId
     c.lastSceneId = pair.sceneId
     c.candidate = pair
-    if (c.automatic && nearTarget && !c.armed && c.holds.length < required)
+    if (c.automatic && nearTarget && !c.armed && c.holds.length < required) {
       lockCalibrationPoint(c)
+    }
     if (!c.armed) {
       clearHold(c)
       hint = nearTarget
         ? "Look at your fingertip. Press Space to lock."
         : "Keep your fingertip in the ring."
     } else {
-      if (gap > (c.paused ? c.recoveryLimitMs : MAX_HAND_GAP_MS)) clearHold(c)
+      if (gap > (c.paused ? c.recoveryLimitMs : MAX_HAND_GAP_MS)) {
+        clearHold(c)
+      }
       const fingerMoved =
         !!c.anchor && distance(c.anchor.target, pair.target) > 0.025
       const gazeMoved =
@@ -337,7 +374,9 @@ export function collectPair(
           hint = "Settling gaze and fingertip…"
         }
         if (pair.sceneTimestamp - c.anchor.sceneTimestamp >= 300) {
-          if (c.pending.length && !c.paused) c.heldDurationMs += gap
+          if (c.pending.length && !c.paused) {
+            c.heldDurationMs += gap
+          }
           c.pending.push(pair)
         }
         c.paused = false
@@ -363,20 +402,25 @@ export function collectPair(
             saved = true
             c.armed = false
             hint = "Point saved."
-          } else
+          } else {
             hint = gazeSteady
               ? "Hold your fingertip steady."
               : "Hold your gaze on your fingertip."
+          }
           clearHold(c)
         }
       }
     }
   }
   let status: CollectionResult["status"] = "waiting"
-  if (saved) status = "saved"
-  else if (c.armed) {
-    if (!pair || c.paused || !nearTarget) status = "paused"
-    else status = c.pending.length ? "capturing" : "settling"
+  if (saved) {
+    status = "saved"
+  } else if (c.armed) {
+    if (!pair || c.paused || !nearTarget) {
+      status = "paused"
+    } else {
+      status = c.pending.length ? "capturing" : "settling"
+    }
   }
   return {
     complete: c.holds.length >= required,
@@ -397,34 +441,44 @@ export function collectPair(
     target: c.targetOverride ?? targets[c.holds.length] ?? null,
   }
 }
-
 function terms(p: Point, model: SceneCalibration["model"]): number[] {
   const [x, y] = p
   return model === "quadratic" ? [1, x, y, x * x, x * y, y * y] : [1, x, y]
 }
 function leastSquares(rows: number[][], values: number[][]): number[][] | null {
-  const n = rows.length,
-    columns = rows[0]?.length ?? 0
-  if (!columns || n < columns) return null
-  const q: number[][] = [],
-    r = Array.from({ length: columns }, () => Array<number>(columns).fill(0))
+  const n = rows.length
+  const columns = rows[0]?.length ?? 0
+  if (!columns || n < columns) {
+    return null
+  }
+  const q: number[][] = []
+  const r = Array.from({ length: columns }, () =>
+    Array<number>(columns).fill(0)
+  )
   for (let j = 0; j < columns; j++) {
     const v = rows.map((row) => row[j])
     // Two-pass modified Gram-Schmidt avoids cancellation in nearly singular fits.
-    for (let pass = 0; pass < 2; pass++)
+    for (let pass = 0; pass < 2; pass++) {
       for (let i = 0; i < j; i++) {
         const projection = q[i].reduce((sum, x, k) => sum + x * v[k], 0)
         r[i][j] += projection
-        for (let k = 0; k < n; k++) v[k] -= projection * q[i][k]
+        for (let k = 0; k < n; k++) {
+          v[k] -= projection * q[i][k]
+        }
       }
+    }
     r[j][j] = Math.hypot(...v)
-    if (r[j][j] < 1e-6 * Math.sqrt(n)) return null
+    if (r[j][j] < 1e-6 * Math.sqrt(n)) {
+      return null
+    }
     q.push(v.map((x) => x / r[j][j]))
   }
   const coefficients = values.map((targets) => {
     const a = q.map((col) => col.reduce((sum, x, i) => sum + x * targets[i], 0))
     for (let i = columns - 1; i >= 0; i--) {
-      for (let j = i + 1; j < columns; j++) a[i] -= r[i][j] * a[j]
+      for (let j = i + 1; j < columns; j++) {
+        a[i] -= r[i][j] * a[j]
+      }
       a[i] /= r[i][i]
     }
     return a
@@ -438,10 +492,11 @@ function solve(
   SceneCalibration,
   "coefficients" | "denominator" | "mean" | "scale" | "model"
 > | null {
-  const n = holds.length,
-    columns = model === "quadratic" ? 6 : 3
-  if (n <= columns || holds.some((h) => !finite([...h.feature, ...h.target])))
+  const n = holds.length
+  const columns = model === "quadratic" ? 6 : 3
+  if (n <= columns || holds.some((h) => !finite([...h.feature, ...h.target]))) {
     return null
+  }
   const mean = [0, 1].map(
     (axis) => holds.reduce((sum, h) => sum + h.feature[axis], 0) / n
   ) as Point
@@ -450,7 +505,9 @@ function solve(
       holds.reduce((sum, h) => sum + (h.feature[axis] - mean[axis]) ** 2, 0) / n
     )
   ) as Point
-  if (scale.some((s) => s < 0.002)) return null
+  if (scale.some((s) => s < 0.002)) {
+    return null
+  }
   const features = holds.map(
     (h) =>
       [
@@ -467,14 +524,20 @@ function solve(
       ]
     })
     const solution = leastSquares(rows, [holds.flatMap((h) => h.target)])?.[0]
-    if (!solution) return null
+    if (!solution) {
+      return null
+    }
     const denominator: Point = [solution[6], solution[7]]
-    const xs = features.map((p) => p[0]),
-      ys = features.map((p) => p[1])
+    const xs = features.map((p) => p[0])
+    const ys = features.map((p) => p[1])
     // Do not admit a projective horizon inside the sampled feature rectangle.
-    for (const x of [Math.min(...xs), Math.max(...xs)])
-      for (const y of [Math.min(...ys), Math.max(...ys)])
-        if (1 + denominator[0] * x + denominator[1] * y < 0.05) return null
+    for (const x of [Math.min(...xs), Math.max(...xs)]) {
+      for (const y of [Math.min(...ys), Math.max(...ys)]) {
+        if (1 + denominator[0] * x + denominator[1] * y < 0.05) {
+          return null
+        }
+      }
+    }
     return {
       model,
       mean,
@@ -487,7 +550,9 @@ function solve(
     features.map((p) => terms(p, model)),
     [0, 1].map((axis) => holds.map((h) => h.target[axis]))
   ) as [number[], number[]] | null
-  if (!coefficients) return null
+  if (!coefficients) {
+    return null
+  }
   return { model, mean, scale, coefficients }
 }
 export function mapSceneGaze(
@@ -497,7 +562,9 @@ export function mapSceneGaze(
   >,
   feature: Point
 ): Point | null {
-  if (!finite(feature)) return null
+  if (!finite(feature)) {
+    return null
+  }
   const normalized: Point = [
     (feature[0] - calibration.mean[0]) / calibration.scale[0],
     (feature[1] - calibration.mean[1]) / calibration.scale[1],
@@ -505,12 +572,15 @@ export function mapSceneGaze(
   const row = terms(normalized, calibration.model)
   let divisor = 1
   if (calibration.model === "projective") {
-    if (!calibration.denominator || !finite(calibration.denominator))
+    if (!calibration.denominator || !finite(calibration.denominator)) {
       return null
+    }
     divisor +=
       calibration.denominator[0] * normalized[0] +
       calibration.denominator[1] * normalized[1]
-    if (!Number.isFinite(divisor) || divisor < 1e-6) return null
+    if (!Number.isFinite(divisor) || divisor < 1e-6) {
+      return null
+    }
   }
   const p = calibration.coefficients.map(
     (c) => c.reduce((sum, v, i) => sum + v * row[i], 0) / divisor
@@ -552,14 +622,6 @@ function crossValidate(
     })
   )
 }
-export type CalibrationFitResult = {
-  calibration: SceneCalibration | null
-  reason: string
-  retryIndex: number | null
-  rms: number | null
-  maximum: number | null
-  pointErrors: number[]
-}
 export function fitSceneCalibration(
   holds: CalibrationHold[]
 ): SceneCalibration | null {
@@ -576,26 +638,29 @@ export function inspectSceneCalibration(
     maximum: null,
     pointErrors: [],
   })
-  if (holds.some((h) => !finite([...h.target, ...h.feature])))
+  if (holds.some((h) => !finite([...h.target, ...h.feature]))) {
     return failure("Invalid camera or gaze coordinates. Reconnect the cameras.")
+  }
   if (
     holds.length !== 9 ||
     new Set(holds.map((h) => h.region)).size !== 9 ||
     holds.some((h) => h.region !== sceneRegion(h.target))
-  )
+  ) {
     return failure(
       "Scene coverage is incomplete. Follow all nine ring positions."
     )
+  }
   const min = [0, 1].map((axis) =>
     Math.min(...holds.map((h) => h.target[axis]))
   ) as Point
   const max = [0, 1].map((axis) =>
     Math.max(...holds.map((h) => h.target[axis]))
   ) as Point
-  if (max[0] - min[0] < 0.5 || max[1] - min[1] < 0.5)
+  if (max[0] - min[0] < 0.5 || max[1] - min[1] < 0.5) {
     return failure(
       "Scene coverage is too small. Spread the points across the view."
     )
+  }
   const candidates = (["affine", "projective", "quadratic"] as const).flatMap(
     (model) => {
       const fit = solve(holds, model)
@@ -616,26 +681,30 @@ export function inspectSceneCalibration(
       c.training.rms <= MAX_CALIBRATION_RMS &&
       c.training.maximum <= MAX_CALIBRATION_POINT_ERROR
   )
+  // Keep the held-out model comparison when no precise fit exists. Filtering
+  // for a looser training fit here could select an overfitted quadratic.
   const pool = acceptable.length ? acceptable : usable
   let selected = pool[0]
-  for (const candidate of pool.slice(1))
+  for (const candidate of pool.slice(1)) {
     if (
       selected.error.rms > 1e-6 &&
       candidate.error.rms < selected.error.rms * 0.9
-    )
+    ) {
       selected = candidate
-  if (!selected)
+    }
+  }
+  if (!selected) {
     return failure(
       "Eye gaze did not span two directions. Rebuild the eye model."
     )
+  }
   const { fit, error, training } = selected
   // Leaving a corner out tests extrapolation beyond the remaining sample hull.
-  // Use it to compare models, then require a consistent full fit. Five fresh
-  // physical fixations separately decide whether this mapping is accurate.
-  if (
-    training.rms <= MAX_CALIBRATION_RMS &&
-    training.maximum <= MAX_CALIBRATION_POINT_ERROR
-  )
+  // Use it to compare models. A bounded fit can proceed to the five fresh
+  // physical checks even when collection noise exceeds the final RMS limit.
+  // Only those independent checks can mark the mapping accurate. Repeating
+  // the worst point does not necessarily resolve noise across several holds.
+  if (training.maximum <= MAX_CALIBRATION_POINT_ERROR) {
     return {
       calibration: {
         ...fit,
@@ -652,21 +721,12 @@ export function inspectSceneCalibration(
       maximum: error.maximum,
       pointErrors: error.errors,
     }
+  }
   const retryIndex = training.errors.indexOf(training.maximum)
-  const regionNames = [
-    "Top left",
-    "Top center",
-    "Top right",
-    "Left",
-    "Center",
-    "Right",
-    "Bottom left",
-    "Bottom center",
-    "Bottom right",
-  ]
+  const retryLabel = sceneRegionLabel(holds[retryIndex].region).toLowerCase()
   return {
     calibration: null,
-    reason: `${regionNames[holds[retryIndex].region]} needs another hold (${(training.maximum * 100).toFixed(1)}% fit error). Eight points kept.`,
+    reason: `Refine ${retryLabel}. The other eight points are saved.`,
     retryIndex,
     rms: training.rms,
     maximum: training.maximum,
@@ -678,15 +738,17 @@ export function validateSceneCalibration(
   holds: CalibrationHold[],
   offset: Point = [0, 0]
 ): ValidationResult | null {
-  if (holds.length < 5 || !finite(offset)) return null
-  let normalized = 0,
-    pixels = 0,
-    maxNormalizedError = 0,
-    maxPixelError = 0
+  if (holds.length < 5 || !finite(offset)) {
+    return null
+  }
+  let normalized = 0
+  let pixels = 0
+  let maxNormalizedError = 0
+  let maxPixelError = 0
   const points: ValidationPoint[] = []
   for (const [index, h] of holds.entries()) {
-    const mapped = mapSceneGaze(calibration, h.feature),
-      pair = h.pairs[0]
+    const mapped = mapSceneGaze(calibration, h.feature)
+    const pair = h.pairs[0]
     const p: Point | null = mapped
       ? [mapped[0] + offset[0], mapped[1] + offset[1]]
       : null
@@ -698,8 +760,9 @@ export function validateSceneCalibration(
       !finite([pair.width, pair.height]) ||
       pair.width <= 0 ||
       pair.height <= 0
-    )
+    ) {
       return null
+    }
     const error = distance(p, h.target)
     const delta: Point = [p[0] - h.target[0], p[1] - h.target[1]]
     const pixelDelta: Point = [delta[0] * pair.width, delta[1] * pair.height]
@@ -760,8 +823,9 @@ export function validateSceneCalibration(
         remaining.every(
           (point) => point.normalizedError <= MAX_CALIBRATION_POINT_ERROR
         )
-      )
+      ) {
         retryIndex = worst.index
+      }
     }
   }
   return {

@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react"
+import type { Point } from "./eye-tracking.types"
+import { synchronizedHeadPose } from "./head-tracking/head-pose"
+import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
 import { getScreenGaze } from "./screen-gaze"
 import type { ScreenGazeReading } from "./screen-gaze.types"
 import type { UseCalibratedGazeOptions } from "./use-calibrated-gaze.types"
-import type { Point } from "./eye-tracking.types"
-import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
-import { synchronizedHeadPose } from "./head-tracking/head-pose"
-
 export function useCalibratedGaze({
   calibration,
   eye,

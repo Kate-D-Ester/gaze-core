@@ -1,5 +1,5 @@
-import type { Point } from "../eye-tracking/eye-tracking.types"
 import type { CameraTransform } from "../eye-tracking/camera-transform"
+import type { Point } from "../eye-tracking/eye-tracking.types"
 
 export type CameraOrientation = { eye: CameraTransform; scene: CameraTransform }
 

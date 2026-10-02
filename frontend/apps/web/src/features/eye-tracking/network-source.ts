@@ -1,34 +1,28 @@
-import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
 import { cameraRelayStreamUrl } from "./camera-relay"
+import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
 import type { NetworkSource } from "./network-source.types"
-
-const VIDEO_READY_TIMEOUT_MS = 15_000
-
+const VIDEO_READY_TIMEOUT_MS = 15000
 export class CameraRelayUnavailableError extends Error {
   constructor() {
     super(getCameraRelayErrorMessage())
     this.name = "CameraRelayUnavailableError"
   }
 }
-
 export async function openNetworkSource(
   input: string,
   signal: AbortSignal
 ): Promise<NetworkSource> {
   const url = parseNetworkUrl(input)
   throwIfAborted(signal)
-
   const relayUrl = cameraRelayStreamUrl(url)
   const response = await fetchCameraResponse(relayUrl, signal)
   const contentType = response.headers.get("content-type") ?? ""
   if (contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
     return openMjpegSource(url, response, contentType, signal)
   }
-
   await cancelResponseBody(response)
   return openVideoSource(url, relayUrl, signal)
 }
-
 function parseNetworkUrl(input: string): URL {
   let url: URL
   try {
@@ -36,14 +30,11 @@ function parseNetworkUrl(input: string): URL {
   } catch {
     throw new Error("Enter a complete HTTP or HTTPS camera stream URL.")
   }
-
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("Use an HTTP or HTTPS network stream URL.")
   }
-
   return url
 }
-
 async function fetchCameraResponse(
   relayUrl: string,
   signal: AbortSignal
@@ -57,22 +48,20 @@ async function fetchCameraResponse(
     if (signal.aborted) {
       throw createAbortError()
     }
-
     throw new CameraRelayUnavailableError()
   }
-
   if (!response.ok) {
     const detail = await readRelayError(response)
     await cancelResponseBody(response)
-    if (response.status === 502 && detail) throw new Error(detail)
+    if (response.status === 502 && detail) {
+      throw new Error(detail)
+    }
     throw new Error(
       `The camera returned HTTP ${response.status}. Check its stream URL and network connection.`
     )
   }
-
   return response
 }
-
 async function openMjpegSource(
   url: URL,
   response: Response,
@@ -87,7 +76,6 @@ async function openMjpegSource(
   if (!response.body) {
     throw new Error("The camera returned an empty MJPEG stream.")
   }
-
   const frames = readMjpegFrames(response.body, boundary, signal)
   let firstFrame: IteratorResult<Uint8Array>
   try {
@@ -97,12 +85,10 @@ async function openMjpegSource(
     await frames.return(undefined)
     throw error
   }
-
   if (firstFrame.done) {
     await frames.return(undefined)
     throw new Error("The camera stream contains no JPEG frame.")
   }
-
   return {
     kind: "mjpeg",
     name: url.hostname,
@@ -110,7 +96,6 @@ async function openMjpegSource(
     frames,
   }
 }
-
 async function openVideoSource(
   url: URL,
   relayUrl: string,
@@ -121,7 +106,6 @@ async function openVideoSource(
   video.playsInline = true
   video.crossOrigin = "anonymous"
   video.src = relayUrl
-
   try {
     await playVideo(video, signal)
     await waitForVideoDimensions(video, signal)
@@ -131,19 +115,16 @@ async function openVideoSource(
     if (signal.aborted) {
       throw createAbortError()
     }
-
     throw new Error(
       "The browser could not play this network video through the camera relay. Check the camera URL and that the local relay is running."
     )
   }
-
   return {
     kind: "video",
     name: url.hostname,
     video,
   }
 }
-
 function playVideo(
   video: HTMLVideoElement,
   signal: AbortSignal
@@ -151,11 +132,16 @@ function playVideo(
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (error?: unknown) => {
-      if (settled) return
+      if (settled) {
+        return
+      }
       settled = true
       signal.removeEventListener("abort", onAbort)
-      if (error) reject(error)
-      else resolve()
+      if (error) {
+        reject(error)
+      } else {
+        resolve()
+      }
     }
     const onAbort = () => {
       disposeVideo(video)
@@ -173,7 +159,6 @@ function playVideo(
     }
   })
 }
-
 function waitForVideoDimensions(
   video: HTMLVideoElement,
   signal: AbortSignal
@@ -181,12 +166,10 @@ function waitForVideoDimensions(
   if (video.videoWidth > 0 && video.videoHeight > 0) {
     return Promise.resolve()
   }
-
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       finish(new Error("The camera video did not become ready in time."))
     }, VIDEO_READY_TIMEOUT_MS)
-
     const onLoaded = () => {
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         finish()
@@ -194,15 +177,12 @@ function waitForVideoDimensions(
       }
       finish(new Error("The camera video contains no readable image data."))
     }
-
     const onError = () => {
       finish(new Error("The browser could not decode this camera stream."))
     }
-
     const onAbort = () => {
       finish(createAbortError())
     }
-
     const finish = (error?: Error) => {
       clearTimeout(timeout)
       video.removeEventListener("loadeddata", onLoaded)
@@ -214,7 +194,6 @@ function waitForVideoDimensions(
       }
       resolve()
     }
-
     video.addEventListener("loadeddata", onLoaded, { once: true })
     video.addEventListener("error", onError, { once: true })
     signal.addEventListener("abort", onAbort, { once: true })
@@ -223,11 +202,9 @@ function waitForVideoDimensions(
     }
   })
 }
-
 async function cancelResponseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => {})
 }
-
 async function readRelayError(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json()
@@ -244,23 +221,19 @@ async function readRelayError(response: Response): Promise<string> {
   }
   return ""
 }
-
 function disposeVideo(video: HTMLVideoElement): void {
   video.pause()
   video.removeAttribute("src")
   video.load()
 }
-
 function getCameraRelayErrorMessage(): string {
   return "Cannot reach the local camera relay. Restart with `bun run dev`, or run `bun run camera-relay` separately, then reconnect. If it is already running, check this site's local-network permission and the relay's allowed origins."
 }
-
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
     throw createAbortError()
   }
 }
-
 function createAbortError(): DOMException {
   return new DOMException("The camera source was stopped.", "AbortError")
 }

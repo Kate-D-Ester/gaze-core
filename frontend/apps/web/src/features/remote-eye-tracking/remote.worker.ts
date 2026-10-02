@@ -1,5 +1,8 @@
-import type { RemoteProcessor, RemoteRequest, RemoteResponse } from "./types"
-
+import type {
+  RemoteProcessor,
+  RemoteRequest,
+  RemoteResponse,
+} from "./remote-eye-tracking.types"
 let processor: RemoteProcessor | null = null
 let processing = false
 const respond = (response: RemoteResponse) => self.postMessage(response)

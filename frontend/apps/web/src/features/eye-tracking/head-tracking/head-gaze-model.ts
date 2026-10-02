@@ -1,9 +1,8 @@
-import { intersectHeadRay } from "./head-ray-model"
-import { mapHeadPoseGaze } from "./head-pose-mapping"
 import type { Point } from "../eye-tracking.types"
-import type { HeadPose } from "./head-pose.types"
 import type { HeadGazeModel } from "./head-gaze-model.types"
-
+import { mapHeadPoseGaze } from "./head-pose-mapping"
+import type { HeadPose } from "./head-pose.types"
+import { intersectHeadRay } from "./head-ray-model"
 export function projectHeadGaze(
   model: HeadGazeModel,
   eye: Point,

@@ -1,25 +1,15 @@
+import type {
+  MarkerTrackerSnapshot,
+  MarkerWorkerReply,
+  MarkerWorkerRequest,
+} from "./marker-tracker.types"
 import type { SceneCamera } from "./scene-camera"
-import type { MarkerObservation } from "./marker-detector"
 import type { SceneObservation } from "./scene.types"
-
-export type MarkerTrackerSnapshot = {
-  status: "idle" | "loading" | "ready" | "error"
-  error: string
-  marker: MarkerObservation | null
-}
-export type MarkerWorkerRequest =
-  | { type: "init"; generation: number }
-  | {
-      type: "frame"
-      generation: number
-      scene: SceneObservation
-      bitmap: ImageBitmap
-    }
-export type MarkerWorkerReply =
-  | { type: "ready"; generation: number }
-  | { type: "error"; generation: number; error: string }
-  | { type: "result"; generation: number; marker: MarkerObservation }
-
+export type {
+  MarkerTrackerSnapshot,
+  MarkerWorkerReply,
+  MarkerWorkerRequest,
+} from "./marker-tracker.types"
 const maxAgeMs = 250
 export class MarkerTracker {
   private snapshot: MarkerTrackerSnapshot = {
@@ -37,7 +27,6 @@ export class MarkerTracker {
   private camera: SceneCamera
   private factory: () => Worker
   private makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap>
-
   constructor(
     camera: SceneCamera,
     factory = () =>
@@ -83,7 +72,9 @@ export class MarkerTracker {
       this.worker = worker
       worker.onmessage = (event: MessageEvent<MarkerWorkerReply>) => {
         const message = event.data
-        if (epoch !== this.generation || message.generation !== epoch) return
+        if (epoch !== this.generation || message.generation !== epoch) {
+          return
+        }
         if (message.type === "ready") {
           this.update({ status: "ready" })
           this.pump()
@@ -96,24 +87,27 @@ export class MarkerTracker {
             scene.id !== this.pending.id ||
             scene.generation !== this.pending.generation ||
             scene.timestamp !== this.pending.timestamp
-          )
+          ) {
             return
+          }
           this.pending = null
           this.update({ marker: this.fresh(scene) ? message.marker : null })
           this.pump()
         }
       }
       worker.onerror = () => {
-        if (epoch === this.generation)
+        if (epoch === this.generation) {
           this.fail(
             "Marker tracking could not start. Retry in a browser with worker and OffscreenCanvas support."
           )
+        }
       }
       worker.onmessageerror = () => {
-        if (epoch === this.generation)
+        if (epoch === this.generation) {
           this.fail(
             "The marker worker returned unreadable data. Retry marker tracking."
           )
+        }
       }
       this.unsubscribe = this.camera.subscribe(this.pump)
       worker.postMessage({
@@ -140,23 +134,29 @@ export class MarkerTracker {
   }
   private pump = () => {
     const scene = this.camera.latest
-    if (this.snapshot.marker && !this.fresh(this.snapshot.marker.scene))
+    if (this.snapshot.marker && !this.fresh(this.snapshot.marker.scene)) {
       this.update({ marker: null })
-    if (!scene) return
+    }
+    if (!scene) {
+      return
+    }
     if (scene.generation !== this.sourceGeneration) {
       this.sourceGeneration = scene.generation
       this.lastId = -1
-      if (this.snapshot.marker) this.update({ marker: null })
+      if (this.snapshot.marker) {
+        this.update({ marker: null })
+      }
     }
     if (
       this.snapshot.status !== "ready" ||
       !this.worker ||
       this.pending ||
       scene.id === this.lastId
-    )
+    ) {
       return
-    const captured = { ...scene },
-      epoch = this.generation
+    }
+    const captured = { ...scene }
+    const epoch = this.generation
     this.pending = captured
     this.lastId = scene.id
     void this.makeBitmap(this.camera.rawCanvas)
@@ -187,12 +187,13 @@ export class MarkerTracker {
         }
       })
       .catch((error) => {
-        if (epoch === this.generation)
+        if (epoch === this.generation) {
           this.fail(
             error instanceof Error
               ? error.message
               : "Unable to read the scene camera for marker tracking."
           )
+        }
       })
   }
   dispose() {

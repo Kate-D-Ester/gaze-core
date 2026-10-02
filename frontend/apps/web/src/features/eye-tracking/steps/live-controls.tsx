@@ -1,16 +1,24 @@
 import {
-  Crosshair,
   ChevronDown,
-  RotateCcw,
+  Crosshair,
   Download,
   Maximize2,
+  RotateCcw,
   UserRound,
 } from "lucide-react"
-import { GazeOffsetControls } from "../components/gaze-offset-controls"
+import {
+  EyeActionRowStyles,
+  EyeButtonStyles,
+  EyeDetailsStyles,
+  EyeGazeMapStyles,
+  EyeLiveCoordinatesStyles,
+  EyeStatusIndicatorStyles,
+  EyeValidationStyles,
+} from "../../tracking-ui/control-styles"
 import { EyeActionButton } from "../components/eye-action-button"
+import { GazeOffsetControls } from "../components/gaze-offset-controls"
 import { HelpTip } from "../components/help-tip"
 import type { LiveControlsProps } from "./live-controls.types"
-
 export function LiveControls({
   tracker,
   calibration,
@@ -31,16 +39,14 @@ export function LiveControls({
   const { source, frame } = tracker
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
   let positionLabel = "Gaze is outside this view"
-
   if (!screenPoint) {
     positionLabel = gazeMessage
   } else if (onscreen) {
     positionLabel = "Screen position"
   }
-
   return (
     <>
-      <div className="eye-gaze-map">
+      <div className={`eye-gaze-map ${EyeGazeMapStyles}`}>
         <span className="map-center-x" />
         <span className="map-center-y" />
         {onscreen && (
@@ -53,7 +59,7 @@ export function LiveControls({
         )}
         <span>{positionLabel}</span>
       </div>
-      <div className="eye-live-coordinates">
+      <div className={`eye-live-coordinates ${EyeLiveCoordinatesStyles}`}>
         <span>
           X <b>{screenPoint ? `${(screenPoint[0] * 100).toFixed(1)}%` : "—"}</b>
         </span>
@@ -62,7 +68,7 @@ export function LiveControls({
         </span>
         {headCompensated && (
           <span
-            className="eye-status-indicator"
+            className={`eye-status-indicator ${EyeStatusIndicatorStyles}`}
             role="img"
             aria-label="Head compensation active"
             title="Head compensation active"
@@ -73,10 +79,14 @@ export function LiveControls({
         )}
         {!headCompensated && <span>Eye-only</span>}
       </div>
-      <div className="eye-action-row" role="group" aria-label="Gaze actions">
+      <div
+        className={`eye-action-row ${EyeActionRowStyles}`}
+        role="group"
+        aria-label="Gaze actions"
+      >
         <EyeActionButton
           label="Open gaze view"
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           disabled={!calibration}
           onClick={onFocus}
         >
@@ -116,7 +126,7 @@ export function LiveControls({
         disabled={!calibration}
         onChange={onOffsetChange}
       />
-      <div className="eye-validation">
+      <div className={`eye-validation ${EyeValidationStyles}`}>
         <span>
           {source?.kind === "sample" ? "Simulated error" : "Validation error"}
         </span>
@@ -128,7 +138,7 @@ export function LiveControls({
           text={`Five-point validation reports pixel RMS error. Held-out calibration error: ${calibration ? (calibration.validationError * 100).toFixed(1) + "%" : "not measured"}.`}
         />
       </div>
-      <details className="eye-details">
+      <details className={`eye-details ${EyeDetailsStyles}`}>
         <summary>
           Gaze vector
           <ChevronDown size={14} />

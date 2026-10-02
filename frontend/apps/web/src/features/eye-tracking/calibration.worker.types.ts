@@ -1,5 +1,5 @@
-import type { CalibrationSample, GazeOrientation } from "./calibration.types"
 import type { CalibrationFitResult } from "./calibration-result.types"
+import type { CalibrationSample, GazeOrientation } from "./calibration.types"
 
 export type CalibrationFitRequest = {
   samples: CalibrationSample[]

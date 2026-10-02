@@ -3,7 +3,9 @@ const KEY = "gaze-core.scene.calibration-method"
 export function readCalibrationMethod(): CalibrationMethod {
   try {
     const saved = localStorage.getItem(KEY)
-    if (saved === "marker" || saved === "one-point") return saved
+    if (saved === "marker" || saved === "one-point") {
+      return saved
+    }
   } catch {
     /* Storage is optional. */
   }

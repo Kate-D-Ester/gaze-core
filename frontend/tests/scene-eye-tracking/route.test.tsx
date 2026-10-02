@@ -7,8 +7,8 @@ import {
   createRoot,
   type Root,
 } from "../../apps/web/node_modules/react-dom/client"
-import { MemoryRouter } from "../../apps/web/node_modules/react-router-dom"
-import { App } from "../../apps/web/src/App"
+import { EyeTrackingWorkspace } from "../../apps/web/src/screens/eye-tracking-workspace"
+import { RemoteEyeTrackingPage } from "../../apps/web/src/screens/remote-eye-tracking-page"
 let root: Root | null = null,
   host: HTMLDivElement
 async function render(path: string) {
@@ -23,11 +23,11 @@ async function render(path: string) {
   await act(async () => {
     root = createRoot(host)
     root.render(
-      createElement(
-        MemoryRouter,
-        { initialEntries: [path] },
-        createElement(App)
-      )
+      path === "/trial/remote-eye-tracking"
+        ? createElement(RemoteEyeTrackingPage)
+        : createElement(EyeTrackingWorkspace, {
+            sceneMode: path === "/trial/scene-camera-eye-tracking",
+          })
     )
   })
 }

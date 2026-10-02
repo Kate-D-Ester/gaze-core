@@ -1,5 +1,10 @@
 import { CircleDot, Hand, Pointer } from "lucide-react"
-import type { CalibrationMethod } from "./scene.types"
+import {
+  EyeButtonStyles,
+  EyeSourceTypeStyles,
+} from "../tracking-ui/control-styles"
+import { SceneCalibrationMethodsStyles } from "../tracking-ui/scene-styles"
+import type { CalibrationMethodControlsProps } from "./calibration-method-controls.types"
 import { rememberCalibrationMethod } from "./calibration-preferences"
 const METHODS = [
   {
@@ -25,14 +30,10 @@ export function CalibrationMethodControls({
   value,
   disabled,
   onChange,
-}: {
-  value: CalibrationMethod
-  disabled?: boolean
-  onChange: (value: CalibrationMethod) => void
-}) {
+}: CalibrationMethodControlsProps) {
   return (
     <div
-      className="scene-calibration-methods eye-source-type"
+      className={`scene-calibration-methods ${SceneCalibrationMethodsStyles} eye-source-type ${EyeSourceTypeStyles}`}
       role="radiogroup"
       aria-label="Calibration method"
     >
@@ -40,7 +41,7 @@ export function CalibrationMethodControls({
         <button
           key={method}
           type="button"
-          className="eye-button secondary"
+          className={`eye-button ${EyeButtonStyles} secondary`}
           role="radio"
           data-calibration-shortcut
           aria-checked={value === method}

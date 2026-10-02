@@ -1,16 +1,9 @@
-import type { SceneCamera } from "./scene-camera"
-import type { HandObservation, SceneObservation } from "./scene.types"
 import { MAX_HAND_RECOVERY_MS } from "./calibration"
 import { HandStability } from "./hand-stability"
-
-export type HandTrackerSnapshot = {
-  status: "idle" | "loading" | "ready" | "error"
-  error: string
-  hand: HandObservation | null
-  previewHand: HandObservation | null
-  delegate: "GPU" | "CPU" | null
-  inferenceMs: number | null
-}
+import type { HandTrackerSnapshot } from "./hand-tracker.types"
+import type { SceneCamera } from "./scene-camera"
+import type { SceneObservation } from "./scene.types"
+export type { HandTrackerSnapshot } from "./hand-tracker.types"
 export class HandTracker {
   private snapshot: HandTrackerSnapshot = {
     status: "idle",
@@ -33,10 +26,7 @@ export class HandTracker {
   private makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap>
   constructor(
     camera: SceneCamera,
-    factory = () =>
-      new Worker(
-        `${import.meta.env?.BASE_URL ?? "/"}vision-runtime/scene-hand.worker.js`
-      ),
+    factory = () => new Worker("/vision-runtime/scene-hand.worker.js"),
     makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap> = (
       image
     ) => {
@@ -79,7 +69,9 @@ export class HandTracker {
       this.worker = worker
       worker.onmessage = (event: MessageEvent) => {
         const message = event.data
-        if (epoch !== this.generation || message.generation !== epoch) return
+        if (epoch !== this.generation || message.generation !== epoch) {
+          return
+        }
         if (message.type === "ready") {
           this.update({ status: "ready", delegate: message.delegate ?? null })
           this.pump()
@@ -115,8 +107,9 @@ export class HandTracker {
             hand.scene.timestamp >= previous.scene.timestamp &&
             hand.scene.timestamp - previous.scene.timestamp <=
               MAX_HAND_RECOVERY_MS
-          )
+          ) {
             previewHand = previous
+          }
           this.update({
             hand,
             previewHand,
@@ -140,7 +133,7 @@ export class HandTracker {
         }
       }
       worker.onmessageerror = () => {
-        if (epoch === this.generation)
+        if (epoch === this.generation) {
           this.update({
             status: "error",
             error:
@@ -148,6 +141,7 @@ export class HandTracker {
             hand: null,
             previewHand: null,
           })
+        }
       }
       this.unsubscribe = this.camera.subscribe(this.pump)
       worker.postMessage({ type: "init", generation: epoch })
@@ -165,8 +159,9 @@ export class HandTracker {
   private pump = () => {
     const scene = this.camera.latest
     if (!scene) {
-      if (this.snapshot.hand || this.snapshot.previewHand)
+      if (this.snapshot.hand || this.snapshot.previewHand) {
         this.update({ hand: null, previewHand: null })
+      }
       return
     }
     if (
@@ -174,8 +169,9 @@ export class HandTracker {
       !this.worker ||
       this.inflight ||
       scene.id === this.lastId
-    )
+    ) {
       return
+    }
     if (this.lastSourceGeneration !== scene.generation) {
       this.stability.reset()
       this.lastId = -1
@@ -184,8 +180,8 @@ export class HandTracker {
     }
     this.inflight = true
     this.lastId = scene.id
-    const epoch = this.generation,
-      captured: SceneObservation = { ...scene }
+    const epoch = this.generation
+    const captured: SceneObservation = { ...scene }
     void this.makeBitmap(this.camera.rawCanvas)
       .then((bitmap) => {
         if (
@@ -194,7 +190,9 @@ export class HandTracker {
           !this.worker
         ) {
           bitmap.close()
-          if (epoch === this.generation) this.inflight = false
+          if (epoch === this.generation) {
+            this.inflight = false
+          }
           return
         }
         try {

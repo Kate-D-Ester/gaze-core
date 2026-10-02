@@ -1,20 +1,22 @@
 import { pointInPolygon } from "../eye-tracking/geometry"
-import { prepareIrEye, prepareIrLocalEye } from "./ir-preprocessing"
-import { PupilTracker } from "../eye-tracking/pupil-tracker"
 import type { CV } from "../eye-tracking/opencv.types"
-import type { Point } from "./types"
+import { PupilTracker } from "../eye-tracking/pupil-tracker"
+import type {
+  IrEyeBackgroundCandidate,
+  IrEyeCoordinates,
+} from "./ir-eye-tracker.types"
 import {
   detectIrEye,
   type IrEyeOptions,
   type IrReference,
   type IrTrackingState,
 } from "./ir-features"
-
+import { prepareIrEye, prepareIrLocalEye } from "./ir-preprocessing"
+import type { Point } from "./remote-eye-tracking.types"
+export type { IrEyeCoordinates } from "./ir-eye-tracker.types"
 /** Eye-local coordinates from current canthi, independent of the pupil. */
-export type IrEyeCoordinates = { origin: Point; scale: number; angle: number }
-
 /** Pupil history survives missing glints; references still require a current reflection. */
-class IrEyeTrack {
+export class IrEyeTrack {
   private readonly tracking: IrTrackingState
   private reference: IrReference | null = null
   private coordinates: IrEyeCoordinates | undefined
@@ -48,8 +50,8 @@ class IrEyeTrack {
       if (scale < 0.5 || scale > 2 || Math.abs(angle) > Math.PI / 3) {
         this.reset()
       } else {
-        const c = Math.cos(angle),
-          s = Math.sin(angle)
+        const c = Math.cos(angle)
+        const s = Math.sin(angle)
         const offset: Point = [
           coordinates.origin[0] -
             scale *
@@ -97,18 +99,19 @@ class IrEyeTrack {
       this.tracking,
       originalGray
     )
-    if (result.reference) this.reference = result.reference
-    else if (this.reference && timestamp - this.reference.timestamp > 250)
+    if (result.reference) {
+      this.reference = result.reference
+    } else if (this.reference && timestamp - this.reference.timestamp > 250) {
       this.reference = null
+    }
     return result
   }
 }
-
 /** Keep native and enhanced intensity histories separate; fresh native evidence wins. */
 export class IrEyeTracker {
   private readonly native: IrEyeTrack
   private readonly enhanced: IrEyeTrack
-  private readonly local: { backgroundFraction: number; track: IrEyeTrack }[]
+  private readonly local: IrEyeBackgroundCandidate[]
   private readonly cv: CV
   constructor(cv: CV) {
     this.cv = cv
@@ -142,7 +145,9 @@ export class IrEyeTracker {
       options,
       coordinates
     )
-    if (native.pupil || threshold !== 0 || !options.centerRegion) return native
+    if (native.pupil || threshold !== 0 || !options.centerRegion) {
+      return native
+    }
     let recovered = native
     for (const { backgroundFraction, track } of this.local) {
       const local = prepareIrLocalEye(
@@ -156,10 +161,13 @@ export class IrEyeTracker {
         track.reset()
         continue
       }
-      for (let y = 0; y < height; y++)
-        for (let x = 0; x < width; x++)
-          if (!pointInPolygon([x, y], options.centerRegion))
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (!pointInPolygon([x, y], options.centerRegion)) {
             local[y * width + x] = 255
+          }
+        }
+      }
       const result = track.process(
         local,
         width,
@@ -172,7 +180,9 @@ export class IrEyeTracker {
       )
       // Broad normalization preserves the pupil interior; a finer rim is the fallback.
       // Keep both histories current, even when the first scale supplies this frame.
-      if (!recovered.pupil && result.pupil) recovered = result
+      if (!recovered.pupil && result.pupil) {
+        recovered = result
+      }
     }
     const prepared = prepareIrEye(gray, width, height)
     if (!prepared) {

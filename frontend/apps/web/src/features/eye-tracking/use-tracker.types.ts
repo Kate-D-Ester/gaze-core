@@ -1,16 +1,16 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import type { CameraTransform } from "./camera-transform"
 import type {
-  NetworkCamera,
-  NetworkCameraFrame,
-  NetworkConnectionState,
-} from "./network-camera"
-import type {
   FrameDimensions,
   FrameSettings,
   Point,
   TrackingFrame,
 } from "./eye-tracking.types"
+import type {
+  NetworkCamera,
+  NetworkCameraFrame,
+  NetworkConnectionState,
+} from "./network-camera"
 
 export type TrackerSource = {
   kind: "camera" | "network" | "video" | "sample"

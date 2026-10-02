@@ -16,3 +16,5 @@ export type ApiKeyRecord = {
   createdAt?: string
   enabled?: boolean
 }
+
+export type AuthMode = "sign-in" | "sign-up"

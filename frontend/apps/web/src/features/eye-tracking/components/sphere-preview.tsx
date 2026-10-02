@@ -1,14 +1,17 @@
 import { useEffect, useRef } from "react"
+import {
+  EyeSphereMetricsStyles,
+  EyeSphereStyles,
+} from "../../tracking-ui/camera-styles"
 import type { SpherePreviewProps } from "./sphere-preview.types"
-
 export function SpherePreview({ frame }: SpherePreviewProps) {
   const ref = useRef<HTMLCanvasElement>(null)
-
   useEffect(() => {
     const canvas = ref.current
     const context = canvas?.getContext("2d")
-    if (!canvas || !context) return
-
+    if (!canvas || !context) {
+      return
+    }
     const colors = getComputedStyle(canvas)
     context.clearRect(0, 0, 280, 220)
     context.strokeStyle = colors.getPropertyValue("--line")
@@ -16,7 +19,6 @@ export function SpherePreview({ frame }: SpherePreviewProps) {
     context.beginPath()
     context.arc(140, 105, 74, 0, Math.PI * 2)
     context.stroke()
-
     for (const radius of [24, 50]) {
       context.beginPath()
       context.ellipse(140, 105, radius, 74, 0, 0, Math.PI * 2)
@@ -25,10 +27,10 @@ export function SpherePreview({ frame }: SpherePreviewProps) {
       context.ellipse(140, 105, 74, radius, 0, 0, Math.PI * 2)
       context.stroke()
     }
-
     const gaze = frame?.gaze?.direction
-    if (!gaze) return
-
+    if (!gaze) {
+      return
+    }
     context.strokeStyle = colors.color
     context.lineWidth = 3
     context.beginPath()
@@ -40,11 +42,9 @@ export function SpherePreview({ frame }: SpherePreviewProps) {
     context.arc(140 + gaze[0] * 74, 105 + gaze[1] * 74, 6, 0, Math.PI * 2)
     context.fill()
   }, [frame])
-
   const model = frame?.model
-
   return (
-    <div className="eye-sphere">
+    <div className={`eye-sphere ${EyeSphereStyles}`}>
       <div className="eye-section-label">
         EYE MODEL <span>{model?.ready ? "Fitted" : "Collecting"}</span>
       </div>
@@ -54,7 +54,7 @@ export function SpherePreview({ frame }: SpherePreviewProps) {
         ref={ref}
         aria-label="Projected spherical eye model and gaze direction"
       />
-      <div className="eye-sphere-metrics">
+      <div className={`eye-sphere-metrics ${EyeSphereMetricsStyles}`}>
         <span>
           {model?.samples ?? 0}
           <small>observations</small>

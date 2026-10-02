@@ -1,7 +1,7 @@
-import type { Point } from "./eye-tracking.types"
 import type { AffineCoefficients } from "./calibration-mapping.types"
-import type { HeadPose } from "./head-tracking/head-pose.types"
+import type { Point } from "./eye-tracking.types"
 import type { HeadCompensation } from "./head-tracking/head-calibration.types"
+import type { HeadPose } from "./head-tracking/head-pose.types"
 
 export type GazeOrientation = { horizontal: 1 | -1; vertical: 1 | -1 }
 export type CalibrationHeadMeasurement = { feature: Point; pose: HeadPose }

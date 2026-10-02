@@ -1,18 +1,22 @@
-import { useState } from "react"
 import { Check, Maximize } from "lucide-react"
+import { useState } from "react"
+import {
+  EyeFieldStyles,
+  EyeGuidanceRowStyles,
+  EyeNumberGridStyles,
+} from "../../tracking-ui/control-styles"
+import { EyeRoiCoordinatesStyles } from "../../tracking-ui/camera-styles"
 import { EyeActionButton } from "../components/eye-action-button"
 import { HelpTip } from "../components/help-tip"
 import type { Rect } from "../eye-tracking.types"
+import { clampRegion, MIN_REGION_SIZE } from "../roi"
 import type { RegionControlsProps, RegionDraft } from "./region-controls.types"
-
 const REGION_FIELD_LABELS = {
   x: "Left",
   y: "Top",
   width: "Width",
   height: "Height",
 } as const
-import { clampRegion, MIN_REGION_SIZE } from "../roi"
-
 export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
   const roi = tracker.settings.roi
   const [edit, setEdit] = useState<RegionDraft | null>(null)
@@ -50,7 +54,7 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
   }
   return (
     <>
-      <div className="eye-guidance-row">
+      <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
         <EyeActionButton
           label="Use the full camera frame"
           onClick={() => chooseRegion({ x: 0, y: 0, ...tracker.dimensions })}
@@ -66,13 +70,17 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
         noValidate
         onSubmit={(event) => {
           event.preventDefault()
-          if (changed) chooseRegion(next)
+          if (changed) {
+            chooseRegion(next)
+          }
           setEdit(null)
         }}
       >
-        <div className="eye-number-grid eye-roi-coordinates">
+        <div
+          className={`eye-number-grid ${EyeNumberGridStyles} eye-roi-coordinates ${EyeRoiCoordinatesStyles}`}
+        >
           {(["x", "y", "width", "height"] as const).map((key) => (
-            <label className="eye-field" key={key}>
+            <label className={`eye-field ${EyeFieldStyles}`} key={key}>
               {REGION_FIELD_LABELS[key]} · px
               <input
                 type="number"

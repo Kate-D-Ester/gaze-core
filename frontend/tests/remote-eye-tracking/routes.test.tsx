@@ -5,23 +5,18 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act, createElement } = await import("../../apps/web/node_modules/react")
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
-const { MemoryRouter } =
-  await import("../../apps/web/node_modules/react-router-dom")
-const { App } = await import("../../apps/web/src/App")
+const { RemoteEyeTrackingPage } = await import("../../apps/web/src/screens/remote-eye-tracking-page")
+const { default: nextConfig } = await import("../../apps/web/next.config")
 let root: ReturnType<typeof createRoot> | null = null
 let host: HTMLDivElement
 const buttons = () => [...host.querySelectorAll("button")]
-async function render(path: string) {
+async function render() {
   host = document.createElement("div")
   document.body.append(host)
   await act(async () => {
     root = createRoot(host)
     root.render(
-      createElement(
-        MemoryRouter,
-        { initialEntries: [path] },
-        createElement(App)
-      )
+      createElement(RemoteEyeTrackingPage)
     )
   })
 }
@@ -31,7 +26,7 @@ afterEach(async () => {
   host?.remove()
 })
 test("the remote route is public and offers all three camera choices before requesting a camera", async () => {
-  await render("/trial/remote-eye-tracking")
+  await render()
   expect(host.querySelector("h1")?.textContent).toBe("Remote eye tracking")
   expect(
     buttons().filter((button) => button.classList.contains("remote-mode-card"))
@@ -61,7 +56,7 @@ test("the remote route is public and offers all three camera choices before requ
   expect(host.textContent).toContain("Live head tracking")
 })
 test("changing the camera concept replaces its instructions and motion reference", async () => {
-  await render("/trial/remote-eye-tracking")
+  await render()
   await act(async () =>
     buttons()
       .find(
@@ -91,15 +86,33 @@ test("changing the camera concept replaces its instructions and motion reference
   expect(host.textContent).toContain("Live head tracking")
   expect(host.textContent).toContain("camera above your screen")
 })
-test("the normal trials alias exposes the remote tracker entry point", async () => {
-  await render("/trials")
-  expect(
-    host.querySelector('a[href="/trial/remote-eye-tracking"]')?.textContent
-  ).toBe("Remote eye tracking")
+test("legacy tracker aliases permanently redirect to canonical Next routes", async () => {
+  expect(await nextConfig.redirects?.()).toEqual([
+    { source: "/v2", destination: "/trial/screen-eye-tracking", permanent: true },
+    { source: "/trial", destination: "/trial/screen-eye-tracking", permanent: true },
+    { source: "/trials", destination: "/trial/screen-eye-tracking", permanent: true },
+    { source: "/trials/remote-eye-tracking", destination: "/trial/remote-eye-tracking", permanent: true },
+  ])
+})
+
+test.each([
+  ["screen-eye-tracking", "screen"],
+  ["remote-eye-tracking", "remote"],
+  ["scene-camera-eye-tracking", "scene"],
+])("Next route %s selects the %s browser tracker", async (route, mode) => {
+  const source = await Bun.file(new URL(`../../apps/web/src/app/trial/${route}/page.tsx`, import.meta.url)).text()
+  expect(source).toContain(`<TrackingClient mode="${mode}" />`)
+  expect(source).not.toContain("Auth")
+})
+
+test("camera screens load behind a client boundary without server rendering", async () => {
+  const source = await Bun.file(new URL("../../apps/web/src/components/tracking-client.tsx", import.meta.url)).text()
+  expect(source).toMatch(/^"use client"/)
+  expect(source.match(/ssr: false/g)).toHaveLength(2)
 })
 
 test("resizing before choosing a setup leaves all camera cards available", async () => {
-  await render("/trial/remote-eye-tracking")
+  await render()
   await act(async () => window.dispatchEvent(new Event("resize")))
   expect(
     buttons().filter((button) => button.classList.contains("remote-mode-card"))
@@ -111,7 +124,7 @@ test("resizing before choosing a setup leaves all camera cards available", async
 
 // A camera list must be reachable without connecting the default camera first.
 test("camera selection and permission unlock are available before tracking starts", async () => {
-  await render("/trial/remote-eye-tracking")
+  await render()
   await act(async () =>
     buttons()
       .find(
@@ -133,7 +146,7 @@ test.each([
 ])(
   "the setup back arrow returns %s to camera choices while dashboard navigation stays separate",
   async (title) => {
-    await render("/trial/remote-eye-tracking")
+    await render()
     await act(async () => {
       buttons()
         .find((button) => button.getAttribute("aria-label") === title)!

@@ -4,11 +4,9 @@ import type {
   SceneProfileSetup,
 } from "./calibration-profiles.types"
 import type { SceneCalibration } from "./scene.types"
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
-
 function isNumber(value: unknown): value is number {
   return (
     typeof value === "number" &&
@@ -16,15 +14,12 @@ function isNumber(value: unknown): value is number {
     Math.abs(value) <= 1e12
   )
 }
-
 function isPoint(value: unknown): value is Point {
   return Array.isArray(value) && value.length === 2 && value.every(isNumber)
 }
-
 function isErrorMetric(value: unknown) {
   return value === null || (isNumber(value) && value >= 0)
 }
-
 function isTransform(value: unknown) {
   return (
     isRecord(value) &&
@@ -35,11 +30,9 @@ function isTransform(value: unknown) {
     typeof value.mirrorY === "boolean"
   )
 }
-
 function isOrientation(value: unknown) {
   return isRecord(value) && isTransform(value.eye) && isTransform(value.scene)
 }
-
 function isSetup(value: unknown): value is SceneProfileSetup {
   return (
     isRecord(value) &&
@@ -47,19 +40,22 @@ function isSetup(value: unknown): value is SceneProfileSetup {
     isOrientation(value.orientation)
   )
 }
-
 function isHold(value: unknown) {
   if (
     !isRecord(value) ||
     !Number.isInteger(value.region) ||
     !isPoint(value.feature) ||
     !isPoint(value.target)
-  )
+  ) {
     return false
-  if (!Array.isArray(value.pairs) || value.pairs.length !== 1) return false
+  }
+  if (!Array.isArray(value.pairs) || value.pairs.length !== 1) {
+    return false
+  }
   const pair: unknown = value.pairs[0]
-  if (!isRecord(pair) || !isPoint(pair.feature) || !isPoint(pair.target))
+  if (!isRecord(pair) || !isPoint(pair.feature) || !isPoint(pair.target)) {
     return false
+  }
   return (
     [pair.eyeId, pair.sceneId, pair.eyeTimestamp, pair.sceneTimestamp].every(
       isNumber
@@ -73,13 +69,13 @@ function isHold(value: unknown) {
     typeof pair.handedness === "string"
   )
 }
-
 function isCalibration(value: unknown): value is SceneCalibration {
   if (
     !isRecord(value) ||
     !["affine", "quadratic", "projective"].includes(String(value.model))
-  )
+  ) {
     return false
+  }
   const coefficientCount = value.model === "quadratic" ? 6 : 3
   if (
     !Array.isArray(value.coefficients) ||
@@ -90,62 +86,73 @@ function isCalibration(value: unknown): value is SceneCalibration {
         row.length === coefficientCount &&
         row.every(isNumber)
     )
-  )
+  ) {
     return false
+  }
   if (
     !isPoint(value.mean) ||
     !isPoint(value.scale) ||
     value.scale.some((scale) => scale <= 0)
-  )
+  ) {
     return false
-  if (value.model === "projective" && !isPoint(value.denominator)) return false
+  }
+  if (value.model === "projective" && !isPoint(value.denominator)) {
+    return false
+  }
   if (
     !isRecord(value.bounds) ||
     !isPoint(value.bounds.min) ||
     !isPoint(value.bounds.max)
-  )
+  ) {
     return false
+  }
   if (
     !isErrorMetric(value.crossValidationRms) ||
     !isErrorMetric(value.maxValidationError)
-  )
+  ) {
     return false
-  if (value.trainingRms !== undefined && !isErrorMetric(value.trainingRms))
+  }
+  if (value.trainingRms !== undefined && !isErrorMetric(value.trainingRms)) {
     return false
+  }
   if (
     value.maxTrainingError !== undefined &&
     !isErrorMetric(value.maxTrainingError)
-  )
+  ) {
     return false
+  }
   if (
     !Array.isArray(value.holds) ||
     value.holds.length < 1 ||
     value.holds.length > 9 ||
     !value.holds.every(isHold)
-  )
+  ) {
     return false
+  }
   if (value.onePoint !== undefined) {
     if (
       !isRecord(value.onePoint) ||
       !["previous", "projection"].includes(String(value.onePoint.basis)) ||
       !isPoint(value.onePoint.gain)
-    )
+    ) {
       return false
+    }
     if (
       value.onePoint.gain.some(
         (gain) => Math.abs(gain) < 0.01 || Math.abs(gain) > 4
       )
-    )
+    ) {
       return false
+    }
     if (
       value.onePoint.orientation !== undefined &&
       !isOrientation(value.onePoint.orientation)
-    )
+    ) {
       return false
+    }
   }
   return true
 }
-
 export function isSceneCalibrationProfile(
   value: unknown
 ): value is SceneCalibrationProfile {

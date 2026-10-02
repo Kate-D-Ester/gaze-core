@@ -1,20 +1,18 @@
 import { useEffect, useRef, type MutableRefObject } from "react"
-import { shouldIncludePreviewMasks } from "./preview-mask-policy"
-import { drawSample } from "./sample"
 import { drawCameraFrame, isDefaultCameraTransform } from "./camera-transform"
 import type { TrackingFrame } from "./eye-tracking.types"
+import { shouldIncludePreviewMasks } from "./preview-mask-policy"
+import { drawSample } from "./sample"
 import type { WorkerRequest, WorkerResponse } from "./tracker.worker.types"
-import type { TrackerRuntime } from "./use-tracker.types"
 import type { UseTrackerWorkerCallbacks } from "./use-tracker-worker.types"
+import type { TrackerRuntime } from "./use-tracker.types"
 import { VideoFrameClock } from "./video-frame-clock"
-
 export function useTrackerWorker(
   runtime: TrackerRuntime,
   sourceCanvas: MutableRefObject<HTMLCanvasElement | null>,
   callbacks: UseTrackerWorkerCallbacks
 ): void {
   const workerInputs = useRef({ runtime, sourceCanvas, callbacks })
-
   useEffect(() => {
     const { control, latest } = workerInputs.current.runtime
     const sourceCanvas = workerInputs.current.sourceCanvas
@@ -61,10 +59,11 @@ export function useTrackerWorker(
         if (
           c.source?.kind === "network" &&
           (!c.networkFrame || message.frame.timestamp < c.networkInterruptedAt)
-        )
+        ) {
           return
+        }
         const canvas = sourceCanvas.current
-        if (canvas)
+        if (canvas) {
           canvas
             .getContext("2d")
             ?.putImageData(
@@ -76,6 +75,7 @@ export function useTrackerWorker(
               0,
               0
             )
+        }
         if (!c.previewMasksEnabled) {
           previewMasks.clear()
           previewMaskGeneration = message.generation
@@ -86,7 +86,9 @@ export function useTrackerWorker(
         const previews = message.frame.detection.previews.map(
           (preview: TrackingFrame["detection"]["previews"][number]) => {
             if (!c.previewMasksEnabled) {
-              if (!preview.mask) return preview
+              if (!preview.mask) {
+                return preview
+              }
               return {
                 label: preview.label,
                 threshold: preview.threshold,
@@ -95,7 +97,9 @@ export function useTrackerWorker(
               }
             }
             const key = `${preview.method ?? "global"}:${preview.label}`
-            if (preview.mask) previewMasks.set(key, preview.mask)
+            if (preview.mask) {
+              previewMasks.set(key, preview.mask)
+            }
             const mask = preview.mask ?? previewMasks.get(key)
             return mask && !preview.mask ? { ...preview, mask } : preview
           }
@@ -119,35 +123,42 @@ export function useTrackerWorker(
     worker.onmessageerror = () =>
       fail("The vision engine returned data the page could not read.")
     const sampleCanvas = document.createElement("canvas")
-    const captureCanvas = document.createElement("canvas"),
-      previewMasks = new Map<string, Uint8Array>()
-    let raf = 0,
-      last = 0,
-      lastPreviewMaskFrame = -Infinity,
-      previewMaskRequestGeneration = -1,
-      previewMaskGeneration = -1
+    const captureCanvas = document.createElement("canvas")
+    const previewMasks = new Map<string, Uint8Array>()
+    let raf = 0
+    let last = 0
+    let lastPreviewMaskFrame = -Infinity
+    let previewMaskRequestGeneration = -1
+    let previewMaskGeneration = -1
     const loop = (time: number) => {
       raf = requestAnimationFrame(loop)
-      if (!c.source || !c.ready || c.inflight || time - last < 1000 / 24) return
+      if (!c.source || !c.ready || c.inflight || time - last < 1000 / 24) {
+        return
+      }
       const display = sourceCanvas.current
-      if (!display) return
+      if (!display) {
+        return
+      }
       const canvas = captureCanvas
       if (canvas.width !== display.width || canvas.height !== display.height) {
         canvas.width = display.width
         canvas.height = display.height
       }
       const ctx = canvas.getContext("2d", { willReadFrequently: true })
-      if (!ctx) return
-
+      if (!ctx) {
+        return
+      }
       let timestamp = time
       if (c.source.kind === "sample") {
-        if (isDefaultCameraTransform(c.transform))
+        if (isDefaultCameraTransform(c.transform)) {
           drawSample(ctx, time, c.sampleTarget, c.blink)
-        else {
+        } else {
           sampleCanvas.width = c.inputDimensions.width
           sampleCanvas.height = c.inputDimensions.height
           const sampleCtx = sampleCanvas.getContext("2d")
-          if (!sampleCtx) return
+          if (!sampleCtx) {
+            return
+          }
           drawSample(sampleCtx, time, c.sampleTarget, c.blink)
           drawCameraFrame(
             ctx,
@@ -165,8 +176,9 @@ export function useTrackerWorker(
           frame.sequence === c.lastNetworkSequence ||
           time - frame.timestamp > 700
         ) {
-          if (latest.current && time - latest.current.timestamp > 700)
+          if (latest.current && time - latest.current.timestamp > 700) {
             clearFrame()
+          }
           return
         }
         c.lastNetworkSequence = frame.sequence
@@ -185,8 +197,9 @@ export function useTrackerWorker(
           c.video.readyState < 2 ||
           c.video.currentTime === c.lastVideoTime
         ) {
-          if (latest.current && time - latest.current.timestamp > 700)
+          if (latest.current && time - latest.current.timestamp > 700) {
             clearFrame()
+          }
           return
         }
         c.lastVideoTime = c.video.currentTime
@@ -213,7 +226,9 @@ export function useTrackerWorker(
         time,
         lastPreviewMaskFrame
       )
-      if (includePreviewMasks) lastPreviewMaskFrame = time
+      if (includePreviewMasks) {
+        lastPreviewMaskFrame = time
+      }
       const request: WorkerRequest = {
         type: "frame",
         data: ctx.getImageData(0, 0, canvas.width, canvas.height).data,
@@ -245,8 +260,12 @@ export function useTrackerWorker(
       c.networkFrame = null
       c.stream?.getTracks().forEach((t) => t.stop())
       c.video?.pause()
-      if (c.video) c.video.srcObject = null
-      if (c.url) URL.revokeObjectURL(c.url)
+      if (c.video) {
+        c.video.srcObject = null
+      }
+      if (c.url) {
+        URL.revokeObjectURL(c.url)
+      }
     }
   }, [workerInputs])
 }

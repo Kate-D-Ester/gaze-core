@@ -3,7 +3,7 @@ import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global
 import { act, createElement } from "../../apps/web/node_modules/react"
 import { createRoot } from "../../apps/web/node_modules/react-dom/client"
 import { RemoteCalibrationOverlay } from "../../apps/web/src/features/remote-eye-tracking/calibration-overlay"
-import type { RemoteObservation } from "../../apps/web/src/features/remote-eye-tracking/types"
+import type { RemoteObservation } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 import type { RemoteCalibrationOverlayProps } from "../../apps/web/src/features/remote-eye-tracking/calibration-overlay.types"
 
 if (typeof document === "undefined") GlobalRegistrator.register()

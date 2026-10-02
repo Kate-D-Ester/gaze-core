@@ -1,24 +1,9 @@
+import type { RecordingController, RecordingOptions } from "./recording"
 import { createSceneRecording } from "./recording"
-import type {
-  RecordingController,
-  RecordingOptions,
-  RecordingResult,
-} from "./recording"
-import { appendMeasurement, createSessionLog } from "./session"
-import type { SessionLog } from "./session"
 import type { GazeMeasurement, HandObservation } from "./scene.types"
-export type SessionRecordingSnapshot = {
-  recording: boolean
-  finalizing: boolean
-  elapsedMs: number
-  error: string
-  log: SessionLog | null
-  sceneVideo: RecordingResult | null
-  eyeVideo: RecordingResult | null
-  sceneUrl: string | null
-  eyeUrl: string | null
-  background: HTMLCanvasElement | null
-}
+import { appendMeasurement, createSessionLog } from "./session"
+import type { SessionRecordingSnapshot } from "./session-recorder.types"
+export type { SessionRecordingSnapshot } from "./session-recorder.types"
 export class SessionRecorder {
   private snapshot: SessionRecordingSnapshot = {
     recording: false,
@@ -55,8 +40,12 @@ export class SessionRecorder {
     this.listeners.forEach((fn) => fn())
   }
   private revoke() {
-    if (this.snapshot.sceneUrl) URL.revokeObjectURL(this.snapshot.sceneUrl)
-    if (this.snapshot.eyeUrl) URL.revokeObjectURL(this.snapshot.eyeUrl)
+    if (this.snapshot.sceneUrl) {
+      URL.revokeObjectURL(this.snapshot.sceneUrl)
+    }
+    if (this.snapshot.eyeUrl) {
+      URL.revokeObjectURL(this.snapshot.eyeUrl)
+    }
   }
   start(
     canvas: HTMLCanvasElement,
@@ -65,7 +54,9 @@ export class SessionRecorder {
     stream: MediaStream | null,
     withEye: boolean
   ) {
-    if (this.snapshot.recording || this.snapshot.finalizing) return
+    if (this.snapshot.recording || this.snapshot.finalizing) {
+      return
+    }
     this.disposed = false
     this.revoke()
     this.finish = null
@@ -92,10 +83,11 @@ export class SessionRecorder {
         )
       },
       onStopped: (result) => {
-        if (this.snapshot.recording)
+        if (this.snapshot.recording) {
           void this.stop(
             result.error || "Video stopped. The session has been saved."
           )
+        }
       },
     }
     try {
@@ -111,7 +103,7 @@ export class SessionRecorder {
             : "Video unavailable; gaze data will still be logged.",
       })
     }
-    if (withEye && eyeCanvas)
+    if (withEye && eyeCanvas) {
       try {
         this.eye = this.factory(eyeCanvas, options)
         this.eye.start()
@@ -127,20 +119,24 @@ export class SessionRecorder {
             .join(" "),
         })
       }
+    }
     this.timer = setTimeout(() => {
       void this.stop("Ten-minute recording limit reached.")
     }, 600000)
   }
   observeMeasurement(measurement: GazeMeasurement | null) {
     const log = this.snapshot.log
-    if (!this.snapshot.recording || !log || !measurement) return
+    if (!this.snapshot.recording || !log || !measurement) {
+      return
+    }
     appendMeasurement(log, measurement)
     const elapsedMs = Math.max(0, performance.now() - log.startedAt)
     this.update({ elapsedMs })
-    if (log.truncated)
+    if (log.truncated) {
       void this.stop(
         "Coordinate log limit reached. Save this session and start another."
       )
+    }
   }
   observeHand(hand: HandObservation | null) {
     const log = this.snapshot.log
@@ -149,14 +145,23 @@ export class SessionRecorder {
       !log ||
       !hand ||
       hand.scene.timestamp < log.startedAt
-    )
+    ) {
       return
-    if (log.hands.at(-1)?.scene.id === hand.scene.id) return
-    if (log.hands.length < 18000) log.hands.push(hand)
+    }
+    if (log.hands.at(-1)?.scene.id === hand.scene.id) {
+      return
+    }
+    if (log.hands.length < 18000) {
+      log.hands.push(hand)
+    }
   }
   stop(reason = ""): Promise<void> {
-    if (this.finish) return this.finish
-    if (!this.snapshot.recording) return Promise.resolve()
+    if (this.finish) {
+      return this.finish
+    }
+    if (!this.snapshot.recording) {
+      return Promise.resolve()
+    }
     clearTimeout(this.timer)
     const log = this.snapshot.log!
     log.endedAt = performance.now()
@@ -177,8 +182,8 @@ export class SessionRecorder {
     } catch {
       background = null
     }
-    const scene = this.scene,
-      eye = this.eye
+    const scene = this.scene
+    const eye = this.eye
     this.scene = null
     this.eye = null
     this.finish = (async () => {
@@ -187,11 +192,16 @@ export class SessionRecorder {
         eye?.stop() ?? Promise.resolve(null),
       ])
       const sceneVideo =
-          results[0].status === "fulfilled" ? results[0].value : null,
-        eyeVideo = results[1].status === "fulfilled" ? results[1].value : null
+        results[0].status === "fulfilled" ? results[0].value : null
+      const eyeVideo =
+        results[1].status === "fulfilled" ? results[1].value : null
       const errors = results.flatMap((result) => {
-        if (result.status === "rejected") return [String(result.reason)]
-        if (result.value?.error) return [result.value.error]
+        if (result.status === "rejected") {
+          return [String(result.reason)]
+        }
+        if (result.value?.error) {
+          return [result.value.error]
+        }
         return []
       })
       log.metadata.videos = {
@@ -237,7 +247,9 @@ export class SessionRecorder {
     return this.finish
   }
   clear() {
-    if (this.snapshot.recording || this.snapshot.finalizing) return
+    if (this.snapshot.recording || this.snapshot.finalizing) {
+      return
+    }
     this.revoke()
     this.update({
       log: null,

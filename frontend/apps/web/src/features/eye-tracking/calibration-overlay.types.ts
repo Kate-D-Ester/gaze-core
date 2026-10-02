@@ -1,11 +1,11 @@
+import type { DiagnosticReadingInput } from "./calibration-diagnostics.types"
 import type {
   Calibration,
   CalibrationSample,
   GazeOrientation,
 } from "./calibration.types"
-import type { TrackerController } from "./use-tracker.types"
 import type { HeadTrackingController } from "./head-tracking/use-head-tracking.types"
-import type { DiagnosticReadingInput } from "./calibration-diagnostics.types"
+import type { TrackerController } from "./use-tracker.types"
 
 export type CalibrationOverlayProps = {
   tracker: TrackerController

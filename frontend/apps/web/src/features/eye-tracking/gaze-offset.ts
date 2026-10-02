@@ -1,6 +1,5 @@
 import type { Point } from "./eye-tracking.types"
 import type { GazeOffsetAxis } from "./gaze-offset.types"
-
 /** Apply only to mapped gaze; calibration samples remain unchanged. */
 export function applyGazeOffset(
   point: Point | null,
@@ -11,7 +10,6 @@ export function applyGazeOffset(
   }
   return [point[0] + offset[0], point[1] + offset[1]]
 }
-
 export function offsetFromPixels(
   offset: Point,
   axis: GazeOffsetAxis,

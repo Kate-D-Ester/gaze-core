@@ -1,9 +1,7 @@
 import { useState } from "react"
 import type { Point } from "./eye-tracking.types"
 import type { GazeAdjustment } from "./use-gaze-adjustment.types"
-
 const ZERO_OFFSET: Point = [0, 0]
-
 /** Screen and remote corrections last for the current calibration only. */
 export function useGazeAdjustment(calibration: object | null) {
   const [adjustment, setAdjustment] = useState<GazeAdjustment>({

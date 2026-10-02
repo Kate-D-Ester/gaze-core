@@ -6,10 +6,10 @@ export function drawSample(
   target: Point | null,
   blink: boolean
 ) {
-  const w = 640,
-    h = 480,
-    cx = 320,
-    cy = 240
+  const w = 640
+  const h = 480
+  const cx = 320
+  const cy = 240
   ctx.fillStyle = "#989a99"
   ctx.fillRect(0, 0, w, h)
   ctx.fillStyle = "#cfd1cd"
@@ -23,8 +23,8 @@ export function drawSample(
   const dy = target
     ? (target[1] - 0.5) * 130
     : 65 * Math.sin(time * 0.0017 + 0.8)
-  const angle = Math.atan2(dy, dx) + Math.PI / 2,
-    ratio = Math.sqrt(Math.max(0.2, 1 - (dx * dx + dy * dy) / 135 ** 2))
+  const angle = Math.atan2(dy, dx) + Math.PI / 2
+  const ratio = Math.sqrt(Math.max(0.2, 1 - (dx * dx + dy * dy) / 135 ** 2))
   ctx.fillStyle = "#616760"
   ctx.beginPath()
   ctx.ellipse(cx + dx, cy + dy, 70, 70 * ratio, angle, 0, Math.PI * 2)

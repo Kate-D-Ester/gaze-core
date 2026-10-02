@@ -1,18 +1,17 @@
+import { applyAffineMapping, fitAffineMapping } from "../calibration-mapping"
 import type { CalibrationSample } from "../calibration.types"
 import type { Point, Vector3 } from "../eye-tracking.types"
+import { rotateHeadVector } from "./head-geometry"
+import { isNeutralHeadPose } from "./head-movement"
 import type { HeadPose } from "./head-pose.types"
+import type { HeadRayFitResult } from "./head-ray-fit.types"
+import { intersectHeadRay } from "./head-ray-model"
 import type {
   HeadRayGeometry,
   HeadRayMeasurement,
 } from "./head-ray-model.types"
-import type { ParameterBounds } from "./nonlinear-fit.types"
-import { rotateHeadVector } from "./head-geometry"
-import { fitAffineMapping, applyAffineMapping } from "../calibration-mapping"
-import { intersectHeadRay } from "./head-ray-model"
 import { fitNonlinearModel } from "./nonlinear-fit"
-import { isNeutralHeadPose } from "./head-movement"
-import type { HeadRayFitResult } from "./head-ray-fit.types"
-
+import type { ParameterBounds } from "./nonlinear-fit.types"
 export const HEAD_RAY_PARAMETER_COUNT = 18
 const PARAMETER_BOUNDS: ParameterBounds = {
   minimum: [
@@ -38,7 +37,6 @@ const PARAMETER_BOUNDS: ParameterBounds = {
     Math.log(2),
   ],
 }
-
 function geometryFromParameters(
   base: HeadRayGeometry,
   parameters: number[]
@@ -52,7 +50,6 @@ function geometryFromParameters(
     screenWidth: Math.exp(parameters[17]),
   }
 }
-
 function initialGeometry(
   samples: CalibrationSample[],
   reference: HeadPose,
@@ -66,7 +63,9 @@ function initialGeometry(
         sample.headPose && isNeutralHeadPose(sample.headPose, reference)
     )
     .slice(0, 9)
-  if (neutral.length < 4) return null
+  if (neutral.length < 4) {
+    return null
+  }
   const featureCenter: Point = [0, 0]
   const featureScale: Point = [0, 0]
   for (let axis = 0; axis < 2; axis++) {
@@ -83,7 +82,9 @@ function initialGeometry(
       )
     )
   }
-  if (featureScale.some((value) => value < 0.002)) return null
+  if (featureScale.some((value) => value < 0.002)) {
+    return null
+  }
   const mapping = fitAffineMapping(
     neutral.map((sample) => ({
       target: sample.target,
@@ -92,7 +93,9 @@ function initialGeometry(
       ) as Point,
     }))
   )
-  if (!mapping) return null
+  if (!mapping) {
+    return null
+  }
   // Back-project the neutral grid only as a starting estimate. Motion data determines the geometry.
   const depth = -reference.position[2]
   const translation = reference.position.map(
@@ -125,7 +128,9 @@ function initialGeometry(
     )
   )
   const denominator = local[0][2]
-  if (denominator <= 0.1) return null
+  if (denominator <= 0.1) {
+    return null
+  }
   return {
     referenceDepth: depth,
     featureCenter,
@@ -147,7 +152,6 @@ function initialGeometry(
     screenAspectRatio: aspect,
   }
 }
-
 export function fitHeadRayGeometryWithDiagnostics(
   samples: CalibrationSample[],
   readings: HeadRayMeasurement[],
@@ -166,7 +170,9 @@ export function fitHeadRayGeometryWithDiagnostics(
       0.65,
       screenRotation
     )
-    if (!base) continue
+    if (!base) {
+      continue
+    }
     const initial = [
       ...base.eyeRay,
       ...base.eyeOrigin,
@@ -186,7 +192,9 @@ export function fitHeadRayGeometryWithDiagnostics(
             reading.feature,
             reading.pose
           )
-          if (!point) return null
+          if (!point) {
+            return null
+          }
           const weight = Math.sqrt(reading.weight)
           residuals.push(
             weight * (point[0] - reading.target[0]),
@@ -196,14 +204,22 @@ export function fitHeadRayGeometryWithDiagnostics(
         return residuals
       }
     )
-    if (!result) continue
+    if (!result) {
+      continue
+    }
     bestRank = Math.max(bestRank, result.rank)
-    if (result.rank !== HEAD_RAY_PARAMETER_COUNT) continue
+    if (result.rank !== HEAD_RAY_PARAMETER_COUNT) {
+      continue
+    }
     const error = result.error * Math.sqrt(readings.length / samples.length)
-    if (error >= bestError) continue
+    if (error >= bestError) {
+      continue
+    }
     best = geometryFromParameters(base, result.parameters)
     bestError = error
-    if (error < 0.005) break
+    if (error < 0.005) {
+      break
+    }
   }
   if (!best) {
     return {
@@ -228,7 +244,6 @@ export function fitHeadRayGeometryWithDiagnostics(
   }
   return { geometry: best, issue: null }
 }
-
 export function fitHeadRayGeometry(
   samples: CalibrationSample[],
   readings: HeadRayMeasurement[],
@@ -238,7 +253,6 @@ export function fitHeadRayGeometry(
   return fitHeadRayGeometryWithDiagnostics(samples, readings, reference, aspect)
     .geometry
 }
-
 /** Pure translation holds reveal which screen axes an input mirror reverses.
  * This only orders optimizer starts. The fit and independent holdouts still decide acceptance. */
 function initialScreenOrientations(
@@ -255,7 +269,9 @@ function initialScreenOrientations(
     (sample) => sample.headPose && isNeutralHeadPose(sample.headPose, reference)
   )
   const mapping = fitAffineMapping(neutral)
-  if (!mapping) return rotations
+  if (!mapping) {
+    return rotations
+  }
   const covariance: Point = [0, 0]
   for (const sample of samples) {
     const pose = sample.headPose
@@ -264,18 +280,26 @@ function initialScreenOrientations(
       pose.rotation.some(
         (value, axis) => Math.abs(value - reference.rotation[axis]) > 0.04
       )
-    )
+    ) {
       continue
+    }
     const point = applyAffineMapping(mapping, sample.feature)
-    if (!point) continue
-    for (let axis = 0; axis < 2; axis++)
+    if (!point) {
+      continue
+    }
+    for (let axis = 0; axis < 2; axis++) {
       covariance[axis] +=
         (point[axis] - sample.target[axis]) *
         (pose.position[axis] - reference.position[axis])
+    }
   }
   let preferred = 0
-  if (covariance[0] < 0) preferred += 1
-  if (covariance[1] < 0) preferred += 2
+  if (covariance[0] < 0) {
+    preferred += 1
+  }
+  if (covariance[1] < 0) {
+    preferred += 2
+  }
   return [
     rotations[preferred],
     ...rotations.filter((_, index) => index !== preferred),

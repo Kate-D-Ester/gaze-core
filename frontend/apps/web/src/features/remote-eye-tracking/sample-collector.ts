@@ -1,5 +1,8 @@
-import type { CalibrationSample, Point, RemoteObservation } from "./types"
-
+import type {
+  CalibrationSample,
+  Point,
+  RemoteObservation,
+} from "./remote-eye-tracking.types"
 export const REQUIRED_TARGET_SAMPLES = 18
 /** Records synchronized eye + head observations; head motion is never averaged away. */
 export class TargetCollector {
@@ -27,8 +30,9 @@ export class TargetCollector {
       !observation.feature?.length ||
       !observation.feature.every(Number.isFinite) ||
       !observation.pose
-    )
+    ) {
       return false
+    }
     this.lastTimestamp = observation.timestamp
     this.samples.push({
       target: [...this.target],

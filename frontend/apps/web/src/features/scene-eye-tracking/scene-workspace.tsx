@@ -1,52 +1,52 @@
-import { RecordingControls } from "./recording-controls"
-import { useEffect, useState } from "react"
 import { CircleDot, Clock3, Eye, Hand, Wifi } from "lucide-react"
+import { useEffect, useState } from "react"
 import { CameraTransformControls } from "../eye-tracking/components/camera-transform-controls"
+import { SetupStepPanel } from "../eye-tracking/components/setup-step-panel"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
-import type { TrackerController } from "../eye-tracking/use-tracker.types"
-import { V2StepPanel } from "../eye-tracking/components/v2-step-panel"
-import { useSceneCamera } from "./use-scene-camera"
-import { useHandTracker } from "./use-hand-tracker"
-import { useMarkerTracker } from "./use-marker-tracker"
-import { useSceneSession } from "./use-scene-session"
-import { canUseSceneCalibration } from "./scene-session"
-import { useCalibrationProfiles } from "./use-calibration-profiles"
-import { CalibrationProfileControls } from "./calibration-profile-controls"
+import { EyeFieldStyles } from "../tracking-ui/control-styles"
+import {
+  SceneDelaySettingsStyles,
+  SceneMainPreviewStyles,
+  SceneSourceHeadingStyles,
+  SceneSourceTitleStyles,
+  SceneStatusStripStyles,
+  SceneWorkspaceStyles,
+} from "../tracking-ui/scene-styles"
+import { StatusLightStyles } from "../tracking-ui/layout-styles"
 import { MAX_HAND_RECOVERY_MS } from "./calibration"
-import { ScenePreview } from "./scene-preview"
 import { CalibrationEyePreview } from "./calibration-eye-preview"
-import { ScreenCalibrationMarker } from "./screen-calibration-marker"
+import { CalibrationProfileControls } from "./calibration-profile-controls"
 import { sceneEyeEvidence } from "./eye-evidence"
+import { RecordingControls } from "./recording-controls"
 import {
   FingerControls,
   SceneLiveControls,
   SceneSourceControls,
 } from "./scene-controls"
-import "./scene.css"
+import { ScenePreview } from "./scene-preview"
+import { canUseSceneCalibration } from "./scene-session"
+import type { SceneWorkspaceProps } from "./scene-workspace.types"
+import { ScreenCalibrationMarker } from "./screen-calibration-marker"
+import { useCalibrationProfiles } from "./use-calibration-profiles"
+import { useHandTracker } from "./use-hand-tracker"
+import { useMarkerTracker } from "./use-marker-tracker"
+import { useSceneCamera } from "./use-scene-camera"
+import { useSceneSession } from "./use-scene-session"
+export type { SceneStatus } from "./scene-workspace.types"
 const NAMES = ["Scene camera", "Calibration", "Live scene gaze"]
-export type SceneStatus = {
-  connected: boolean
-  calibrated: boolean
-  deviceId?: string
-  recording?: boolean
-}
 export function SceneWorkspace({
   tracker,
   step,
   onStepChange,
   onStatus,
   eyeRevision,
-}: {
-  tracker: TrackerController
-  step: number
-  onStepChange: (step: number) => void
-  onStatus: (status: SceneStatus) => void
-  eyeRevision: number
-}) {
+}: SceneWorkspaceProps) {
   const [recording, setRecording] = useState(false)
   const [eyeClock, setEyeClock] = useState(0)
   useEffect(() => {
-    if (step < 0) return
+    if (step < 0) {
+      return
+    }
     const tick = () => setEyeClock(performance.now())
     tick()
     const timer = setInterval(tick, 100)
@@ -91,13 +91,14 @@ export function SceneWorkspace({
   )
   const referenceTracker = isMarker ? markers : hands
   useEffect(() => {
-    if (isMarker && markers.marker)
+    if (isMarker && markers.marker) {
       state.session.observeReference(
         { ...markers.marker, kind: "marker" },
         performance.now()
       )
-    else if (!isMarker && hands.hand)
+    } else if (!isMarker && hands.hand) {
       state.session.observeHand(hands.hand, performance.now())
+    }
   }, [hands.hand, isMarker, markers.marker, state.session])
   const calibrated = canUseSceneCalibration(state)
   useEffect(() => {
@@ -135,9 +136,13 @@ export function SceneWorkspace({
     (hands.hand?.landmarks.length !== 1 ||
       displayHand.scene.id !== hands.hand.scene.id)
   let handStatus = "Hand not detected"
-  if (hands.hand?.landmarks.length === 1) handStatus = "One hand detected"
-  else if (handRecovering) handStatus = "Reacquiring hand"
-  else if (hands.hand?.landmarks.length) handStatus = "Show only one hand"
+  if (hands.hand?.landmarks.length === 1) {
+    handStatus = "One hand detected"
+  } else if (handRecovering) {
+    handStatus = "Reacquiring hand"
+  } else if (hands.hand?.landmarks.length) {
+    handStatus = "Show only one hand"
+  }
   const handDetails = [
     handStatus,
     hands.delegate,
@@ -147,30 +152,34 @@ export function SceneWorkspace({
   ]
     .filter(Boolean)
     .join(" · ")
+  const markerDetectionHint = markers.marker?.position
+    ? "Marker detected"
+    : "Show the center marker in the scene camera"
   const targetDetails = isMarker
-    ? (markers.marker?.reason ??
-      (markers.marker?.position
-        ? "Marker detected"
-        : "Show the center marker in the scene camera"))
+    ? (markers.marker?.reason ?? markerDetectionHint)
     : handDetails
   const TargetIcon = isMarker ? CircleDot : Hand
   let calibrationDescription =
     "Place one hand in the ring with your palm and index finger visible. Look at your physical fingertip, press Space to lock, then hold steady. Brief tracking losses pause collection. Keep a consistent working distance and recalibrate after headset movement."
-  if (isMarker)
+  if (isMarker) {
     calibrationDescription =
       "Aim the scene camera at this page's center marker. Look continuously at its red center, slowly move your head and pause for each tone. This one marker supplies nine camera-image positions, then five fresh accuracy checks. Use your normal working distance; reduce screen brightness if there is glare."
-  else if (state.method === "one-point")
+  } else if (state.method === "one-point") {
     calibrationDescription =
       "Look at your physical fingertip and press Space once. A prior verified mapping is reused when available; otherwise camera alignment is estimated. Adjust X/Y gain and offset in live view. One point cannot measure full-view accuracy."
+  }
   const description = [
     "Choose USB or a network stream. Mount both cameras together and keep them fixed relative to your eye.",
     calibrationDescription,
     "Map gaze to camera-image coordinates and check its accuracy.",
   ][active]
+  const targetReady = isMarker
+    ? !!markers.marker?.position
+    : displayHand?.landmarks.length === 1
   return (
     <section
       className={[
-        "scene-workspace",
+        `scene-workspace ${SceneWorkspaceStyles}`,
         showEye && "with-eye-preview",
         showEye && isMarker && "with-screen-marker",
       ]
@@ -179,12 +188,16 @@ export function SceneWorkspace({
       hidden={step < 0}
       aria-label="Scene camera workspace"
     >
-      <div className="scene-main-preview">
-        <div className="scene-source-heading">
-          <div className="scene-source-title">
+      <div
+        className={`scene-main-preview scene-camera-preview ${SceneMainPreviewStyles}`}
+      >
+        <div className={`scene-source-heading ${SceneSourceHeadingStyles}`}>
+          <div className={`scene-source-title ${SceneSourceTitleStyles}`}>
             <span
               className={
-                scene.connection === "live" ? "status-light on" : "status-light"
+                scene.connection === "live"
+                  ? `status-light ${StatusLightStyles} on`
+                  : `status-light ${StatusLightStyles}`
               }
             />
             <span>Scene camera</span>
@@ -217,7 +230,7 @@ export function SceneWorkspace({
           progress={state.collection?.progress ?? 0}
           connection={scene.connection}
         />
-        <div className="scene-status-strip">
+        <div className={`scene-status-strip ${SceneStatusStripStyles}`}>
           <span
             title={NETWORK_CONNECTION_LABELS[scene.connection]}
             aria-label={NETWORK_CONNECTION_LABELS[scene.connection]}
@@ -240,13 +253,7 @@ export function SceneWorkspace({
           <span
             className={[
               "scene-indicator",
-              (
-                isMarker
-                  ? !!markers.marker?.position
-                  : displayHand?.landmarks.length === 1
-              )
-                ? "ready"
-                : "",
+              targetReady ? "ready" : "",
               handRecovering ? "recovering" : "",
             ]
               .filter(Boolean)
@@ -261,7 +268,7 @@ export function SceneWorkspace({
       {showEye && (
         <CalibrationEyePreview tracker={tracker} evidence={eyeEvidence} />
       )}
-      <V2StepPanel
+      <SetupStepPanel
         stepName={NAMES[active]}
         description={description}
         error={scene.error || referenceTracker.error}
@@ -312,11 +319,13 @@ export function SceneWorkspace({
           />
         )}
         {active >= 1 && (
-          <details className="scene-delay-settings">
+          <details
+            className={`scene-delay-settings ${SceneDelaySettingsStyles}`}
+          >
             <summary title="Adjust timing if the network scene stream arrives later than the eye stream">
               <Clock3 size={14} aria-hidden="true" /> Timing
             </summary>
-            <label className="eye-field">
+            <label className={`eye-field ${EyeFieldStyles}`}>
               Delay · ms
               <input
                 type="number"
@@ -342,7 +351,7 @@ export function SceneWorkspace({
             onRecordingChange={setRecording}
           />
         </div>
-      </V2StepPanel>
+      </SetupStepPanel>
     </section>
   )
 }

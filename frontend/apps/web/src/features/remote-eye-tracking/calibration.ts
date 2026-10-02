@@ -1,14 +1,14 @@
 import { applyGazeOffset } from "../eye-tracking/gaze-offset"
+import type { CalibrationPointError } from "./calibration.types"
 import type {
   CalibrationSample,
   HeadPose,
+  Point,
   RemoteCalibration,
   RemoteMode,
   RemoteObservation,
-  Point,
   ValidationResult,
-} from "./types"
-
+} from "./remote-eye-tracking.types"
 export const CALIBRATION_TARGETS: Point[] = [
   [0.5, 0.5],
   [0.1, 0.1],
@@ -28,7 +28,6 @@ export const VALIDATION_TARGETS: Point[] = [
   [0.5, 0.6],
 ]
 const MIN_QUALITY = 0.45
-
 export function poseVector(pose: HeadPose): number[] {
   return [
     pose.yaw ?? 0,
@@ -76,17 +75,27 @@ function solve(matrix: number[][], rhs: number[]): number[] | null {
   const a = matrix.map((row, i) => [...row, rhs[i]!])
   for (let col = 0; col < rhs.length; col++) {
     let pivot = col
-    for (let row = col + 1; row < a.length; row++)
-      if (Math.abs(a[row]![col]!) > Math.abs(a[pivot]![col]!)) pivot = row
-    if (Math.abs(a[pivot]![col]!) < 1e-12) return null
+    for (let row = col + 1; row < a.length; row++) {
+      if (Math.abs(a[row]![col]!) > Math.abs(a[pivot]![col]!)) {
+        pivot = row
+      }
+    }
+    if (Math.abs(a[pivot]![col]!) < 1e-12) {
+      return null
+    }
     ;[a[col], a[pivot]] = [a[pivot]!, a[col]!]
     const divisor = a[col]![col]!
-    for (let j = col; j <= rhs.length; j++) a[col]![j] = a[col]![j]! / divisor
+    for (let j = col; j <= rhs.length; j++) {
+      a[col]![j] = a[col]![j]! / divisor
+    }
     for (let row = 0; row < a.length; row++) {
-      if (row === col) continue
+      if (row === col) {
+        continue
+      }
       const factor = a[row]![col]!
-      for (let j = col; j <= rhs.length; j++)
+      for (let j = col; j <= rhs.length; j++) {
         a[row]![j] = a[row]![j]! - factor * a[col]![j]!
+      }
     }
   }
   const result = a.map((row) => row[rhs.length]!)
@@ -116,7 +125,9 @@ function train(samples: CalibrationSample[], regularization: number) {
       ) / total
     )
   )
-  if (scale.every((s) => s < 1e-6)) return null
+  if (scale.every((s) => s < 1e-6)) {
+    return null
+  }
   const normalizedScale = scale.map((s) => Math.max(s, 0.001))
   const matrix = Array.from({ length: dimension + 1 }, () =>
     Array<number>(dimension + 1).fill(0)
@@ -133,13 +144,17 @@ function train(samples: CalibrationSample[], regularization: number) {
       ),
     ]
     for (let a = 0; a < row.length; a++) {
-      for (let b = 0; b < row.length; b++)
+      for (let b = 0; b < row.length; b++) {
         matrix[a]![b] += weights[i]! * row[a]! * row[b]!
-      for (let axis = 0; axis < 2; axis++)
+      }
+      for (let axis = 0; axis < 2; axis++) {
         rhs[axis]![a] += weights[i]! * row[a]! * sample.target[axis]!
+      }
     }
   }
-  for (let j = 1; j <= dimension; j++) matrix[j]![j] += regularization
+  for (let j = 1; j <= dimension; j++) {
+    matrix[j]![j] += regularization
+  }
   const x = solve(matrix, rhs[0]!)
   const y = solve(matrix, rhs[1]!)
   return x && y
@@ -167,14 +182,15 @@ function project(
     coefficient.reduce((sum, c, i) => sum + c * row[i]!, 0)
   ) as Point
 }
-
 export function fitRemoteCalibration(
   mode: RemoteMode,
   input: CalibrationSample[]
 ): RemoteCalibration | null {
   const dimension = input.find((s) => validObservation(s.observation))
     ?.observation.feature?.length
-  if (!dimension || dimension > 64) return null
+  if (!dimension || dimension > 64) {
+    return null
+  }
   const samples = input.filter(
     (s) =>
       validObservation(s.observation, dimension) &&
@@ -185,8 +201,9 @@ export function fitRemoteCalibration(
     groups.size < 9 ||
     samples.length < 27 ||
     [...groups.values()].some((group) => group.length < 3)
-  )
+  ) {
     return null
+  }
   const targets = [...groups.values()].map((group) => group[0]!.target)
   if (
     [0, 1].some(
@@ -195,14 +212,16 @@ export function fitRemoteCalibration(
           Math.min(...targets.map((t) => t[axis]!)) <
         0.5
     )
-  )
+  ) {
     return null
+  }
   if (
     samples.some(
       (s) => s.observation.pose!.kind !== samples[0]!.observation.pose!.kind
     )
-  )
+  ) {
     return null
+  }
   let best = { regularization: 0, error: Infinity }
   // Whole target groups stay together: nearby frames and repeated pose passes must never leak into validation.
   for (const regularization of [0.001, 0.01, 0.1, 1, 10]) {
@@ -225,11 +244,17 @@ export function fitRemoteCalibration(
         }, 0) / heldOut.length
     }
     error /= groups.size
-    if (error < best.error) best = { regularization, error }
+    if (error < best.error) {
+      best = { regularization, error }
+    }
   }
-  if (!Number.isFinite(best.error) || best.error > 0.24) return null
+  if (!Number.isFinite(best.error) || best.error > 0.24) {
+    return null
+  }
   const model = train(samples, best.regularization)
-  if (!model) return null
+  if (!model) {
+    return null
+  }
   const poses = samples.map((s) => poseVector(s.observation.pose!))
   return {
     ...model,
@@ -250,8 +275,9 @@ export function poseSupported(
   calibration: RemoteCalibration,
   pose: HeadPose | null
 ): boolean {
-  if (!pose || pose.kind !== calibration.poseKind || pose.scale <= 0)
+  if (!pose || pose.kind !== calibration.poseKind || pose.scale <= 0) {
     return false
+  }
   const margins = [0.15, 0.15, 0.15, 0.06, 0.06, Math.log(1.25)]
   const vector = poseVector(pose)
   if (
@@ -261,8 +287,9 @@ export function poseSupported(
         v >= calibration.poseBounds.min[j]! - margins[j]! &&
         v <= calibration.poseBounds.max[j]! + margins[j]!
     )
-  )
+  ) {
     return false
+  }
   // A Cartesian box alone accepts unseen combinations (e.g. left translation + right yaw).
   return calibration.poseSamples.some(
     (sample) =>
@@ -279,8 +306,9 @@ export function predictRemoteGaze(
   if (
     !validObservation(observation, calibration.featureMean.length) ||
     !poseSupported(calibration, observation.pose)
-  )
+  ) {
     return null
+  }
   const point = project(calibration, observation.feature!)
   return point.every(Number.isFinite) ? point : null
 }
@@ -291,14 +319,18 @@ export function evaluateRemoteValidation(
   height: number,
   offset: Point = [0, 0]
 ): ValidationResult | null {
-  if (width <= 0 || height <= 0) return null
-  const groups = new Map<string, { point: Point; error: number }[]>()
+  if (width <= 0 || height <= 0) {
+    return null
+  }
+  const groups = new Map<string, CalibrationPointError[]>()
   for (const sample of samples) {
     const point = applyGazeOffset(
       predictRemoteGaze(calibration, sample.observation),
       offset
     )
-    if (!point) continue
+    if (!point) {
+      continue
+    }
     const pixels: Point = [point[0] * width, point[1] * height]
     const error = Math.hypot(
       (point[0] - sample.target[0]) * width,
@@ -309,11 +341,13 @@ export function evaluateRemoteValidation(
     group.push({ point: pixels, error })
     groups.set(key, group)
   }
-  if (!groups.size) return null
+  if (!groups.size) {
+    return null
+  }
   const errors: number[] = []
-  let mean = 0,
-    squared = 0,
-    jitter = 0
+  let mean = 0
+  let squared = 0
+  let jitter = 0
   for (const group of groups.values()) {
     const center: Point = [0, 0]
     for (const sample of group) {

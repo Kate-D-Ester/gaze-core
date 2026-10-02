@@ -1,13 +1,10 @@
-import { useCallback, useState } from "react"
 import { authClient } from "@/lib/auth-client"
 import type { SessionData } from "@/lib/auth.types"
-
+import { useCallback, useState } from "react"
 export function useAuthSession() {
   const [session, setSession] = useState<SessionData>(null)
   const [loadingSession, setLoadingSession] = useState(true)
-
   const isAuthenticated = Boolean(session?.user?.id)
-
   const loadSession = useCallback(async () => {
     setLoadingSession(true)
     try {
@@ -19,12 +16,10 @@ export function useAuthSession() {
       setLoadingSession(false)
     }
   }, [])
-
   const signOut = useCallback(async () => {
     await authClient.signOut()
     setSession(null)
   }, [])
-
   return {
     session,
     setSession,

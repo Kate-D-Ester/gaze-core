@@ -1,14 +1,6 @@
-import type { GazeMeasurement, HandObservation } from "./scene.types"
-export type SessionLog = {
-  createdAt: string
-  startedAt: number
-  endedAt: number | null
-  timeOrigin: number
-  metadata: Record<string, unknown>
-  measurements: GazeMeasurement[]
-  hands: HandObservation[]
-  truncated: boolean
-}
+import type { GazeMeasurement } from "./scene.types"
+import type { SessionLog } from "./session.types"
+export type { SessionLog } from "./session.types"
 export function createSessionLog(
   startedAt: number,
   metadata: Record<string, unknown>
@@ -32,8 +24,9 @@ export function appendMeasurement(
     !Number.isFinite(measurement.timestamp) ||
     measurement.timestamp < session.startedAt ||
     session.endedAt !== null
-  )
+  ) {
     return
+  }
   const previous = session.measurements.at(-1)
   if (
     previous &&
@@ -41,8 +34,9 @@ export function appendMeasurement(
     previous.sceneId === measurement.sceneId &&
     previous.valid === measurement.valid &&
     previous.reason === measurement.reason
-  )
+  ) {
     return
+  }
   if (session.measurements.length >= 18000) {
     session.truncated = true
     return

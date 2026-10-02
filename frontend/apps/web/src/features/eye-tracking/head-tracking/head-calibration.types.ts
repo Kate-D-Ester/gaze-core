@@ -1,9 +1,9 @@
 import type { AffineCoefficients } from "../calibration-mapping.types"
+import type { CalibrationFitIssue } from "../calibration-result.types"
 import type { GazeOrientation } from "../calibration.types"
+import type { HeadGazeModel } from "./head-gaze-model.types"
 import type { HeadPose } from "./head-pose.types"
 import type { HeadPoseEnvelope } from "./head-ray-model.types"
-import type { HeadGazeModel } from "./head-gaze-model.types"
-import type { CalibrationFitIssue } from "../calibration-result.types"
 
 export type HeadCompensation = HeadGazeModel & {
   reference: HeadPose

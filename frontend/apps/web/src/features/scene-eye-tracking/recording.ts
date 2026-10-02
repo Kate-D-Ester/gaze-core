@@ -1,43 +1,35 @@
-export type RecordingResult = {
-  blob: Blob
-  mimeType: string
-  extension: "mp4" | "webm"
-  startedAt: number
-  endedAt: number
-  error: string
-  capture: "canvas-reencode" | "usb-track"
-}
-export type RecordingOptions = {
-  maxBytes?: number
-  limitMs?: number
-  stream?: MediaStream | null
-  onLimit?: () => void
-  onStopped?: (result: RecordingResult) => void
-}
-export type RecordingController = {
-  start: () => void
-  stop: () => Promise<RecordingResult>
-  dispose: () => void
-}
+import type {
+  RecorderErrorEvent,
+  RecordingController,
+  RecordingOptions,
+  RecordingResult,
+} from "./recording.types"
+export type {
+  RecordingController,
+  RecordingOptions,
+  RecordingResult,
+} from "./recording.types"
 const MIMES = ["video/webm;codecs=vp8", "video/webm", "video/mp4"]
 export function createSceneRecording(
   canvas: HTMLCanvasElement,
   options: RecordingOptions = {}
 ): RecordingController {
-  let recorder: MediaRecorder | null = null,
-    stream: MediaStream | null = null,
-    startedAt = 0,
-    error = "",
-    chunks: Blob[] = [],
-    bytes = 0,
-    timer: ReturnType<typeof setTimeout> | undefined
-  let completed: RecordingResult | null = null,
-    finishPromise: Promise<RecordingResult> | null = null,
-    resolveFinish: ((result: RecordingResult) => void) | null = null,
-    stopping = false
+  let recorder: MediaRecorder | null = null
+  let stream: MediaStream | null = null
+  let startedAt = 0
+  let error = ""
+  let chunks: Blob[] = []
+  let bytes = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let completed: RecordingResult | null = null
+  let finishPromise: Promise<RecordingResult> | null = null
+  let resolveFinish: ((result: RecordingResult) => void) | null = null
+  let stopping = false
   let capture: RecordingResult["capture"] = "canvas-reencode"
   function finalize() {
-    if (completed) return
+    if (completed) {
+      return
+    }
     clearTimeout(timer)
     stream?.getTracks().forEach((track) => track.stop())
     stream = null
@@ -56,13 +48,16 @@ export function createSceneRecording(
     options.onStopped?.(completed)
   }
   function stop(): Promise<RecordingResult> {
-    if (!finishPromise)
+    if (!finishPromise) {
       return Promise.reject(new Error("Start a recording first."))
+    }
     if (!stopping && !completed) {
       stopping = true
       clearTimeout(timer)
       try {
-        if (recorder?.state !== "inactive") recorder?.stop()
+        if (recorder?.state !== "inactive") {
+          recorder?.stop()
+        }
         // Inactive can precede final dataavailable/stop on encoder failure.
         // Only onstop finalizes a successfully started recorder.
       } catch (cause) {
@@ -76,24 +71,29 @@ export function createSceneRecording(
     return finishPromise
   }
   function limit(reason: string) {
-    if (stopping || completed) return
+    if (stopping || completed) {
+      return
+    }
     error = reason
     options.onLimit?.()
     void stop()
   }
   return {
     start() {
-      if (finishPromise)
+      if (finishPromise) {
         throw new Error("Create a new recorder for each session.")
-      if (typeof MediaRecorder === "undefined")
+      }
+      if (typeof MediaRecorder === "undefined") {
         throw new Error(
           "This browser cannot record video. You can still save gaze coordinates."
         )
+      }
       const mimeType = MIMES.find((mime) => MediaRecorder.isTypeSupported(mime))
-      if (!mimeType)
+      if (!mimeType) {
         throw new Error(
           "No supported video recording codec. Use data logging or another browser."
         )
+      }
       try {
         if (options.stream) {
           stream = new MediaStream(
@@ -101,10 +101,11 @@ export function createSceneRecording(
           )
           capture = "usb-track"
         } else {
-          if (typeof canvas.captureStream !== "function")
+          if (typeof canvas.captureStream !== "function") {
             throw new Error(
               "This browser cannot capture canvas video. You can still save gaze coordinates."
             )
+          }
           stream = canvas.captureStream(30)
         }
         recorder = new MediaRecorder(stream, {
@@ -112,7 +113,9 @@ export function createSceneRecording(
           videoBitsPerSecond: 4000000,
         })
         recorder.ondataavailable = (event) => {
-          if (!event.data.size || completed) return
+          if (!event.data.size || completed) {
+            return
+          }
           if (
             bytes + event.data.size >
             (options.maxBytes ?? 128 * 1024 * 1024)
@@ -128,7 +131,7 @@ export function createSceneRecording(
         recorder.onstop = finalize
         recorder.onerror = (event) => {
           error =
-            (event as Event & { error?: Error }).error?.message ||
+            (event as Event & RecorderErrorEvent).error?.message ||
             "The video encoder stopped unexpectedly."
           void stop()
         }
@@ -155,7 +158,9 @@ export function createSceneRecording(
     },
     stop,
     dispose() {
-      if (finishPromise && !completed) void stop()
+      if (finishPromise && !completed) {
+        void stop()
+      }
     },
   }
 }

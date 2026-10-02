@@ -1,5 +1,4 @@
 import { createCameraRelayHandler } from "../src/features/eye-tracking/camera-relay-server"
-
 export function startCameraRelay(
   port = Number(process.env.GAZE_CAMERA_RELAY_PORT ?? 4022)
 ) {
@@ -7,7 +6,6 @@ export function startCameraRelay(
     process.env.GAZE_CAMERA_RELAY_ALLOWED_ORIGINS?.split(",")
       .map((origin) => origin.trim())
       .filter(Boolean)
-
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
@@ -17,11 +15,9 @@ export function startCameraRelay(
         : {}),
     }),
   })
-
   console.log(`Camera relay listening at ${server.url}`)
   return server
 }
-
 export async function startOrReuseCameraRelay(
   port = Number(process.env.GAZE_CAMERA_RELAY_PORT ?? 4022)
 ) {
@@ -35,7 +31,6 @@ export async function startOrReuseCameraRelay(
     ) {
       throw error
     }
-
     const origin = `http://127.0.0.1:${port}`
     try {
       const response = await fetch(`${origin}/health`, {
@@ -65,7 +60,6 @@ export async function startOrReuseCameraRelay(
     )
   }
 }
-
 if (import.meta.main) {
   startCameraRelay()
 }

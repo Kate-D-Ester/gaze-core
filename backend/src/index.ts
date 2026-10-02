@@ -11,8 +11,12 @@ async function stopServer() {
   process.exit(0)
 }
 
-process.once("SIGINT", () => void stopServer())
-process.once("SIGTERM", () => void stopServer())
+process.once("SIGINT", () => {
+  void stopServer()
+})
+process.once("SIGTERM", () => {
+  void stopServer()
+})
 
 console.log(`
 GazeCore backend is running at http://localhost:${port}

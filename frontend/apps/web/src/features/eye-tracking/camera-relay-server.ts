@@ -1,3 +1,5 @@
+import type { CameraRelayOptions } from "./camera-relay-server.types"
+export type { CameraRelayOptions } from "./camera-relay-server.types"
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:4014",
   "http://localhost:4014",
@@ -8,18 +10,11 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:4173",
   "http://localhost:4173",
 ]
-
-export type CameraRelayOptions = {
-  allowedOrigins?: readonly string[]
-  fetcher?: typeof fetch
-}
-
 export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
   const allowedOrigins = new Set(
     options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS
   )
   const fetcher = options.fetcher ?? fetch
-
   return async (request: Request): Promise<Response> => {
     const requestUrl = new URL(request.url)
     if (requestUrl.pathname === "/health" && request.method === "GET") {
@@ -28,7 +23,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
     if (requestUrl.pathname !== "/stream") {
       return new Response("Not found", { status: 404 })
     }
-
     const origin = request.headers.get("origin")
     if (!origin || !allowedOrigins.has(origin)) {
       return new Response(
@@ -38,7 +32,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         }
       )
     }
-
     const corsHeaders = createCorsHeaders(origin)
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders })
@@ -50,7 +43,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         corsHeaders
       )
     }
-
     const cameraUrl = parseCameraUrl(requestUrl.searchParams.get("url"))
     if (!cameraUrl) {
       return jsonError(
@@ -59,11 +51,11 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         corsHeaders
       )
     }
-
     const upstreamHeaders = new Headers({ Accept: "*/*" })
     const range = request.headers.get("range")
-    if (range) upstreamHeaders.set("Range", range)
-
+    if (range) {
+      upstreamHeaders.set("Range", range)
+    }
     let upstream: Response
     try {
       upstream = await fetcher(cameraUrl.href, {
@@ -72,7 +64,9 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         signal: request.signal,
       })
     } catch (error) {
-      if (request.signal.aborted) return new Response(null, { status: 499 })
+      if (request.signal.aborted) {
+        return new Response(null, { status: 499 })
+      }
       const message =
         error instanceof Error ? error.message : "Camera connection failed."
       return jsonError(
@@ -81,7 +75,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         corsHeaders
       )
     }
-
     if (upstream.status >= 300 && upstream.status < 400) {
       await upstream.body?.cancel().catch(() => {})
       return jsonError(
@@ -90,7 +83,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         corsHeaders
       )
     }
-
     const headers = new Headers(corsHeaders)
     headers.set(
       "Content-Type",
@@ -98,18 +90,20 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
     )
     for (const name of ["content-length", "content-range", "accept-ranges"]) {
       const value = upstream.headers.get(name)
-      if (value) headers.set(name, value)
+      if (value) {
+        headers.set(name, value)
+      }
     }
-
     return new Response(upstream.body, {
       status: upstream.status,
       headers,
     })
   }
 }
-
 function parseCameraUrl(input: string | null): URL | null {
-  if (!input) return null
+  if (!input) {
+    return null
+  }
   try {
     const url = new URL(input)
     if (
@@ -125,11 +119,11 @@ function parseCameraUrl(input: string | null): URL | null {
     return null
   }
 }
-
 function isLocalCameraHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "")
-  if (host.endsWith(".local")) return true
-
+  if (host.endsWith(".local")) {
+    return true
+  }
   const octets = host.split(".").map(Number)
   if (
     octets.length === 4 &&
@@ -142,12 +136,10 @@ function isLocalCameraHost(hostname: string): boolean {
       (first === 192 && second === 168)
     )
   }
-
   const ipv6 =
     host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
   return /^(fc|fd)[0-9a-f]{0,2}:/i.test(ipv6)
 }
-
 function createCorsHeaders(origin: string): Headers {
   return new Headers({
     "Access-Control-Allow-Origin": origin,
@@ -159,7 +151,6 @@ function createCorsHeaders(origin: string): Headers {
     Vary: "Origin",
   })
 }
-
 function jsonError(
   message: string,
   status: number,

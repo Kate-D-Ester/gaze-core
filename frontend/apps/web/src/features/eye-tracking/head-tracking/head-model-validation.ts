@@ -1,9 +1,6 @@
+import type { CalibrationSample } from "../calibration.types"
 import { collectHeadMeasurements } from "./head-calibration-data"
 import { projectHeadGaze } from "./head-gaze-model"
-import { fitHeadPoseMapping } from "./head-pose-mapping"
-import { fitHeadRayGeometryWithDiagnostics } from "./head-ray-fit"
-import type { CalibrationSample } from "../calibration.types"
-import type { HeadPose } from "./head-pose.types"
 import type {
   HeadGazeModel,
   HeadGazeModelFitResult,
@@ -12,11 +9,12 @@ import type {
   HeadModelMethod,
   HeadModelValidationResult,
 } from "./head-model-validation.types"
-
+import { fitHeadPoseMapping } from "./head-pose-mapping"
+import type { HeadPose } from "./head-pose.types"
+import { fitHeadRayGeometryWithDiagnostics } from "./head-ray-fit"
 const MAXIMUM_TRAINING_ERROR_PER_AXIS = 0.03
 const MAXIMUM_VALIDATION_ERROR = 0.03
 const MAXIMUM_FIXATION_ERROR = 0.06
-
 function fitModel(
   samples: CalibrationSample[],
   reference: HeadPose,
@@ -24,7 +22,7 @@ function fitModel(
   method: HeadModelMethod
 ): HeadGazeModelFitResult {
   const readings = collectHeadMeasurements(samples)
-  if (!readings)
+  if (!readings) {
     return {
       model: null,
       issue: {
@@ -32,9 +30,12 @@ function fitModel(
         message: "Head readings were missing. Reconnect the front camera.",
       },
     }
+  }
   if (method === "calibrated-pose-regression") {
     const mapping = fitHeadPoseMapping(readings, reference)
-    if (mapping) return { model: { method, mapping }, issue: null }
+    if (mapping) {
+      return { model: { method, mapping }, issue: null }
+    }
     return {
       model: null,
       issue: {
@@ -50,17 +51,20 @@ function fitModel(
     reference,
     aspect
   )
-  if (!fitted.geometry) return { model: null, issue: fitted.issue }
+  if (!fitted.geometry) {
+    return { model: null, issue: fitted.issue }
+  }
   return { model: { method, geometry: fitted.geometry }, issue: null }
 }
-
 function fixationSquaredError(
   model: HeadGazeModel,
   sample: CalibrationSample,
   reference: HeadPose
 ): number {
   const readings = collectHeadMeasurements([sample])
-  if (!readings) return Infinity
+  if (!readings) {
+    return Infinity
+  }
   let error = 0
   for (const reading of readings) {
     const point = projectHeadGaze(
@@ -69,7 +73,9 @@ function fixationSquaredError(
       reading.pose,
       reference
     )
-    if (!point) return Infinity
+    if (!point) {
+      return Infinity
+    }
     error +=
       reading.weight *
       ((point[0] - reading.target[0]) ** 2 +
@@ -78,7 +84,6 @@ function fixationSquaredError(
   // Average squared errors, not predictions: opposite errors must not cancel each other.
   return error
 }
-
 /** Both model families face the same training and whole-fixation accuracy gates. */
 export function fitValidatedHeadModel(
   samples: CalibrationSample[],
@@ -94,7 +99,9 @@ export function fitValidatedHeadModel(
     validationError: Infinity,
     maximumValidationError: Infinity,
   }
-  if (!fitted.model) return failed
+  if (!fitted.model) {
+    return failed
+  }
   const model = fitted.model
   const trainingError = Math.sqrt(
     samples.reduce(
@@ -117,19 +124,22 @@ export function fitValidatedHeadModel(
       },
     }
   }
-  if (!validate)
+  if (!validate) {
     return {
       model,
       issue: null,
       validationError: trainingError * Math.sqrt(2),
       maximumValidationError: 0,
     }
+  }
   let squaredError = 0
   let maximumValidationError = 0
   for (let index = 0; index < samples.length; index++) {
     const training = samples.filter((_, sampleIndex) => sampleIndex !== index)
     const heldOut = fitModel(training, reference, aspect, method)
-    if (!heldOut.model) return { ...failed, issue: heldOut.issue }
+    if (!heldOut.model) {
+      return { ...failed, issue: heldOut.issue }
+    }
     const error = fixationSquaredError(heldOut.model, samples[index], reference)
     squaredError += error
     maximumValidationError = Math.max(maximumValidationError, Math.sqrt(error))

@@ -1,14 +1,21 @@
 import {
   Crosshair,
+  Download,
   FlipHorizontal2,
   FlipVertical2,
   UserRound,
-  Download,
 } from "lucide-react"
+import {
+  EyeActionRowStyles,
+  EyeButtonStyles,
+  EyeGuidanceRowStyles,
+  EyeSmallStyles,
+  EyeStatusIndicatorStyles,
+} from "../../tracking-ui/control-styles"
+import { EyeCameraOrientationStyles } from "../../tracking-ui/head-tracking-styles"
 import { EyeActionButton } from "../components/eye-action-button"
 import { HelpTip } from "../components/help-tip"
 import type { CalibrationControlsProps } from "./calibration-controls.types"
-
 export function CalibrationControls({
   usable,
   locked,
@@ -21,11 +28,11 @@ export function CalibrationControls({
 }: CalibrationControlsProps) {
   return (
     <>
-      <div className="eye-guidance-row">
-        <span className="eye-small">9 points · 20–30s</span>
+      <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
+        <span className={`eye-small ${EyeSmallStyles}`}>9 points · 20–30s</span>
         {headEnabled && (
           <span
-            className="eye-status-indicator"
+            className={`eye-status-indicator ${EyeStatusIndicatorStyles}`}
             role="img"
             aria-label="Head camera enabled"
             title="Head camera enabled"
@@ -35,9 +42,9 @@ export function CalibrationControls({
           </span>
         )}
       </div>
-      <div className="eye-action-row">
+      <div className={`eye-action-row ${EyeActionRowStyles}`}>
         <button
-          className="eye-button primary"
+          className={`eye-button ${EyeButtonStyles} primary`}
           disabled={!usable || !locked || !headReady}
           onClick={onStart}
         >
@@ -53,16 +60,16 @@ export function CalibrationControls({
           </EyeActionButton>
         )}
       </div>
-      <div className="eye-camera-orientation">
-        <div className="eye-guidance-row">
-          <span className="eye-small">Orientation</span>
+      <div className={`eye-camera-orientation ${EyeCameraOrientationStyles}`}>
+        <div className={`eye-guidance-row ${EyeGuidanceRowStyles}`}>
+          <span className={`eye-small ${EyeSmallStyles}`}>Orientation</span>
           <HelpTip
             label="Eye camera orientation help"
             text="Mount the eye camera upright. Toggle horizontal or vertical mirroring if eye movement responds in the opposite direction."
           />
         </div>
         <div
-          className="eye-action-row"
+          className={`eye-action-row ${EyeActionRowStyles}`}
           role="group"
           aria-label="Eye camera orientation"
         >

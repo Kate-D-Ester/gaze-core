@@ -1,14 +1,25 @@
-import { useEffect, useRef, useState } from "react"
 import { ArrowRight, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import {
+  EyeButtonStyles,
+  EyeIconButtonStyles,
+  EyeSmallStyles,
+} from "../tracking-ui/control-styles"
+import {
+  EyeCalibrationStyles,
+  EyeCalibrationTargetStyles,
+  EyeCalibrationTopStyles,
+  EyeCalibrationWelcomeStyles,
+} from "../tracking-ui/calibration-styles"
+import { EyeHeadFloatingStyles } from "../tracking-ui/head-tracking-styles"
 import { gazeFeature, mapGaze } from "./calibration"
-import { CalibrationSession } from "./calibration-session"
-import { HeadPreview } from "./head-tracking/head-preview"
-import { CalibrationTarget } from "./calibration-target"
 import { CalibrationFeedback } from "./calibration-feedback"
 import type { CalibrationOverlayProps } from "./calibration-overlay.types"
+import { CalibrationSession } from "./calibration-session"
 import type { CalibrationObservation } from "./calibration-session.types"
+import { CalibrationTarget } from "./calibration-target"
+import { HeadPreview } from "./head-tracking/head-preview"
 import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
-
 export function CalibrationOverlay({
   tracker,
   head,
@@ -45,7 +56,9 @@ export function CalibrationOverlay({
   }, [onComplete])
   useEffect(() => {
     const container = dialog.current
-    if (!container || container.contains(document.activeElement)) return
+    if (!container || container.contains(document.activeElement)) {
+      return
+    }
     container
       .querySelector<HTMLButtonElement>("button:not([disabled])")
       ?.focus()
@@ -61,7 +74,9 @@ export function CalibrationOverlay({
   useEffect(() => {
     const synchronizer = new GazeFrameSynchronizer()
     const timer = setInterval(() => {
-      if (submitted.current) return
+      if (submitted.current) {
+        return
+      }
       const now = performance.now()
       const pair = needsHead
         ? synchronizer.read(latest.current, headHistory.current, now)
@@ -86,11 +101,15 @@ export function CalibrationOverlay({
       session.observe(observation, now)
       if (before.phase !== "intro" && onDiagnosticReading) {
         let point = null
-        if (calibration && feature)
+        if (calibration && feature) {
           point = mapGaze(calibration, feature, pair?.head)
+        }
         let status = "paired"
-        if (!observation) status = "eye-lost"
-        else if (needsHead && !pair) status = "unpaired"
+        if (!observation) {
+          status = "eye-lost"
+        } else if (needsHead && !pair) {
+          status = "unpaired"
+        }
         onDiagnosticReading({
           mode: validation ? "validation" : "calibration",
           now,
@@ -121,12 +140,10 @@ export function CalibrationOverlay({
     calibration,
     validation,
   ])
-
   function start(): void {
     session.start(performance.now())
     setSnapshot(session.snapshot)
   }
-
   const intro = snapshot.phase === "intro"
   const failed = snapshot.phase === "error"
   const waiting =
@@ -143,17 +160,23 @@ export function CalibrationOverlay({
     title = "Follow the dots to check your accuracy"
     startLabel = "Start validation"
   }
-  if (failed) title = "Let’s try that again"
+  if (failed) {
+    title = "Let’s try that again"
+  }
   return (
     <div
       ref={dialog}
-      className="eye-calibration"
+      className={`eye-calibration ${EyeCalibrationStyles}`}
       role="dialog"
       aria-modal="true"
       aria-label={validation ? "Validate gaze accuracy" : "Calibrate gaze"}
       onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel()
-        if (event.key !== "Tab") return
+        if (event.key === "Escape") {
+          onCancel()
+        }
+        if (event.key !== "Tab") {
+          return
+        }
         const buttons = Array.from(
           event.currentTarget.querySelectorAll<HTMLButtonElement>(
             "button:not([disabled])"
@@ -171,10 +194,10 @@ export function CalibrationOverlay({
         }
       }}
     >
-      <div className="eye-calibration-top">
+      <div className={`eye-calibration-top ${EyeCalibrationTopStyles}`}>
         <span>{intro || failed || fitting ? snapshot.label : ""}</span>
         <button
-          className="eye-icon-button"
+          className={`eye-icon-button ${EyeIconButtonStyles}`}
           autoFocus={!intro}
           onClick={onCancel}
           aria-label="Cancel calibration"
@@ -185,19 +208,23 @@ export function CalibrationOverlay({
       </div>
       {head.enabled && (
         <div
-          className={`eye-head-floating ${snapshot.target[0] <= 0.5 ? "on-right" : ""}`}
+          className={`eye-head-floating ${EyeHeadFloatingStyles} ${snapshot.target[0] <= 0.5 ? "on-right" : ""}`}
         >
           <HeadPreview head={head} compact />
         </div>
       )}
       {(intro || failed || fitting) && (
-        <div className="eye-calibration-welcome">
+        <div
+          className={`eye-calibration-welcome ${EyeCalibrationWelcomeStyles}`}
+        >
           <h2>{fitting ? "Fitting calibration…" : title}</h2>
           {intro && needsHead && !validation && !fitting && (
-            <p className="eye-small">{introduction}</p>
+            <p className={`eye-small ${EyeSmallStyles}`}>{introduction}</p>
           )}
           {source?.kind === "sample" && (
-            <p className="eye-small">Synthetic sample · simulated results</p>
+            <p className={`eye-small ${EyeSmallStyles}`}>
+              Synthetic sample · simulated results
+            </p>
           )}
           {failed && (
             <p className="eye-calibration-error" role="alert">
@@ -206,7 +233,7 @@ export function CalibrationOverlay({
           )}
           {!failed && !fitting && (
             <button
-              className="eye-button primary eye-calibration-start"
+              className={`eye-button ${EyeButtonStyles} primary eye-calibration-start`}
               autoFocus
               disabled={needsHead && head.status !== "tracking"}
               onClick={start}
@@ -217,14 +244,14 @@ export function CalibrationOverlay({
           )}
           {failed && (
             <button
-              className="eye-button primary eye-calibration-start"
+              className={`eye-button ${EyeButtonStyles} primary eye-calibration-start`}
               onClick={onCancel}
             >
               Back to setup
             </button>
           )}
           {intro && needsHead && head.status !== "tracking" && (
-            <p className="eye-small">
+            <p className={`eye-small ${EyeSmallStyles}`}>
               Keep your face visible in the front camera to start.
             </p>
           )}
@@ -233,7 +260,7 @@ export function CalibrationOverlay({
       {!intro && !failed && !fitting && (
         <>
           <div
-            className="eye-calibration-target"
+            className={`eye-calibration-target ${EyeCalibrationTargetStyles}`}
             style={{
               left: `${snapshot.target[0] * 100}%`,
               top: `${snapshot.target[1] * 100}%`,

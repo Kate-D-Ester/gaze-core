@@ -1,10 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
-import { SceneSession } from "./scene-session"
-import type { SceneCamera } from "./scene-camera"
-import { sceneEyeEvidence } from "./eye-evidence"
 import { readCalibrationMethod } from "./calibration-preferences"
-
+import { sceneEyeEvidence } from "./eye-evidence"
+import type { SceneCamera } from "./scene-camera"
+import { SceneSession } from "./scene-session"
 export function useSceneSession(
   tracker: TrackerController,
   camera: SceneCamera,
@@ -21,14 +20,18 @@ export function useSceneSession(
   }, [session, identity, tracker.transform, camera])
   useEffect(() => {
     const frame = tracker.frame
-    if (!frame) return
+    if (!frame) {
+      return
+    }
     const now = performance.now()
     const { observation } = sceneEyeEvidence(
       frame,
       tracker.settings.locked,
       now
     )
-    if (observation) session.addEye(observation, now)
+    if (observation) {
+      session.addEye(observation, now)
+    }
   }, [session, tracker.frame, tracker.settings.locked, identity])
   useEffect(() => {
     const measure = () => {
@@ -36,8 +39,8 @@ export function useSceneSession(
       session.measure(camera.latest, now)
       session.checkCaptureFreshness(now)
     }
-    const unsubscribe = camera.subscribe(measure),
-      timer = setInterval(measure, 100)
+    const unsubscribe = camera.subscribe(measure)
+    const timer = setInterval(measure, 100)
     return () => {
       unsubscribe()
       clearInterval(timer)

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { TargetCollector } from "../../apps/web/src/features/remote-eye-tracking/sample-collector"
-import type { RemoteObservation } from "../../apps/web/src/features/remote-eye-tracking/types"
+import type { RemoteObservation } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 function observation(timestamp: number, head: number): RemoteObservation {
   return {
     timestamp,

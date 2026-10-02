@@ -1,7 +1,7 @@
 import type { Point, TrackerFormat } from "../eye-tracking/eye-tracking.types"
 import type {
-  CameraOrientation,
   CalibrationMethod,
+  CameraOrientation,
   SceneCalibration,
 } from "./scene.types"
 
