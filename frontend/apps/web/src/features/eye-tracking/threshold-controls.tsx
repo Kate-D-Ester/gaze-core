@@ -1,4 +1,6 @@
 import { useState, type CSSProperties } from "react"
+import { SlidersHorizontal, WandSparkles } from "lucide-react"
+import { HelpTip } from "./components/help-tip"
 import type { ThresholdControlsProps } from "./threshold-controls.types"
 
 export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
@@ -25,11 +27,27 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
       <div className="eye-threshold-heading">
         <div className="eye-threshold-title">
           <strong>Threshold</strong>
-          <span>{manual ? "Pupil cutoff" : "Adaptive"}</span>
         </div>
+        <HelpTip
+          label="Threshold help"
+          text={
+            manual
+              ? "Adjust the pupil cutoff: 0 is dark, 255 is light."
+              : "Auto follows the pupil rim. Bias makes the cutoff darker or lighter."
+          }
+        />
+      </div>
+      <div className="eye-threshold-tuning">
         {spatial && (
-          <div className="eye-threshold-modes" aria-label="Threshold mode">
+          <div
+            className="eye-threshold-modes"
+            role="group"
+            aria-label="Threshold mode"
+          >
             <button
+              aria-label="Auto threshold"
+              title="Automatic threshold"
+              data-tooltip="Automatic threshold"
               aria-pressed={!manual}
               onClick={() => {
                 if (!manual) return
@@ -37,9 +55,12 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
                 update({ thresholdMode: "auto", threshold: 0 })
               }}
             >
-              Auto
+              <WandSparkles size={16} aria-hidden="true" />
             </button>
             <button
+              aria-label="Manual threshold"
+              title="Manual threshold"
+              data-tooltip="Manual threshold"
               aria-pressed={manual}
               onClick={() => {
                 if (manual) return
@@ -50,57 +71,52 @@ export function ThresholdControls({ tracker, update }: ThresholdControlsProps) {
                 })
               }}
             >
-              Manual
+              <SlidersHorizontal size={16} aria-hidden="true" />
             </button>
           </div>
         )}
+        <div className="eye-threshold-control-row">
+          <label
+            className="eye-threshold-field-label"
+            htmlFor="eye-threshold-range"
+          >
+            {manual ? "Cutoff" : "Bias"}
+          </label>
+          <input
+            id="eye-threshold-range"
+            className="eye-threshold-slider"
+            type="range"
+            aria-label={manual ? "Pupil threshold" : "Auto threshold bias"}
+            aria-valuetext={
+              manual ? `${value} dark-pupil cutoff` : `Automatic bias ${value}`
+            }
+            min={minimum}
+            max={maximum}
+            value={value}
+            style={{ "--threshold-progress": `${progress}%` } as CSSProperties}
+            onInput={(event) => {
+              setDraft(null)
+              update({ threshold: Number(event.currentTarget.value) })
+            }}
+          />
+          <input
+            className="eye-threshold-value"
+            type="number"
+            aria-label="Threshold value"
+            min={minimum}
+            max={maximum}
+            value={value}
+            onChange={(event) => {
+              const next = Number(event.currentTarget.value)
+              setDraft(Number.isFinite(next) ? next : 0)
+            }}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commit()
+            }}
+          />
+        </div>
       </div>
-      <div className="eye-threshold-control-row">
-        <label
-          className="eye-threshold-field-label"
-          htmlFor="eye-threshold-range"
-        >
-          {manual ? "Cutoff" : "Auto bias"}
-        </label>
-        <input
-          id="eye-threshold-range"
-          className="eye-threshold-slider"
-          type="range"
-          aria-label={manual ? "Pupil threshold" : "Auto threshold bias"}
-          aria-valuetext={
-            manual ? `${value} dark-pupil cutoff` : `Automatic bias ${value}`
-          }
-          min={minimum}
-          max={maximum}
-          value={value}
-          style={{ "--threshold-progress": `${progress}%` } as CSSProperties}
-          onInput={(event) => {
-            setDraft(null)
-            update({ threshold: Number(event.currentTarget.value) })
-          }}
-        />
-        <input
-          className="eye-threshold-value"
-          type="number"
-          aria-label="Threshold value"
-          min={minimum}
-          max={maximum}
-          value={value}
-          onChange={(event) => {
-            const next = Number(event.currentTarget.value)
-            setDraft(Number.isFinite(next) ? next : 0)
-          }}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") commit()
-          }}
-        />
-      </div>
-      <p className="eye-threshold-levels">
-        {manual
-          ? "0 dark · 255 light"
-          : "Auto follows the pupil rim and adjusts the threshold when needed"}
-      </p>
     </section>
   )
 }

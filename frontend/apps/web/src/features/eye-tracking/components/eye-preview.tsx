@@ -6,7 +6,14 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react"
-import { Camera, Crop, Pencil, Plus } from "lucide-react"
+import {
+  Camera,
+  Contrast,
+  Crop,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+} from "lucide-react"
 import type { Ellipse, Point, Rect } from "../eye-tracking.types"
 import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
@@ -755,6 +762,8 @@ export function EyePreview({
               aria-label="Preview display"
             >
               <button
+                aria-label="Show camera image"
+                title="Show camera image"
                 aria-pressed={view === "image"}
                 data-tooltip="Show camera image"
                 onClick={() => {
@@ -762,14 +771,16 @@ export function EyePreview({
                   onThresholdViewChange?.(false)
                 }}
               >
-                Image
+                <ImageIcon size={15} aria-hidden="true" />
               </button>
               <button
+                aria-label="Show threshold view"
+                title="Show threshold view"
                 aria-pressed={view === "threshold"}
                 data-tooltip="Show threshold view"
                 onClick={() => setView("threshold")}
               >
-                Threshold
+                <Contrast size={15} aria-hidden="true" />
               </button>
             </div>
             {cornerMode && (
@@ -801,6 +812,8 @@ export function EyePreview({
             )}
             <button
               className={`eye-roi-edit ${selectRegion ? "active" : ""}`}
+              aria-label="Edit eye region"
+              title="Edit eye region"
               data-tooltip="Edit eye region"
               aria-pressed={selectRegion}
               onClick={() => {
@@ -809,8 +822,7 @@ export function EyePreview({
                 ref.current?.focus()
               }}
             >
-              <Crop size={13} />
-              Edit ROI
+              <Crop size={15} aria-hidden="true" />
             </button>
           </div>
         )}

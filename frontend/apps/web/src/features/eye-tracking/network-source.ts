@@ -1,5 +1,5 @@
 import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
-import type { NetworkSource } from "./network-source.types"
+import type { CameraResponse, NetworkSource } from "./network-source.types"
 
 const VIDEO_READY_TIMEOUT_MS = 15_000
 
@@ -7,10 +7,10 @@ export async function openNetworkSource(
   input: string,
   signal: AbortSignal
 ): Promise<NetworkSource> {
-  const url = parseNetworkUrl(input)
+  const requestedUrl = parseNetworkUrl(input)
   throwIfAborted(signal)
 
-  const response = await fetchCameraResponse(url, signal)
+  const { url, response } = await openCameraResponse(requestedUrl, signal)
   const contentType = response.headers.get("content-type") ?? ""
   if (contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
     return openMjpegSource(url, response, contentType, signal)
@@ -35,11 +35,57 @@ function parseNetworkUrl(input: string): URL {
   return url
 }
 
+async function openCameraResponse(
+  url: URL,
+  signal: AbortSignal
+): Promise<CameraResponse> {
+  const fallback = getEsp32StreamFallback(url)
+  try {
+    const response = await fetchCameraResponse(url, signal)
+    const contentType = response.headers.get("content-type") ?? ""
+    if (!fallback || !contentType.toLowerCase().includes("text/html")) {
+      return { url, response }
+    }
+    await cancelResponseBody(response)
+  } catch (error) {
+    if (!fallback || signal.aborted) throw error
+  }
+
+  throwIfAborted(signal)
+  return {
+    url: fallback,
+    response: await fetchCameraResponse(fallback, signal),
+  }
+}
+
+function getEsp32StreamFallback(url: URL): URL | null {
+  if (url.protocol !== "http:" || url.port || url.pathname !== "/stream")
+    return null
+  if (!isLocalCameraHost(url.hostname)) return null
+  const fallback = new URL(url.href)
+  fallback.port = "81"
+  return fallback
+}
+
+function isLocalCameraHost(hostname: string): boolean {
+  if (hostname.endsWith(".local")) return true
+  const octets = hostname.split(".").map(Number)
+  if (
+    octets.length !== 4 ||
+    octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
+  )
+    return false
+  if (octets[0] === 10) return true
+  if (octets[0] === 192 && octets[1] === 168) return true
+  return octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31
+}
+
 async function fetchCameraResponse(
   url: URL,
   signal: AbortSignal
 ): Promise<Response> {
   let response: Response
+  throwIfAborted(signal)
   try {
     response = await fetch(url.href, {
       mode: "cors",
@@ -208,7 +254,7 @@ function getCameraAccessErrorMessage(url: URL): string {
   }
 
   const message = [
-    `The browser could not reach or read this camera. Confirm ${url.hostname} resolves`,
+    `The browser could not reach or read ${url.href}. Confirm ${url.hostname} resolves`,
     "and the camera is reachable from this device on the same network.",
     streamPortHint,
     `If it is reachable, the camera must return Access-Control-Allow-Origin: ${appOrigin}`,

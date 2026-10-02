@@ -10,12 +10,12 @@ import { VerifyEmailPage } from "@/pages/verify-email-page"
 
 export function App() {
   const location = useLocation()
-  if (location.pathname === "/trial") {
+  if (location.pathname === "/trial/screen-eye-tracking") {
     return <V2Page />
   }
 
-  if (location.pathname === "/v2") {
-    return <Navigate to="/trial" replace />
+  if (location.pathname === "/v2" || location.pathname === "/trial") {
+    return <Navigate to="/trial/screen-eye-tracking" replace />
   }
 
   return <AccountApp />

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, expect, mock, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import { act, createElement } from "../../apps/web/node_modules/react"
 import {
@@ -9,6 +9,9 @@ import { V2StepNavigation } from "../../apps/web/src/features/eye-tracking/compo
 import { V2StepPanel } from "../../apps/web/src/features/eye-tracking/components/v2-step-panel"
 import { PipelinePreviews } from "../../apps/web/src/features/eye-tracking/components/pipeline-previews"
 import { SpherePreview } from "../../apps/web/src/features/eye-tracking/components/sphere-preview"
+import { LiveControls } from "../../apps/web/src/features/eye-tracking/steps/live-controls"
+import { CalibrationControls } from "../../apps/web/src/features/eye-tracking/steps/calibration-controls"
+import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 
 if (typeof document === "undefined") GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -59,9 +62,7 @@ test("step panel exposes the active step and readable error feedback", async () 
       createElement(
         V2StepPanel,
         {
-          stepNumber: 3,
           stepName: "Eye model",
-          title: "Build the eye model",
           description: "Look around the full range.",
           error: "Pupil not detected",
         },
@@ -71,9 +72,11 @@ test("step panel exposes the active step and readable error feedback", async () 
   })
 
   expect(host.querySelector("aside.eye-controls")).not.toBeNull()
-  expect(host.querySelector("#eye-step-title")?.textContent).toBe(
-    "Build the eye model"
-  )
+  const panel = host.querySelector("aside.eye-controls")!
+  expect(
+    host.querySelector(`#${panel.getAttribute("aria-labelledby")}`)?.textContent
+  ).toBe("Eye model")
+  expect(host.querySelector('[aria-label="Eye model help"]')).not.toBeNull()
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(
     "Pupil not detected"
   )
@@ -111,4 +114,80 @@ test("pipeline and eye model previews retain empty-state labels and metrics", as
   expect(host.querySelector(".eye-sphere-metrics")?.textContent).toContain(
     "observations"
   )
+})
+
+test("eye-only recovery is explicit and exposes an icon to retry only head movements", async () => {
+  const retry = mock(() => {})
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(LiveControls, {
+        tracker: { source: null, frame: null } as unknown as TrackerController,
+        calibration: {
+          coefficients: [
+            [0, 1, 0],
+            [0, 0, 1],
+          ],
+          validationError: 0.01,
+        },
+        screenPoint: [0.5, 0.5],
+        validation: null,
+        usable: true,
+        gazeMessage: "",
+        headCompensated: false,
+        onRetryHeadCalibration: retry,
+        onFocus() {},
+        onValidate() {},
+        onRecalibrate() {},
+        onExport() {},
+      })
+    )
+  })
+  expect(host.querySelector(".eye-live-coordinates")?.textContent).toContain(
+    "Eye-only"
+  )
+  const button = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Retry head movements"]'
+  )!
+  expect(button.getAttribute("data-tooltip")).toBe("Retry head movements")
+  await act(async () => button.click())
+  expect(retry).toHaveBeenCalledTimes(1)
+  expect(
+    host.querySelector('[aria-label="Head compensation active"]')
+  ).toBeNull()
+})
+
+test("failed calibration can export diagnostics without a live gaze model", async () => {
+  const exported = mock(() => {})
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(CalibrationControls, {
+        usable: false,
+        locked: true,
+        headReady: false,
+        headEnabled: true,
+        orientation: { horizontal: -1, vertical: 1 },
+        onOrientationChange() {},
+        onStart() {},
+        onExportDiagnostics: exported,
+      })
+    )
+  })
+  const button = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Export calibration diagnostics"]'
+  )
+  expect(button).not.toBeNull()
+  expect(button?.disabled).toBe(false)
+  expect(button?.getAttribute("data-tooltip")).toBe(
+    "Export calibration diagnostics"
+  )
+  await act(async () => button?.click())
+  expect(exported).toHaveBeenCalledTimes(1)
+  expect(host.textContent).not.toContain("Head compensation active")
+  expect(
+    host.querySelector('[aria-label="Head camera enabled"]')
+  ).not.toBeNull()
 })

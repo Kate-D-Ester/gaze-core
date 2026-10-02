@@ -1,5 +1,7 @@
 import { useState } from "react"
-import { ChevronDown, Maximize } from "lucide-react"
+import { Check, Maximize } from "lucide-react"
+import { EyeActionButton } from "../components/eye-action-button"
+import { HelpTip } from "../components/help-tip"
 import type { Rect } from "../eye-tracking.types"
 import type { RegionControlsProps, RegionDraft } from "./region-controls.types"
 
@@ -40,17 +42,26 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
   const dirty = Object.keys(values).some(
     (key) => values[key as keyof Rect] !== String(roi[key as keyof Rect])
   )
+  const minimums = {
+    x: 0,
+    y: 0,
+    width: Math.min(MIN_REGION_SIZE, tracker.dimensions.width),
+    height: Math.min(MIN_REGION_SIZE, tracker.dimensions.height),
+  }
   return (
     <>
-      <h3>One eye, with room to move.</h3>
-      <p className="eye-muted">Move or resize the box in the preview.</p>
-      <button
-        className="eye-text-button"
-        onClick={() => chooseRegion({ x: 0, y: 0, ...tracker.dimensions })}
-      >
-        <Maximize size={14} />
-        Full frame
-      </button>
+      <div className="eye-guidance-row">
+        <EyeActionButton
+          label="Use the full camera frame"
+          onClick={() => chooseRegion({ x: 0, y: 0, ...tracker.dimensions })}
+        >
+          <Maximize size={16} aria-hidden="true" />
+        </EyeActionButton>
+        <HelpTip
+          label="Region editing tips"
+          text="Drag inside to move; drag handles to resize. Redraw creates a new box. Arrow keys move, Shift + arrows resize, Alt uses 10-pixel steps. Escape cancels a drag."
+        />
+      </div>
       <form
         noValidate
         onSubmit={(event) => {
@@ -68,16 +79,7 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
                 value={values[key]}
                 step={1}
                 aria-label={`ROI ${key}`}
-                min={
-                  key === "x" || key === "y"
-                    ? 0
-                    : Math.min(
-                        MIN_REGION_SIZE,
-                        key === "width"
-                          ? tracker.dimensions.width
-                          : tracker.dimensions.height
-                      )
-                }
+                min={minimums[key]}
                 max={
                   key === "x" || key === "width"
                     ? tracker.dimensions.width
@@ -93,28 +95,14 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
             </label>
           ))}
         </div>
-        <button
-          className="eye-button secondary"
+        <EyeActionButton
+          label="Apply coordinates"
           type="submit"
           disabled={!dirty}
         >
-          Apply coordinates
-        </button>
+          <Check size={17} aria-hidden="true" />
+        </EyeActionButton>
       </form>
-      <details className="eye-details">
-        <summary>
-          Editing tips
-          <ChevronDown size={14} />
-        </summary>
-        <p className="eye-small">
-          Drag inside to move, or use the handles to resize. Redraw starts a new
-          box. Keep eyebrows and dark frame edges outside.
-        </p>
-        <p className="eye-small">
-          Focus the preview and use arrow keys to move. Shift + arrows resize;
-          Alt changes by 10 pixels. Escape cancels a drag.
-        </p>
-      </details>
     </>
   )
 }

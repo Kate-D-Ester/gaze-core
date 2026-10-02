@@ -39,7 +39,7 @@ export function DashboardPage({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => navigate("/trial")}>Try it out</Button>
+              <Button onClick={() => navigate("/trial/screen-eye-tracking")}>Try it out</Button>
             </div>
           </div>
         </section>

@@ -7,6 +7,10 @@ export type LiveControlsProps = {
   screenPoint: Point | null
   validation: number | null
   usable: boolean
+  gazeMessage: string
+  headCompensated: boolean
+  onRetryHeadCalibration?: () => void
+  retryHeadDisabled?: boolean
   onFocus: () => void
   onValidate: () => void
   onRecalibrate: () => void

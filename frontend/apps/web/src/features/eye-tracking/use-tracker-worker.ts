@@ -5,6 +5,7 @@ import type { TrackingFrame } from "./eye-tracking.types"
 import type { WorkerRequest, WorkerResponse } from "./tracker.worker.types"
 import type { TrackerRuntime } from "./use-tracker.types"
 import type { UseTrackerWorkerCallbacks } from "./use-tracker-worker.types"
+import { VideoFrameClock } from "./video-frame-clock"
 
 export function useTrackerWorker(
   runtime: TrackerRuntime,
@@ -19,6 +20,7 @@ export function useTrackerWorker(
     const { clearFrame, setEngineReady, setError, setFrame, stop } =
       workerInputs.current.callbacks
     const c = control.current
+    const frameClock = new VideoFrameClock()
     const worker = new Worker(new URL("./tracker.worker.ts", import.meta.url), {
       type: "module",
     })
@@ -129,6 +131,7 @@ export function useTrackerWorker(
       }
       const ctx = canvas.getContext("2d", { willReadFrequently: true })
       if (!ctx) return
+      let timestamp = time
       if (c.source.kind === "sample")
         drawSample(ctx, time, c.sampleTarget, c.blink)
       else if (c.mjpegFrame) {
@@ -150,6 +153,8 @@ export function useTrackerWorker(
           return
         }
         c.lastVideoTime = c.video.currentTime
+        frameClock.watch(c.video)
+        timestamp = frameClock.read(time)
         ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height)
       }
       last = time
@@ -172,7 +177,7 @@ export function useTrackerWorker(
         height: canvas.height,
         settings: c.settings,
         id: ++c.sequence,
-        timestamp: time,
+        timestamp,
         generation: c.generation,
         includePreviewMasks,
       }
@@ -183,6 +188,7 @@ export function useTrackerWorker(
     raf = requestAnimationFrame(loop)
     return () => {
       cancelAnimationFrame(raf)
+      frameClock.stop()
       worker.terminate()
       c.inflight = false
       c.inflightGeneration = -1

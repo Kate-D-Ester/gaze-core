@@ -21,7 +21,11 @@ let root: ReturnType<typeof createRoot>
 
 function CurrentPath() {
   const location = useLocation()
-  return createElement("output", { "data-testid": "current-path" }, location.pathname)
+  return createElement(
+    "output",
+    { "data-testid": "current-path" },
+    location.pathname
+  )
 }
 
 function renderAppAtPath(path: string) {
@@ -128,11 +132,23 @@ test("threshold and preview render as separate sibling cards", async () => {
   expect(comparison?.hidden).toBe(true)
   expect(comparison?.querySelectorAll(".eye-thumbnail")).toHaveLength(0)
   expect(thresholdCard.contains(previewCard)).toBe(false)
-  expect(host.querySelectorAll(".eye-step-chevron")).toHaveLength(4)
+  expect(host.querySelectorAll(".eye-step-chevron")).toHaveLength(5)
+  const stepNames = Array.from(
+    host.querySelectorAll(".eye-step-nav button"),
+    (button) => button.textContent
+  )
+  expect(stepNames).toEqual([
+    "01Camera",
+    "02Eye region",
+    "03Eye model",
+    "04Head tracker",
+    "05Calibrate",
+    "06Live gaze",
+  ])
   expect(host.querySelectorAll(".eye-viewfinder-corner")).toHaveLength(0)
 })
 
-test("the public tracker opens at /trial and redirects /v2 links there", async () => {
+test("the public tracker opens at /trial/screen-eye-tracking and redirects /v2 links there", async () => {
   ;(globalThis as any).Worker = class {
     postMessage() {}
     terminate() {}
@@ -141,10 +157,10 @@ test("the public tracker opens at /trial and redirects /v2 links there", async (
   globalThis.cancelAnimationFrame = () => {}
   document.body.append(host)
 
-  await act(async () => renderAppAtPath("/trial"))
+  await act(async () => renderAppAtPath("/trial/screen-eye-tracking"))
   expect(host.querySelector(".eye-app")).not.toBeNull()
   expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial"
+    "/trial/screen-eye-tracking"
   )
 
   await act(async () => root.unmount())
@@ -152,7 +168,7 @@ test("the public tracker opens at /trial and redirects /v2 links there", async (
   await act(async () => renderAppAtPath("/v2"))
   expect(host.querySelector(".eye-app")).not.toBeNull()
   expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial"
+    "/trial/screen-eye-tracking"
   )
 })
 
@@ -164,40 +180,40 @@ test("dashboard offers one Try it out action to the public tracker", async () =>
       createElement(
         MemoryRouter,
         { initialEntries: ["/dashboard"] },
-        createElement(
-          DashboardPage,
-          {
-            session: { user: { id: "user-1", email: "kate@example.com" } },
-            busy: false,
-            loadingKeys: false,
-            apiKeys: [],
-            newKeyName: "",
-            createdApiKey: "",
-            message: "",
-            error: "",
-            onSignOut() {},
-            onNewKeyNameChange() {},
-            onCreateKey() {},
-            onCopyCreatedKey() {},
-            onRegenerateKey() {},
-            onDeleteKey() {},
-          }
-        ),
+        createElement(DashboardPage, {
+          session: { user: { id: "user-1", email: "kate@example.com" } },
+          busy: false,
+          loadingKeys: false,
+          apiKeys: [],
+          newKeyName: "",
+          createdApiKey: "",
+          message: "",
+          error: "",
+          onSignOut() {},
+          onNewKeyNameChange() {},
+          onCreateKey() {},
+          onCopyCreatedKey() {},
+          onRegenerateKey() {},
+          onDeleteKey() {},
+        }),
         createElement(CurrentPath)
       )
     )
   })
 
-  const tryItOutLinks = Array.from(host.querySelectorAll("a"), (link) => link)
-    .filter((link) => link.textContent?.trim() === "Try it out")
-  const tryItOutButtons = Array.from(host.querySelectorAll("button"))
-    .filter((button) => button.textContent?.trim() === "Try it out")
+  const tryItOutLinks = Array.from(
+    host.querySelectorAll("a"),
+    (link) => link
+  ).filter((link) => link.textContent?.trim() === "Try it out")
+  const tryItOutButtons = Array.from(host.querySelectorAll("button")).filter(
+    (button) => button.textContent?.trim() === "Try it out"
+  )
   expect(tryItOutLinks).toHaveLength(1)
-  expect(tryItOutLinks[0]?.getAttribute("href")).toBe("/trial")
+  expect(tryItOutLinks[0]?.getAttribute("href")).toBe("/trial/screen-eye-tracking")
   expect(tryItOutButtons).toHaveLength(1)
 
   await act(async () => tryItOutButtons[0]?.click())
   expect(host.querySelector('[data-testid="current-path"]')?.textContent).toBe(
-    "/trial"
+    "/trial/screen-eye-tracking"
   )
 })
