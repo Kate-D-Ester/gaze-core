@@ -1,5 +1,9 @@
 # Remote eye tracking V3
 
+> Historical snapshot. Later implementation supersedes parts of this document,
+> including full-face IR glint requirements and the original UI. Before integrating,
+> read [the current V3 UI and merge handoff](../../remote-eye-tracking-v3-handoff.md).
+
 User explicitly requested immediate implementation, three camera-specific cards and local mobile selfie processing. The later head-tracking requirement is binding: every calibration sample retains its concurrent head/reference pose; calibration supports different poses across and within targets, and live output uses pose continuously.
 
 ## Product

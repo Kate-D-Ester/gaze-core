@@ -1,5 +1,8 @@
 # Remote eye tracking V3
 
+For UI rules, current behavior, and branch integration checks, read
+[the V3 integration handoff](remote-eye-tracking-v3-handoff.md).
+
 The public `/trials/remote-eye-tracking` route offers **Mobile eye tracker**,
 **Webcam-based eye tracker**, and **IR webcam-based eye tracker**. `/trials` aliases
 the existing `/trial` page and links to this flow. The isolated implementation

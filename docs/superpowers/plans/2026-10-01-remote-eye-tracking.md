@@ -1,5 +1,9 @@
 # Remote Eye Tracking Implementation Plan
 
+> Historical snapshot. Later implementation supersedes parts of this document,
+> including full-face IR glint requirements and the original UI. Before integrating,
+> read [the current V3 UI and merge handoff](../../remote-eye-tracking-v3-handoff.md).
+
 > For agentic workers: apply test-driven development; native implementation with independent RGB/IR algorithm tasks and one final fresh review. User explicitly instructed us to start immediately; no approval handoff.
 
 **Goal:** Three working remote camera flows with pose-aware calibration and local mobile processing.

@@ -23,5 +23,6 @@ See [Eye tracking V2](docs/eye-tracking-v2.md) for the tracker workflow, models,
 
 Open `/trials/remote-eye-tracking` for mobile, webcam, or IR tracking. See
 [the V3 setup, research, and validation guide](docs/remote-eye-tracking-v3.md).
+For integration, read [the V3 UI and merge handoff](docs/remote-eye-tracking-v3-handoff.md).
 Mobile camera access requires a trusted HTTPS origin. All model assets are bundled
 locally; camera frames remain on the device.
