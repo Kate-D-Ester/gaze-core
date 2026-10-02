@@ -1,4 +1,15 @@
-import { openNetworkSource } from "../eye-tracking/network-source"
+import {
+  NetworkCamera,
+  type NetworkConnectionState,
+} from "../eye-tracking/network-camera"
+import {
+  cameraFrameGeometry,
+  drawCameraFrame,
+  normalizeCameraTransform,
+  readCameraTransform,
+  saveCameraTransform,
+  type CameraTransform,
+} from "../eye-tracking/camera-transform"
 import {
   getCameraErrorMessage,
   waitForVideoDimensions,
@@ -10,6 +21,7 @@ export type SceneSource = {
   name: string
   key: string
   deviceId?: string
+  url?: string
 }
 export type SceneCameraSnapshot = {
   source: SceneSource | null
@@ -17,6 +29,9 @@ export type SceneCameraSnapshot = {
   error: string
   devices: MediaDeviceInfo[]
   frame: SceneObservation | null
+  connection: NetworkConnectionState
+  retryAttempt: number
+  transform: CameraTransform
 }
 
 export class SceneCamera {
@@ -29,14 +44,14 @@ export class SceneCamera {
     error: "",
     devices: [],
     frame: null,
+    connection: "idle",
+    retryAttempt: 0,
+    transform: readCameraTransform("scene"),
   }
   private listeners = new Set<() => void>()
   private video: HTMLVideoElement | null = null
-  private bitmap: ImageBitmap | null = null
-  private bitmapTime = 0
-  private bitmapId = 0
-  private drawnBitmapId = -1
-  private abort: AbortController | null = null
+  private network: NetworkCamera | null = null
+  private observationGeneration = 0
   private generation = 0
   private sequence = 0
   private raf = 0
@@ -77,8 +92,9 @@ export class SceneCamera {
   }
   stop(error = "") {
     this.generation++
-    this.abort?.abort()
-    this.abort = null
+    this.observationGeneration++
+    this.network?.stop()
+    this.network = null
     cancelAnimationFrame(this.raf)
     this.stream?.getTracks().forEach((track) => track.stop())
     this.stream = null
@@ -91,15 +107,19 @@ export class SceneCamera {
       this.video.load()
     }
     this.video = null
-    this.bitmap?.close()
-    this.bitmap = null
     this.latest = null
     this.videoFrameHandle = 0
     this.usesFrameCallbacks = false
     this.videoFrameReady = false
     this.lastPresentedFrames = -1
-    this.drawnBitmapId = -1
-    this.update({ source: null, busy: false, error, frame: null })
+    this.update({
+      source: null,
+      busy: false,
+      error,
+      frame: null,
+      connection: error ? "error" : "idle",
+      retryAttempt: 0,
+    })
   }
   dispose() {
     this.disposed = true
@@ -167,95 +187,98 @@ export class SceneCamera {
       if (epoch === this.generation) this.stop(getCameraErrorMessage(error))
     }
   }
-  async startNetworkStream(url: string) {
+
+  setTransform = (value: CameraTransform) => {
+    const transform = normalizeCameraTransform(value)
+    if (JSON.stringify(transform) === JSON.stringify(this.snapshot.transform))
+      return
+    saveCameraTransform("scene", transform)
+    this.observationGeneration++
+    this.latest = null
+    this.update({ transform, frame: null })
+  }
+  async startNetworkStream(input: string) {
     this.stop()
-    this.update({ busy: true })
     const epoch = this.generation,
-      abort = new AbortController()
-    this.abort = abort
-    // Covers an MJPEG connection that never sends its first complete frame.
-    const timer = setTimeout(() => {
-      if (epoch === this.generation)
-        this.stop(
-          "The scene camera connection timed out. Check its stream URL."
-        )
-    }, 15000)
-    try {
-      const network = await openNetworkSource(url, abort.signal)
-      if (epoch !== this.generation) {
-        if (network.kind === "video") {
-          network.video.pause()
-          network.video.removeAttribute("src")
-          network.video.load()
-        } else await network.frames.return(undefined)
-        return
-      }
-      const source: SceneSource = {
-        kind: "network",
-        name: network.name,
-        key: `network:${url.trim()}:${epoch}`,
-      }
-      if (network.kind === "video") {
-        this.video = network.video
-        this.activate(source, epoch)
-        network.video.addEventListener(
-          "error",
-          () => {
-            if (epoch === this.generation)
-              this.stop(
-                "The scene network video stopped. Check its URL and CORS settings."
-              )
-          },
-          { once: true }
-        )
-        return
-      }
-      const first = await createImageBitmap(
-        new Blob([new Uint8Array(network.firstFrame)], { type: "image/jpeg" })
-      )
-      if (epoch !== this.generation) {
-        first.close()
-        await network.frames.return(undefined)
-        return
-      }
-      this.bitmap = first
-      this.bitmapTime = performance.now()
-      this.bitmapId++
-      this.activate(source, epoch)
-      void (async () => {
-        try {
-          for await (const bytes of network.frames) {
-            const timestamp = performance.now()
-            const bitmap = await createImageBitmap(
-              new Blob([new Uint8Array(bytes)], { type: "image/jpeg" })
-            )
-            if (epoch !== this.generation) {
-              bitmap.close()
-              return
-            }
-            this.bitmap?.close()
-            this.bitmap = bitmap
-            this.bitmapTime = timestamp
-            this.bitmapId++
-          }
-          if (epoch === this.generation)
-            this.stop(
-              "The scene camera stream ended. Reconnect it and try again."
-            )
-        } catch (error) {
-          if (epoch === this.generation && !abort.signal.aborted)
-            this.stop(getCameraErrorMessage(error))
-        }
-      })()
-    } catch (error) {
-      if (epoch === this.generation) this.stop(getCameraErrorMessage(error))
-    } finally {
-      clearTimeout(timer)
+      url = input.trim()
+    const source: SceneSource = {
+      kind: "network",
+      name: url,
+      url,
+      key: "network:" + url + ":" + epoch,
     }
+    const network = new NetworkCamera({
+      onStatus: (connection, retryAttempt) => {
+        if (epoch === this.generation)
+          this.update({
+            connection,
+            retryAttempt,
+            busy: connection === "connecting" || connection === "reconnecting",
+          })
+      },
+      onError: (error) => {
+        if (epoch === this.generation) this.update({ error, busy: false })
+      },
+      onFrame: (frame) => {
+        if (epoch !== this.generation) return
+        if (!frame) {
+          this.latest = null
+          this.observationGeneration++
+          return
+        }
+        this.draw(frame.image, frame.width, frame.height, frame.timestamp)
+        if (epoch !== this.generation || !this.latest) return
+        if (!this.snapshot.source)
+          this.update({ source, error: "", busy: false })
+      },
+    })
+    this.network = network
+    await network.start(url)
+  }
+  private draw(
+    image: HTMLVideoElement | ImageBitmap,
+    inputWidth: number,
+    inputHeight: number,
+    timestamp: number
+  ) {
+    if (!inputWidth || !inputHeight) return
+    const { width, height } = cameraFrameGeometry(
+      inputWidth,
+      inputHeight,
+      this.snapshot.transform
+    )
+    if (this.rawCanvas.width !== width) this.rawCanvas.width = width
+    if (this.rawCanvas.height !== height) this.rawCanvas.height = height
+    const ctx = this.rawCanvas.getContext("2d")
+    if (!ctx) {
+      this.stop("Unable to create a scene preview in this browser.")
+      return
+    }
+    try {
+      drawCameraFrame(
+        ctx,
+        image,
+        inputWidth,
+        inputHeight,
+        this.snapshot.transform,
+        { width, height }
+      )
+    } catch {
+      this.latest = null
+      return
+    }
+    this.latest = {
+      id: ++this.sequence,
+      timestamp,
+      width,
+      height,
+      generation: this.observationGeneration,
+    }
+    this.update({ frame: this.latest })
   }
   private activate(source: SceneSource, epoch: number) {
     this.lastArrival = performance.now()
-    this.update({ source, busy: false, error: "" })
+    this.update({ source, busy: false, error: "", connection: "live" })
     const video = this.video
     this.usesFrameCallbacks = !!video?.requestVideoFrameCallback
     if (video && this.usesFrameCallbacks) {
@@ -277,7 +300,7 @@ export class SceneCamera {
     }
     const loop = (time: number) => {
       if (epoch !== this.generation || this.disposed) return
-      const image = this.bitmap || this.video
+      const image = this.video
       const quality = !this.usesFrameCallbacks
         ? this.video?.getVideoPlaybackQuality?.()
         : null
@@ -286,46 +309,21 @@ export class SceneCamera {
         : -1
       const fresh =
         !!image &&
-        (this.bitmap
-          ? this.bitmapId !== this.drawnBitmapId
-          : this.video!.readyState >= 2 &&
-            (this.usesFrameCallbacks
-              ? this.videoFrameReady
-              : presentedFrames > 0 &&
-                presentedFrames !== this.lastPresentedFrames))
+        this.video!.readyState >= 2 &&
+        (this.usesFrameCallbacks
+          ? this.videoFrameReady
+          : presentedFrames > 0 && presentedFrames !== this.lastPresentedFrames)
       if (fresh && image) {
-        const width = this.bitmap?.width || this.video!.videoWidth,
-          height = this.bitmap?.height || this.video!.videoHeight
+        const width = this.video!.videoWidth,
+          height = this.video!.videoHeight
         if (width && height) {
-          if (this.rawCanvas.width !== width) this.rawCanvas.width = width
-          if (this.rawCanvas.height !== height) this.rawCanvas.height = height
-          const ctx = this.rawCanvas.getContext("2d")
-          if (!ctx) {
-            this.stop("Unable to create a scene preview in this browser.")
-            return
-          }
-          try {
-            ctx.drawImage(image, 0, 0, width, height)
-          } catch (error) {
-            this.stop(getCameraErrorMessage(error))
-            return
-          }
-          this.drawnBitmapId = this.bitmapId
           this.videoFrameReady = false
           if (!this.usesFrameCallbacks)
             this.lastPresentedFrames = presentedFrames
           this.lastArrival = time
-          if (this.bitmap) this.lastArrival = this.bitmapTime
-          else if (this.usesFrameCallbacks)
+          if (this.usesFrameCallbacks)
             this.lastArrival = this.videoFrameTimestamp
-          this.latest = {
-            id: ++this.sequence,
-            timestamp: this.lastArrival,
-            width,
-            height,
-            generation: epoch,
-          }
-          this.update({ frame: this.latest })
+          this.draw(image, width, height, this.lastArrival)
         }
       }
       if (time - this.lastArrival > 2000) {

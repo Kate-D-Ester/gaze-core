@@ -10,6 +10,7 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "camera-relay": "bun scripts/camera-relay.ts",
     "prepare:vision": "bun scripts/prepare-vision.ts"
   },
   "dependencies": {

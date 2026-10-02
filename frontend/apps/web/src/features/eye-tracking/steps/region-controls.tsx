@@ -42,10 +42,9 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
   )
   return (
     <>
-      <h3>One eye, with room to move.</h3>
-      <p className="eye-muted">Move or resize the box in the preview.</p>
       <button
         className="eye-text-button"
+        title="Use the full camera frame"
         onClick={() => chooseRegion({ x: 0, y: 0, ...tracker.dimensions })}
       >
         <Maximize size={14} />
@@ -98,7 +97,7 @@ export function RegionControls({ tracker, chooseRegion }: RegionControlsProps) {
           type="submit"
           disabled={!dirty}
         >
-          Apply coordinates
+          Apply
         </button>
       </form>
       <details className="eye-details">

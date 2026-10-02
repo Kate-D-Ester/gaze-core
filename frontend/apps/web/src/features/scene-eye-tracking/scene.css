@@ -1,18 +1,128 @@
 .scene-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 24px;
-  align-items: start;
-  margin: 24px 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 1550px;
+  padding: 0 4% 8px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  margin: 0 auto;
 }
 .scene-workspace[hidden] {
   display: none;
 }
+.scene-workspace.with-eye-preview {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 320px;
+}
+.scene-workspace.with-eye-preview.with-screen-marker {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas: "eye marker scene";
+  grid-template-rows: minmax(430px, 1fr);
+  overflow-y: auto;
+}
+.scene-workspace.with-screen-marker > .scene-main-preview {
+  grid-area: scene;
+}
+.scene-workspace.with-screen-marker > .scene-eye-preview {
+  grid-area: eye;
+}
+.scene-workspace.with-eye-preview.with-screen-marker > .has-stage {
+  grid-area: marker;
+  display: grid;
+  grid-template-rows: 38px minmax(190px, 1fr) minmax(180px, 0.85fr);
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  align-self: stretch;
+}
+.scene-workspace.with-eye-preview.with-screen-marker .eye-controls-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+.screen-marker-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  container-type: size;
+}
+.screen-calibration-marker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--marker-scale, 1));
+  width: min(100cqw, 100cqh);
+  max-width: min(100cqw, 100cqh);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  user-select: none;
+}
+.screen-marker-size {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 4px;
+  z-index: 1;
+}
+.screen-marker-size .eye-action-icon[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform: none;
+}
+.scene-delay-settings {
+  margin-top: 12px;
+  color: #999;
+  font-size: 12px;
+}
+.scene-delay-settings summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  list-style: none;
+}
+.scene-delay-settings summary::-webkit-details-marker {
+  display: none;
+}
+.scene-delay-settings .eye-field {
+  margin-top: 12px;
+}
+.scene-eye-preview .eye-preview-stage {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.scene-eye-preview .eye-preview-heading {
+  min-height: 54px;
+}
+.scene-eye-status {
+  min-height: 38px;
+  gap: 10px;
+}
+.scene-eye-status .scene-eye-state {
+  min-width: 0;
+  font-size: 11px;
+}
+.scene-eye-state.ready {
+  color: #a8d8c6;
+}
+.scene-eye-state.waiting {
+  color: #e0bb73;
+}
 .scene-main-preview {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: #111;
   border: 1px solid #292929;
-  border-radius: 14px;
+  border-radius: 11px;
   overflow: hidden;
 }
 .scene-source-heading,
@@ -26,23 +136,81 @@
   font-size: 12px;
   color: #aaa;
 }
+.scene-source-heading {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-bottom: 1px solid #292929;
+}
+.scene-source-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f4f4f2;
+  font-size: 12px;
+}
 .scene-status-strip {
+  flex: 0 0 auto;
   border-top: 1px solid #292929;
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 20px;
+  padding: 10px 12px;
+}
+.scene-status-strip > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.scene-status-strip .scene-indicator {
+  color: #737a76;
+}
+.scene-status-strip .scene-indicator.ready {
+  color: #a8d8c6;
+}
+.scene-status-strip .scene-indicator.recovering {
+  color: #fbbf24;
+}
+.scene-status-strip > span:first-child {
+  margin-right: auto;
 }
 .scene-preview {
   position: relative;
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
   background: #080808;
   overflow: hidden;
-  min-height: 220px;
+  min-height: 0;
 }
 .scene-preview canvas {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  min-height: 0;
+  position: absolute;
+  inset: 0;
+}
+.scene-recovery {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  border: 1px solid #414844;
+  border-radius: 8px;
+  background: #1c211ee6;
+  color: #c8dfd5;
+  padding: 10px 14px;
+  font-size: 12px;
 }
 .scene-preview canvas[hidden] {
   display: none;
@@ -90,6 +258,37 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
+.scene-capture-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0 10px;
+  font-size: 12px;
+}
+.scene-calibration-instruction,
+.scene-hold-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.scene-calibration-instruction .scene-instruction {
+  flex: 1;
+  margin: 0;
+}
+.scene-calibration-instruction .eye-action-icon[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.scene-hold-status small {
+  white-space: nowrap;
+  padding-top: 2px;
+  margin: 0;
+}
+.scene-capture-count strong {
+  color: #a8d8c6;
+}
 .scene-coverage span {
   padding: 12px;
   text-align: center;
@@ -125,6 +324,55 @@
   font-weight: 500;
   color: #eee;
 }
+.scene-validation-recovery {
+  display: grid;
+  gap: 12px;
+}
+.scene-preview-warning {
+  color: #e0bb73;
+  font-size: 12px;
+}
+.scene-metrics .scene-validation-points {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+.scene-validation-points > span {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  text-align: center;
+}
+.scene-validation-recovery .eye-action-icon[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.scene-offset-controls {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #aaa;
+}
+.scene-offset-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+  gap: 8px;
+  align-items: end;
+}
+.scene-offset-fields .eye-field {
+  min-width: 0;
+  margin: 0;
+}
+.scene-offset-fields input {
+  min-width: 0;
+  width: 100%;
+}
+.scene-offset-fields .eye-action-icon[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
 .scene-workspace progress {
   width: 100%;
   height: 8px;
@@ -135,39 +383,58 @@
   color: #888;
   font-size: 11px;
 }
-.eye-workspace.scene-eye-diagnostic {
-  display: block;
-  width: min(100%, 480px);
-  margin: 0 0 30px;
-}
-.scene-eye-diagnostic .eye-preview-card {
-  min-height: 220px;
-}
-.scene-eye-diagnostic .eye-preview-column {
-  width: 100%;
-}
 @media (max-width: 1000px) {
   .scene-workspace {
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: 16px;
   }
+  .scene-workspace.with-eye-preview {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(260px, 45svh) auto;
+    overflow-y: auto;
+  }
+  .scene-workspace.with-eye-preview > .eye-controls {
+    grid-column: 1 / -1;
+    height: auto;
+    align-self: start;
+    overflow: visible;
+  }
+  .scene-workspace.with-eye-preview .eye-controls-body {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
 }
 @media (max-width: 760px) {
   .scene-workspace {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 40svh) auto;
+    overflow-y: auto;
+  }
+  .scene-workspace.with-eye-preview {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 40svh) minmax(240px, 40svh) auto;
   }
   .scene-workspace .eye-step-panel {
     width: 100%;
-  }
-  .scene-preview {
-    min-height: 200px;
   }
   .scene-status-strip {
     font-size: 11px;
     gap: 12px;
   }
-  .eye-workspace.scene-eye-diagnostic {
-    width: 100%;
+  .scene-workspace .eye-controls {
+    height: auto;
+    overflow: visible;
+  }
+  .scene-workspace .eye-controls-body {
+    overflow: visible;
+  }
+  .scene-workspace.with-eye-preview.with-screen-marker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "marker marker" "eye scene";
+    grid-template-rows: 470px minmax(250px, 40svh);
+  }
+  .scene-workspace.with-screen-marker > .has-stage {
+    grid-column: 1 / -1;
   }
 }
 
@@ -213,4 +480,51 @@
   color: #888;
   line-height: 1.5;
   margin-top: 6px;
+}
+.scene-calibration-methods.eye-source-type {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.scene-calibration-methods button {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 4px;
+}
+.scene-calibration-methods button[aria-checked="true"] {
+  border-color: var(--eye-accent, #aad6c6);
+  background: #aad6c610;
+}
+.scene-calibration-methods button[data-tooltip]::after {
+  width: min(230px, 60vw);
+  white-space: normal;
+}
+.scene-calibration-methods button:first-child[data-tooltip]::after {
+  left: 0;
+  transform: none;
+}
+.scene-calibration-methods button:last-child[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.scene-estimated-label {
+  display: block;
+  color: #edc47d;
+  font-size: 12px;
+  margin: 8px 0 12px;
+}
+.scene-projection-controls {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #b8c0bd;
+}
+.scene-projection-controls summary {
+  cursor: pointer;
+  margin-bottom: 10px;
 }

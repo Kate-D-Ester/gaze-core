@@ -25,6 +25,7 @@ function stream(id: string): MediaStream {
   } as MediaStream
 }
 beforeEach(() => {
+  localStorage.clear()
   stopped = []
   cameras = []
   pending = []
@@ -65,7 +66,13 @@ beforeEach(() => {
     }
     if (tag === "canvas")
       Object.defineProperty(element, "getContext", {
-        value: () => ({ drawImage() {} }),
+        value: () => ({
+          drawImage() {},
+          save() {},
+          setTransform() {},
+          fillRect() {},
+          restore() {},
+        }),
       })
     return element
   }) as typeof document.createElement
@@ -168,6 +175,76 @@ test("network mDNS video uses the existing browser-readable source pipeline", as
   tick(performance.now())
   expect(c.getSnapshot().source?.kind).toBe("network")
   expect(c.latest?.height).toBe(480)
+})
+test("scene orientation transforms raw frames and rejects landmarks from the previous orientation", async () => {
+  const c = camera(),
+    start = c.startCamera("scene")
+  pending[0](stream("scene"))
+  await start
+  tick(performance.now())
+  const previous = c.latest!,
+    key = c.getSnapshot().source!.key
+  c.setTransform({ rotation: 90, mirrorX: true, mirrorY: false })
+  expect(c.latest).toBeNull()
+  tick(performance.now())
+  expect([c.rawCanvas.width, c.rawCanvas.height]).toEqual([480, 640])
+  expect(c.latest?.generation).not.toBe(previous.generation)
+  expect(c.getSnapshot().source?.key).toBe(key)
+  expect(c.getSnapshot().transform.mirrorX).toBe(true)
+})
+
+test("network video pauses keep the selected source and recover automatically", async () => {
+  globalThis.fetch = (async () =>
+    new Response("", {
+      headers: { "content-type": "video/mp4" },
+    })) as typeof fetch
+  const originalTimeout = globalThis.setTimeout
+  const scheduled: { callback: () => void; delay: number }[] = []
+  globalThis.setTimeout = ((callback: () => void, delay: number) => {
+    scheduled.push({ callback, delay })
+    return scheduled.length
+  }) as typeof setTimeout
+  try {
+    const c = camera()
+    await c.startNetworkStream("http://scene.local/stream.mp4")
+    tick(performance.now())
+    const source = c.getSnapshot().source
+    videos.at(-1)!.dispatchEvent(new Event("error"))
+    expect(c.getSnapshot().source).toEqual(source)
+    expect(c.getSnapshot().error).toBe("")
+    expect(c.latest).toBeNull()
+    expect((c.getSnapshot() as any).connection).toBe("reconnecting")
+    const retry = scheduled.find(
+      (timer) => timer.delay >= 1000 && timer.delay < 15000
+    )
+    expect(retry).toBeDefined()
+    retry!.callback()
+    await new Promise((resolve) => originalTimeout(resolve, 0))
+    tick(performance.now())
+    expect(c.getSnapshot().source?.key).toBe(source?.key)
+    expect(c.latest).not.toBeNull()
+    expect((c.getSnapshot() as any).connection).toBe("live")
+  } finally {
+    globalThis.setTimeout = originalTimeout
+  }
+})
+
+test("a short network stall does not disconnect the camera", async () => {
+  globalThis.fetch = (async () =>
+    new Response("", {
+      headers: { "content-type": "video/mp4" },
+    })) as typeof fetch
+  const c = camera()
+  await c.startNetworkStream("http://scene.local/stream.mp4")
+  const now = performance.now()
+  tick(now)
+  const source = c.getSnapshot().source
+  const next = [...callbacks.values()]
+  callbacks.clear()
+  next.forEach((cb) => cb(now + 3000))
+  expect(c.getSnapshot().source).toEqual(source)
+  expect(c.getSnapshot().error).toBe("")
+  expect(c.latest).toBeNull()
 })
 test("abort releases a pending MJPEG response reader", async () => {
   let cancelled = false

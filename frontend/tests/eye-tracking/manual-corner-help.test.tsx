@@ -50,23 +50,26 @@ afterEach(async () => {
   host.remove()
 })
 
-test("manual corner instructions can be dismissed and return on re-entry", async () => {
-  expect(host.textContent).toContain("Create or edit the eye model")
+test("manual corner help can be opened and dismissed without hiding the next action", async () => {
   expect(host.textContent).toContain("Choose Create and click the inner")
   expect(host.textContent).toContain("drag a + endpoint to resize the circle")
   expect(host.textContent).toContain("drag inside it to move the model")
 
-  const dismiss = host.querySelector<HTMLButtonElement>(
-    '[aria-label="Dismiss corner instructions"]'
+  const help = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Manual eye model help"]'
   )
-  expect(dismiss).not.toBeNull()
-  await act(async () => dismiss?.click())
-  expect(host.textContent).not.toContain("Place two eye-corner points")
-
-  await act(async () => root?.unmount())
-  root = null
-  await act(async () => renderModelControls())
-  expect(host.textContent).toContain("Create or edit the eye model")
+  expect(help?.getAttribute("aria-expanded")).toBe("false")
+  await act(async () => help?.click())
+  expect(help?.getAttribute("aria-expanded")).toBe("true")
+  await act(async () =>
+    help?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    )
+  )
+  expect(help?.getAttribute("aria-expanded")).toBe("false")
+  expect(host.querySelector('[role="status"]')?.textContent).toContain(
+    "Click the inner, then outer eye corner"
+  )
 })
 
 test("manual corner status announces that point 2 is next", async () => {
@@ -74,8 +77,7 @@ test("manual corner status announces that point 2 is next", async () => {
 
   const status = host.querySelector('[role="status"]')
   expect(status).not.toBeNull()
-  expect(status?.textContent).toContain("first point is marked")
-  expect(status?.textContent).toContain("opposite corner")
+  expect(status?.textContent).toContain("opposite eye corner")
 })
 
 test("auto model guidance says how many more directions are needed", async () => {

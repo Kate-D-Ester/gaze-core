@@ -1,44 +1,79 @@
 import {
   collectPair,
   createCollector,
-  fitSceneCalibration,
+  inspectSceneCalibration,
+  repeatCollectedPoint,
+  type CalibrationFitResult,
+  eyeEvidenceIssue,
+  inspectReferenceObservation,
+  lockCalibrationPoint,
   mapSceneGaze,
   MAX_FRAME_AGE_MS,
+  MAX_HAND_GAP_MS,
+  MAX_HAND_RECOVERY_MS,
+  MIN_EYE_CONFIDENCE,
+  MAX_EYE_MOVEMENT_RAD,
+  gazeAngle,
   MAX_PAIR_SKEW_MS,
-  pairObservation,
   validateSceneCalibration,
+  CALIBRATION_TARGETS,
+  sceneRegion,
 } from "./calibration"
+import { fitOnePointCalibration } from "./one-point-calibration"
 import type {
+  CalibrationMethod,
+  CameraOrientation,
+  CalibrationHold,
   CollectionResult,
   Collector,
   EyeObservation,
   GazeMeasurement,
   HandObservation,
+  ReferenceObservation,
   SceneCalibration,
   SceneObservation,
   ValidationResult,
 } from "./scene.types"
+import type { Point } from "../eye-tracking/eye-tracking.types"
+import {
+  DEFAULT_CAMERA_TRANSFORM,
+  normalizeCameraTransform,
+} from "../eye-tracking/camera-transform"
 
 export type SceneSessionSnapshot = {
+  method: CalibrationMethod
   calibration: SceneCalibration | null
   validation: ValidationResult | null
   capture: Collector["mode"] | null
   collection: CollectionResult | null
   notice: string
   delayMs: number
+  offset: Point
   measurement: GazeMeasurement | null
   trace: GazeMeasurement[]
+  fitFailure: (CalibrationFitResult & { holds: CalibrationHold[] }) | null
+}
+export function hasCurrentAccuracyCheck(state: SceneSessionSnapshot) {
+  return (
+    !!state.validation?.passed &&
+    state.offset.every(
+      (value, index) => value === (state.validation?.offset?.[index] ?? 0)
+    )
+  )
 }
 export class SceneSession {
   private snapshot: SceneSessionSnapshot = {
+    method: "hand",
     calibration: null,
     validation: null,
     capture: null,
     collection: null,
     notice: "",
     delayMs: 0,
+    offset: [0, 0],
     measurement: null,
     trace: [],
+    fitFailure: null,
   }
   private eyes: EyeObservation[] = []
   private collector: Collector | null = null
@@ -46,8 +81,18 @@ export class SceneSession {
   private lastHandId = -1
   private lastMeasuredEyeId = -1
   private continuityAfter = -Infinity
-  private pendingHands: HandObservation[] = []
+  private lastGoodEyeTimestamp = -Infinity
+  private pendingHands: ReferenceObservation[] = []
   private scenes: SceneObservation[] = []
+  private previousMapping: SceneCalibration | null = null
+  private eyeMovementSince: number | null = null
+  private orientation: CameraOrientation = {
+    eye: DEFAULT_CAMERA_TRANSFORM,
+    scene: DEFAULT_CAMERA_TRANSFORM,
+  }
+  constructor(method: CalibrationMethod = "hand") {
+    this.snapshot.method = method
+  }
   getSnapshot = () => this.snapshot
   subscribe = (fn: () => void) => {
     this.listeners.add(fn)
@@ -65,26 +110,51 @@ export class SceneSession {
     this.eyes = this.eyes
       .filter((value) => eye.timestamp - value.timestamp <= 3000)
       .slice(-180)
+    const issue = eyeEvidenceIssue(eye)
+    if (!issue) this.lastGoodEyeTimestamp = eye.timestamp
     const anchor = this.collector?.anchor
-    const usable =
-      eye.valid &&
-      !!eye.feature &&
-      eye.confidence >= 0.7 &&
-      Number.isFinite(eye.confidence) &&
-      Number.isFinite(eye.timestamp) &&
-      eye.feature.every(Number.isFinite)
     const moved =
       !!anchor &&
+      !issue &&
       !!eye.feature &&
-      eye.timestamp >= anchor.eyeTimestamp &&
-      Math.hypot(
-        eye.feature[0] - anchor.feature[0],
-        eye.feature[1] - anchor.feature[1]
-      ) > 0.03
-    if (this.collector && (!usable || moved)) {
+      gazeAngle(eye.feature, anchor.feature) > MAX_EYE_MOVEMENT_RAD
+    if (!moved) this.eyeMovementSince = null
+    if (
+      this.collector &&
+      issue?.canPause &&
+      eye.timestamp - this.lastGoodEyeTimestamp <= MAX_HAND_GAP_MS
+    ) {
+      this.update({
+        collection: collectPair(
+          this.collector,
+          null,
+          eye.timestamp + this.snapshot.delayMs,
+          issue.hint,
+          MAX_HAND_RECOVERY_MS
+        ),
+      })
+    } else if (this.collector && issue) {
       this.continuityAfter = eye.timestamp
       this.pendingHands = []
-      this.update({ collection: collectPair(this.collector, null) })
+      this.update({
+        collection: collectPair(this.collector, null, undefined, issue.hint),
+      })
+    } else if (this.collector && moved) {
+      this.eyeMovementSince ??= eye.timestamp
+      const sustained = eye.timestamp - this.eyeMovementSince >= 200
+      if (sustained) {
+        this.continuityAfter = eye.timestamp
+        this.pendingHands = []
+      }
+      this.update({
+        collection: collectPair(
+          this.collector,
+          null,
+          sustained ? undefined : eye.timestamp + this.snapshot.delayMs,
+          "Gaze moved. Hold steady…",
+          MAX_HAND_RECOVERY_MS
+        ),
+      })
     }
     this.drainHands(now)
   }
@@ -95,8 +165,11 @@ export class SceneSession {
     this.lastHandId = -1
     this.lastMeasuredEyeId = -1
     this.continuityAfter = -Infinity
+    this.lastGoodEyeTimestamp = -Infinity
     this.pendingHands = []
     this.scenes = []
+    this.previousMapping = null
+    this.eyeMovementSince = null
     this.update({
       calibration: null,
       validation: null,
@@ -105,6 +178,54 @@ export class SceneSession {
       measurement: null,
       trace: [],
       notice: hadMapping ? reason : "",
+      fitFailure: null,
+      offset: [0, 0],
+    })
+  }
+  setMethod(method: CalibrationMethod) {
+    if (
+      !["hand", "marker", "one-point"].includes(method) ||
+      method === this.snapshot.method
+    )
+      return
+    const previous =
+      method === "one-point" && this.snapshot.validation?.passed
+        ? this.snapshot.calibration
+        : null
+    this.invalidate("Calibration method changed.")
+    this.previousMapping = previous
+    this.update({ method })
+  }
+  setCameraOrientation(orientation: CameraOrientation) {
+    const next = {
+      eye: normalizeCameraTransform(orientation.eye),
+      scene: normalizeCameraTransform(orientation.scene),
+    }
+    if (JSON.stringify(next) === JSON.stringify(this.orientation)) return
+    this.orientation = next
+    this.invalidate()
+  }
+  setOnePointGain(gain: Point) {
+    const calibration = this.snapshot.calibration
+    if (
+      !calibration?.onePoint ||
+      calibration.onePoint.basis !== "projection" ||
+      this.snapshot.capture
+    )
+      return
+    const fitted = fitOnePointCalibration(
+      calibration.holds[0],
+      null,
+      gain,
+      calibration.onePoint.orientation ?? this.orientation
+    )
+    if (!fitted) return
+    this.update({
+      calibration: fitted.calibration,
+      validation: null,
+      measurement: null,
+      trace: [],
+      notice: "",
     })
   }
   setDelay(delayMs: number) {
@@ -117,9 +238,74 @@ export class SceneSession {
     this.invalidate("Camera delay changed. Calibrate again.")
     this.update({ delayMs })
   }
+  setOffset(offset: Point) {
+    if (
+      !this.snapshot.calibration ||
+      this.snapshot.capture ||
+      offset.some((v) => !Number.isFinite(v) || Math.abs(v) > 1) ||
+      offset.every((v, i) => v === this.snapshot.offset[i])
+    )
+      return
+    this.update({
+      offset: [...offset],
+      measurement: null,
+      trace: [],
+      notice: "",
+    })
+  }
+  retryValidationPoint() {
+    const index = this.snapshot.validation?.retryIndex
+    const holds = this.snapshot.collection?.holds
+    if (
+      this.snapshot.capture ||
+      !this.snapshot.calibration ||
+      index == null ||
+      !holds?.[index] ||
+      this.snapshot.offset.some(
+        (value, i) => value !== (this.snapshot.validation?.offset?.[i] ?? 0)
+      )
+    )
+      return
+    this.collector = createCollector("validation")
+    this.configureCollector("validation")
+    this.collector.holds = [...holds]
+    repeatCollectedPoint(this.collector, index)
+    this.lastHandId = -1
+    this.pendingHands = []
+    this.continuityAfter = this.eyes.at(-1)?.timestamp ?? -Infinity
+    this.update({
+      capture: "validation",
+      validation: null,
+      collection: collectPair(this.collector, null),
+      notice: `Repeat point ${index + 1}. Four checks kept.`,
+    })
+  }
+  retryCalibrationPoint() {
+    const failure = this.snapshot.fitFailure
+    if (this.snapshot.capture || !failure || failure.retryIndex == null) return
+    this.collector = createCollector("calibration")
+    this.configureCollector("calibration")
+    this.collector.holds = [...failure.holds]
+    repeatCollectedPoint(this.collector, failure.retryIndex)
+    this.lastHandId = -1
+    this.pendingHands = []
+    this.continuityAfter = this.eyes.at(-1)?.timestamp ?? -Infinity
+    this.update({
+      capture: "calibration",
+      collection: collectPair(this.collector, null),
+      notice: failure.reason,
+    })
+  }
   startCapture(mode: Collector["mode"]) {
     if (mode === "validation" && !this.snapshot.calibration) return
+    if (
+      mode === "calibration" &&
+      this.snapshot.method === "one-point" &&
+      this.snapshot.validation?.passed
+    )
+      this.previousMapping = this.snapshot.calibration
     this.collector = createCollector(mode)
+    this.configureCollector(mode)
     this.lastHandId = -1
     this.pendingHands = []
     this.continuityAfter = -Infinity
@@ -128,7 +314,41 @@ export class SceneSession {
       collection: collectPair(this.collector, null),
       notice: "",
       validation: null,
-      ...(mode === "calibration" ? { calibration: null, trace: [] } : {}),
+      fitFailure: null,
+      ...(mode === "calibration"
+        ? { calibration: null, trace: [], offset: [0, 0] as Point }
+        : {}),
+    })
+  }
+  private configureCollector(mode: Collector["mode"]) {
+    if (!this.collector) return
+    this.collector.automatic = this.snapshot.method === "marker"
+    if (mode === "calibration" && this.snapshot.method === "one-point") {
+      this.collector.targets = [[0.5, 0.5]]
+      this.collector.freeTarget = true
+    }
+  }
+  lockPoint() {
+    if (
+      !this.collector ||
+      (!this.snapshot.collection?.canLock && !this.collector.freeTarget)
+    )
+      return
+    // Start with evidence received after the user's confirmation, including
+    // when a network stream has queued delayed frames.
+    this.pendingHands = []
+    this.continuityAfter = this.eyes.at(-1)?.timestamp ?? -Infinity
+    lockCalibrationPoint(this.collector)
+    this.update({
+      collection: {
+        ...(this.snapshot.collection ?? collectPair(this.collector, null)),
+        armed: true,
+        canLock: false,
+        progress: 0,
+        status: "settling",
+        samples: 0,
+        hint: "Hold steady.",
+      },
     })
   }
   cancelCapture() {
@@ -141,14 +361,49 @@ export class SceneSession {
     })
   }
   observeHand(hand: HandObservation, now: number) {
-    if (!this.collector || this.lastHandId === hand.scene.id) return
-    this.lastHandId = hand.scene.id
-    if (hand.landmarks.length !== 1) {
+    if (this.snapshot.method === "marker") return
+    const joints = hand.landmarks.length === 1 ? hand.landmarks[0] : null
+    const tip = joints?.[8]
+    const usable =
+      joints?.length === 21 &&
+      tip &&
+      joints.every((p) => [p.x, p.y, p.z].every(Number.isFinite))
+    this.observeReference(
+      {
+        scene: hand.scene,
+        position: usable ? [tip.x, tip.y] : null,
+        kind: "hand",
+        reason:
+          hand.reason ??
+          (hand.landmarks.length > 1
+            ? "Show only one hand."
+            : "Paused · reacquiring hand."),
+      },
+      now
+    )
+  }
+  observeReference(reference: ReferenceObservation, now: number) {
+    if (
+      !this.collector ||
+      this.lastHandId === reference.scene.id ||
+      reference.kind !== (this.snapshot.method === "marker" ? "marker" : "hand")
+    )
+      return
+    this.lastHandId = reference.scene.id
+    if (!reference.position) {
       this.pendingHands = []
-      this.update({ collection: collectPair(this.collector, null) })
+      this.update({
+        collection: collectPair(
+          this.collector,
+          null,
+          reference.scene.timestamp,
+          reference.reason ?? "Paused · reacquiring target.",
+          MAX_HAND_RECOVERY_MS
+        ),
+      })
       return
     }
-    this.pendingHands.push(hand)
+    this.pendingHands.push(reference)
     this.pendingHands = this.pendingHands.slice(-90)
     this.drainHands(now)
   }
@@ -168,38 +423,109 @@ export class SceneSession {
     }
     if (!this.collector) this.pendingHands = []
   }
-  private collectHand(hand: HandObservation, now: number) {
+  private collectHand(hand: ReferenceObservation, now: number) {
     if (!this.collector) return
-    let pair = pairObservation(this.eyes, hand, this.snapshot.delayMs, now)
+    const result = inspectReferenceObservation(
+      this.eyes,
+      hand,
+      this.snapshot.delayMs,
+      now
+    )
+    let pair = result.pair
     if (pair && pair.eyeTimestamp <= this.continuityAfter) pair = null
-    const collection = collectPair(this.collector, pair)
+    if (
+      pair &&
+      this.snapshot.method === "marker" &&
+      this.snapshot.capture === "calibration" &&
+      !this.collector.armed
+    ) {
+      const covered = new Set(this.collector.holds.map((hold) => hold.region))
+      const region = sceneRegion(pair.target)
+      this.collector.targetOverride = covered.has(region)
+        ? (CALIBRATION_TARGETS.find(
+            (target) => !covered.has(sceneRegion(target))
+          ) ?? null)
+        : (CALIBRATION_TARGETS.find(
+            (target) => sceneRegion(target) === region
+          ) ?? null)
+    }
+    const collection = collectPair(
+      this.collector,
+      pair,
+      result.issue?.canPause &&
+        hand.scene.timestamp -
+          this.snapshot.delayMs -
+          this.lastGoodEyeTimestamp <=
+          MAX_HAND_GAP_MS
+        ? hand.scene.timestamp
+        : undefined,
+      result.issue?.hint,
+      MAX_HAND_RECOVERY_MS
+    )
     if (!collection.complete) {
       this.update({ collection })
       return
     }
+    // Publish the last saved hold before fitting can start validation or a retry.
+    this.update({ collection })
     if (this.snapshot.capture === "validation" && this.snapshot.calibration) {
       const validation = validateSceneCalibration(
         this.snapshot.calibration,
-        collection.holds
+        collection.holds,
+        this.snapshot.offset
       )
+      let notice = "Accuracy could not be measured. Check again."
+      if (validation) {
+        notice = `${validation.pixelRms.toFixed(1)} px RMS · worst ${validation.maxPixelError.toFixed(1)} px. Not verified.`
+        if (validation.passed)
+          notice = `Accuracy checked · ${validation.pixelRms.toFixed(1)} px RMS.`
+      }
       this.update({
         validation,
         capture: null,
         collection,
-        notice: validation?.passed
-          ? "Fresh finger accuracy check passed."
-          : "Accuracy check needs improvement. Recalibrate at your working distance.",
+        notice,
       })
     } else {
-      const calibration = fitSceneCalibration(collection.holds)
+      if (this.snapshot.method === "one-point") {
+        const fitted = fitOnePointCalibration(
+          collection.holds[0],
+          this.previousMapping,
+          undefined,
+          this.orientation
+        )
+        this.update({
+          calibration: fitted?.calibration ?? null,
+          offset: fitted?.offset ?? [0, 0],
+          capture: null,
+          collection,
+          notice: fitted
+            ? "One-point estimate · accuracy not measured."
+            : "Unable to estimate this point.",
+        })
+        this.collector = null
+        return
+      }
+      const result = inspectSceneCalibration(collection.holds)
+      const { calibration } = result
       this.update({
-        calibration,
+        calibration: calibration
+          ? { ...calibration, method: this.snapshot.method }
+          : null,
         capture: null,
         collection,
         notice: calibration
-          ? "Scene mapping ready. Check accuracy with fresh finger holds."
-          : "These holds did not form a reliable mapping. Cover the scene more widely and try again.",
+          ? "Mapping fitted. Check five fresh points."
+          : result.reason,
+        fitFailure: calibration
+          ? null
+          : { ...result, holds: [...collection.holds] },
       })
+      if (calibration) {
+        this.startCapture("validation")
+        this.update({ notice: "Check five fresh points." })
+        return
+      }
     }
     this.collector = null
   }
@@ -234,8 +560,8 @@ export class SceneSession {
           : best,
       null
     )
-    let reason = "",
-      position = null
+    let reason = ""
+    let position: Point | null = null
     if (
       !latestScene ||
       now - latestScene.timestamp > MAX_FRAME_AGE_MS ||
@@ -258,22 +584,35 @@ export class SceneSession {
       !Number.isFinite(eye.confidence) ||
       !Number.isFinite(eye.timestamp) ||
       now < eye.timestamp ||
-      eye.confidence < 0.7 ||
+      eye.confidence < MIN_EYE_CONFIDENCE ||
       now - eye.timestamp > MAX_FRAME_AGE_MS + Math.abs(this.snapshot.delayMs)
     )
       reason = "Fresh pupil evidence unavailable"
     else if (Math.abs(eye.timestamp - time) > MAX_PAIR_SKEW_MS)
       reason = "Camera frames could not be paired"
     else position = mapSceneGaze(calibration, eye.feature)
+    const mapped = position
+    if (position)
+      position = [
+        position[0] + this.snapshot.offset[0],
+        position[1] + this.snapshot.offset[1],
+      ]
     if (!position && !reason) reason = "Invalid gaze feature"
     // Repainting/new scene frames must not refresh already-used pupil evidence.
     if (position && eye?.id === this.lastMeasuredEyeId) return
     if (position && eye) this.lastMeasuredEyeId = eye.id
     const inFrame = !!position && position.every((v) => v >= 0 && v <= 1)
     if (position && !inFrame) reason = "Gaze outside the scene camera view"
+    const verified = hasCurrentAccuracyCheck(this.snapshot)
+    const estimated = this.snapshot.method === "one-point" && !verified
+    const preview = inFrame && !verified && !estimated && !this.snapshot.capture
+    if (inFrame && !verified)
+      reason = estimated
+        ? "One-point estimate · accuracy not measured"
+        : "Accuracy check required"
     const extrapolated =
-      !!position &&
-      position.some(
+      !!mapped &&
+      mapped.some(
         (v, i) => v < calibration.bounds.min[i] || v > calibration.bounds.max[i]
       )
     const measurement: GazeMeasurement = {
@@ -288,7 +627,9 @@ export class SceneSession {
         position && scene
           ? [position[0] * scene.width, position[1] * scene.height]
           : null,
-      valid: inFrame,
+      valid: inFrame && (verified || estimated) && !this.snapshot.capture,
+      estimated,
+      preview,
       reason,
       extrapolated,
     }
@@ -298,11 +639,33 @@ export class SceneSession {
     this.update({ measurement, trace })
   }
   checkCaptureFreshness(now: number) {
+    if (this.collector && now - this.lastGoodEyeTimestamp > MAX_HAND_GAP_MS) {
+      this.continuityAfter = Math.max(this.continuityAfter, now)
+      this.pendingHands = []
+      this.update({
+        collection: collectPair(
+          this.collector,
+          null,
+          undefined,
+          "Eye frames delayed."
+        ),
+      })
+      return
+    }
     if (
       this.collector &&
       this.collector.lastTimestamp <
-        now - (MAX_FRAME_AGE_MS + Math.max(0, -this.snapshot.delayMs))
+        now - (MAX_HAND_GAP_MS + Math.max(0, -this.snapshot.delayMs))
     )
-      this.update({ collection: collectPair(this.collector, null) })
+      this.update({
+        collection: collectPair(
+          this.collector,
+          null,
+          now,
+          eyeEvidenceIssue(this.eyes.at(-1))?.hint ??
+            "Paused · waiting for hand frames.",
+          MAX_HAND_RECOVERY_MS
+        ),
+      })
   }
 }

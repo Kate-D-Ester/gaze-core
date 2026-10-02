@@ -1,16 +1,24 @@
 import type { SceneCamera } from "./scene-camera"
 import type { HandObservation, SceneObservation } from "./scene.types"
+import { MAX_HAND_RECOVERY_MS } from "./calibration"
+import { HandStability } from "./hand-stability"
 
 export type HandTrackerSnapshot = {
   status: "idle" | "loading" | "ready" | "error"
   error: string
   hand: HandObservation | null
+  previewHand: HandObservation | null
+  delegate: "GPU" | "CPU" | null
+  inferenceMs: number | null
 }
 export class HandTracker {
   private snapshot: HandTrackerSnapshot = {
     status: "idle",
     error: "",
     hand: null,
+    previewHand: null,
+    delegate: null,
+    inferenceMs: null,
   }
   private listeners = new Set<() => void>()
   private worker: Worker | null = null
@@ -19,6 +27,7 @@ export class HandTracker {
   private inflight = false
   private lastId = -1
   private lastSourceGeneration = -1
+  private stability = new HandStability()
   private camera: SceneCamera
   private factory: () => Worker
   private makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap>
@@ -28,8 +37,16 @@ export class HandTracker {
       new Worker(
         `${import.meta.env?.BASE_URL ?? "/"}vision-runtime/scene-hand.worker.js`
       ),
-    makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap> = (image) =>
-      createImageBitmap(image)
+    makeBitmap: (image: HTMLCanvasElement) => Promise<ImageBitmap> = (
+      image
+    ) => {
+      const scale = Math.min(1, 640 / Math.max(image.width, image.height))
+      return createImageBitmap(image, {
+        resizeWidth: Math.max(1, Math.round(image.width * scale)),
+        resizeHeight: Math.max(1, Math.round(image.height * scale)),
+        resizeQuality: "low",
+      })
+    }
   ) {
     this.camera = camera
     this.factory = factory
@@ -48,7 +65,14 @@ export class HandTracker {
   }
   start() {
     this.dispose()
-    this.update({ status: "loading", error: "", hand: null })
+    this.update({
+      status: "loading",
+      error: "",
+      hand: null,
+      previewHand: null,
+      delegate: null,
+      inferenceMs: null,
+    })
     const epoch = this.generation
     try {
       const worker = this.factory()
@@ -57,23 +81,50 @@ export class HandTracker {
         const message = event.data
         if (epoch !== this.generation || message.generation !== epoch) return
         if (message.type === "ready") {
-          this.update({ status: "ready" })
+          this.update({ status: "ready", delegate: message.delegate ?? null })
           this.pump()
         } else if (message.type === "error") {
           this.inflight = false
-          this.update({ status: "error", error: message.error, hand: null })
+          this.update({
+            status: "error",
+            error: message.error,
+            hand: null,
+            previewHand: null,
+          })
         } else if (message.type === "result") {
           this.inflight = false
-          if (message.scene.generation !== this.camera.latest?.generation)
+          if (message.scene.generation !== this.camera.latest?.generation) {
+            this.pump()
             return
-          this.update({
-            hand: {
-              scene: message.scene,
-              landmarks: message.landmarks,
-              worldLandmarks: message.worldLandmarks,
-              handedness: message.handedness,
-            },
+          }
+          const result = this.stability.apply({
+            scene: message.scene,
+            landmarks: message.landmarks,
+            worldLandmarks: message.worldLandmarks,
+            handedness: message.handedness,
           })
+          const hand = result.hand
+          const previous = this.snapshot.previewHand
+          // Smoothing and retention affect only the drawing. Accepted samples
+          // retain their raw coordinates; rejected jumps count as missing data.
+          let previewHand = result.preview
+          if (
+            !previewHand &&
+            previous &&
+            previous.scene.generation === hand.scene.generation &&
+            hand.scene.timestamp >= previous.scene.timestamp &&
+            hand.scene.timestamp - previous.scene.timestamp <=
+              MAX_HAND_RECOVERY_MS
+          )
+            previewHand = previous
+          this.update({
+            hand,
+            previewHand,
+            inferenceMs: Number.isFinite(message.inferenceMs)
+              ? message.inferenceMs
+              : null,
+          })
+          this.pump()
         }
       }
       worker.onerror = () => {
@@ -84,6 +135,7 @@ export class HandTracker {
             error:
               "Hand tracking could not start. Reload its assets or retry in a browser with WebAssembly and OffscreenCanvas.",
             hand: null,
+            previewHand: null,
           })
         }
       }
@@ -94,6 +146,7 @@ export class HandTracker {
             error:
               "The hand worker returned unreadable data. Retry hand tracking.",
             hand: null,
+            previewHand: null,
           })
       }
       this.unsubscribe = this.camera.subscribe(this.pump)
@@ -112,7 +165,8 @@ export class HandTracker {
   private pump = () => {
     const scene = this.camera.latest
     if (!scene) {
-      if (this.snapshot.hand) this.update({ hand: null })
+      if (this.snapshot.hand || this.snapshot.previewHand)
+        this.update({ hand: null, previewHand: null })
       return
     }
     if (
@@ -123,9 +177,10 @@ export class HandTracker {
     )
       return
     if (this.lastSourceGeneration !== scene.generation) {
+      this.stability.reset()
       this.lastId = -1
       this.lastSourceGeneration = scene.generation
-      this.update({ hand: null })
+      this.update({ hand: null, previewHand: null })
     }
     this.inflight = true
     this.lastId = scene.id
@@ -162,6 +217,7 @@ export class HandTracker {
                 ? error.message
                 : "Unable to read the scene camera for hand tracking.",
             hand: null,
+            previewHand: null,
           })
         }
       })
@@ -175,5 +231,6 @@ export class HandTracker {
     this.inflight = false
     this.lastId = -1
     this.lastSourceGeneration = -1
+    this.stability.reset()
   }
 }

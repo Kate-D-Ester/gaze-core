@@ -1,30 +1,28 @@
 import { useId } from "react"
+import { HelpTip } from "./help-tip"
 import type { V2StepPanelProps } from "./v2-step-panel.types"
 
 export function V2StepPanel({
-  stepNumber,
   stepName,
-  title,
   description,
   error,
   message,
+  stage,
   children,
 }: V2StepPanelProps) {
   const headingId = useId()
   const statusMessage = error || message
 
   return (
-    <aside className="eye-controls" aria-labelledby={headingId}>
+    <aside
+      className={stage ? "eye-controls has-stage" : "eye-controls"}
+      aria-labelledby={headingId}
+    >
       <div className="eye-controls-heading">
-        <div>
-          <span className="eye-eyebrow">
-            STEP {String(stepNumber).padStart(2, "0")} /{" "}
-            {stepName.toUpperCase()}
-          </span>
-          <h2 id={headingId}>{title}</h2>
-          <p>{description}</p>
-        </div>
+        <h2 id={headingId}>{stepName}</h2>
+        <HelpTip text={description} label={`${stepName} help`} />
       </div>
+      {stage}
       <div className="eye-controls-body">
         {statusMessage && (
           <p

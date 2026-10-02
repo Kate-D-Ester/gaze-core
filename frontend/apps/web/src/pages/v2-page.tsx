@@ -9,7 +9,14 @@ import { ThresholdControls } from "@/features/eye-tracking/threshold-controls"
 import { RegionControls } from "@/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "@/features/eye-tracking/steps/source-controls"
 import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, ArrowRight, Eye, X } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  ScanEye,
+  ShieldCheck,
+  X,
+} from "lucide-react"
 import { Link } from "react-router-dom"
 import { useTracker } from "@/features/eye-tracking/use-tracker"
 import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
@@ -61,7 +68,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
         "Eye region",
         "Eye model",
         "Scene camera",
-        "Finger calibration",
+        "Calibration",
         "Live scene gaze",
       ]
     : STEPS
@@ -115,11 +122,31 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
     setFocus(false)
     setNotice("")
   }, [])
+  const geometry =
+    tracker.dimensions.width +
+    ":" +
+    tracker.dimensions.height +
+    ":" +
+    (tracker.source?.key ?? "")
+  const [calibrationGeometry, setCalibrationGeometry] = useState(geometry)
+  if (calibrationGeometry !== geometry) {
+    setCalibrationGeometry(geometry)
+    clearCalibration()
+  }
   useEffect(() => {
     setPreviewMasksEnabled(
-      !!source && (thresholdViewOpen || (pipelineOpen && step >= 2))
+      !!source &&
+        (!sceneMode || step < 3) &&
+        (thresholdViewOpen || (pipelineOpen && step >= 2))
     )
-  }, [pipelineOpen, setPreviewMasksEnabled, source, step, thresholdViewOpen])
+  }, [
+    pipelineOpen,
+    sceneMode,
+    setPreviewMasksEnabled,
+    source,
+    step,
+    thresholdViewOpen,
+  ])
   const update = useCallback(
     (next: Partial<FrameSettings>) => {
       configure(next)
@@ -298,7 +325,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
   }
   return (
     <main
-      className="eye-app"
+      className={sceneMode ? "eye-app scene-mode" : "eye-app"}
       style={{ colorScheme: "dark", backgroundColor: "#090909" }}
     >
       <header className="eye-header">
@@ -310,9 +337,12 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
           <span className="eye-version">{sceneMode ? "SCENE" : "V2"}</span>
         </Link>
         <div className="eye-header-right">
-          <span className="eye-local">
-            <span className="status-light on" />
-            On-device processing
+          <span
+            className="eye-local"
+            title="Processed on this device"
+            aria-label="Processed on this device"
+          >
+            <ShieldCheck size={16} aria-hidden="true" />
           </span>
         </div>
       </header>
@@ -324,6 +354,8 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
           {(["classic", "spatial"] as const).map((format, i) => (
             <button
               key={format}
+              aria-label={`Eye Tracker ${i + 1}: ${i === 0 ? "Manual" : "Auto"} tracking`}
+              title={i === 0 ? "Manual eye model" : "Automatic eye model"}
               aria-pressed={settings.format === format}
               onClick={() => {
                 if (format === settings.format) return
@@ -334,8 +366,12 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
                 setManualCornerMode(null)
               }}
             >
-              <span>Eye Tracker {i + 1}</span>
-              <small>{i === 0 ? "Manual tracker" : "Auto tracker"}</small>
+              {i === 0 ? (
+                <Eye size={16} aria-hidden="true" />
+              ) : (
+                <ScanEye size={16} aria-hidden="true" />
+              )}
+              <span>{i === 0 ? "Manual" : "Auto"}</span>
             </button>
           ))}
         </div>
@@ -366,9 +402,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
           eyeRevision={eyeRevision}
         />
       )}
-      <div
-        className={`eye-workspace ${sceneMode && step >= 3 ? "scene-eye-diagnostic" : ""}`}
-      >
+      <div className="eye-workspace" hidden={sceneMode && step >= 3}>
         <section
           className="eye-preview-column"
           aria-label="Eye preview and tuning"
@@ -393,6 +427,14 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
                 setNotice("")
               }}
               onThresholdViewChange={setThresholdViewOpen}
+              transformDisabled={sceneStatus.recording}
+              onTransformChange={() => {
+                resetSource()
+                setStep(1)
+                setNotice(
+                  "Camera orientation changed. Select the eye region and rebuild the eye model."
+                )
+              }}
             />
             <details
               className="eye-details eye-pipeline-details"
@@ -418,9 +460,7 @@ export function V2Page({ sceneMode = false }: { sceneMode?: boolean }) {
         </section>
         {(!sceneMode || step < 3) && (
           <V2StepPanel
-            stepNumber={step + 1}
             stepName={steps[step]}
-            title={copy[step][0]}
             description={stepDescription}
             error={tracker.error}
             message={notice}

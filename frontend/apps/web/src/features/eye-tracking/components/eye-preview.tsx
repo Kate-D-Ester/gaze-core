@@ -6,7 +6,15 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react"
-import { Camera, Crop, Pencil, Plus } from "lucide-react"
+import {
+  Camera,
+  Contrast,
+  Crop,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+} from "lucide-react"
+import { CameraTransformControls } from "./camera-transform-controls"
 import type { Ellipse, Point, Rect } from "../eye-tracking.types"
 import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
@@ -121,6 +129,9 @@ export function EyePreview({
   onEditRegion,
   onThresholdViewChange,
   showModel = false,
+  onTransformChange,
+  transformDisabled = false,
+  readOnly = false,
 }: EyePreviewProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -743,18 +754,36 @@ export function EyePreview({
       <div className="eye-preview-heading">
         <span>
           <span
-            className={tracker.source ? "status-light on" : "status-light"}
+            className={
+              tracker.source &&
+              (!tracker.connection || tracker.connection === "live")
+                ? "status-light on"
+                : "status-light"
+            }
           />
-          {tracker.source ? "Eye view" : "Preview"}
+          Eye camera
         </span>
-        {tracker.source && (
+        {tracker.source && !readOnly && (
           <div className="eye-preview-tools">
+            {tracker.transform && (
+              <CameraTransformControls
+                label="Eye camera"
+                value={tracker.transform}
+                disabled={transformDisabled}
+                onChange={(value) => {
+                  tracker.setTransform(value)
+                  onTransformChange?.()
+                }}
+              />
+            )}
             <div
               className="eye-preview-switch"
               role="group"
               aria-label="Preview display"
             >
               <button
+                aria-label="Show camera image"
+                title="Show camera image"
                 aria-pressed={view === "image"}
                 data-tooltip="Show camera image"
                 onClick={() => {
@@ -762,14 +791,16 @@ export function EyePreview({
                   onThresholdViewChange?.(false)
                 }}
               >
-                Image
+                <ImageIcon size={15} aria-hidden="true" />
               </button>
               <button
+                aria-label="Show threshold view"
+                title="Show threshold view"
                 aria-pressed={view === "threshold"}
                 data-tooltip="Show threshold view"
                 onClick={() => setView("threshold")}
               >
-                Threshold
+                <Contrast size={15} aria-hidden="true" />
               </button>
             </div>
             {cornerMode && (
@@ -801,6 +832,8 @@ export function EyePreview({
             )}
             <button
               className={`eye-roi-edit ${selectRegion ? "active" : ""}`}
+              aria-label="Edit eye region"
+              title="Edit eye region"
               data-tooltip="Edit eye region"
               aria-pressed={selectRegion}
               onClick={() => {
@@ -810,13 +843,21 @@ export function EyePreview({
               }}
             >
               <Crop size={13} />
-              Edit ROI
             </button>
           </div>
         )}
       </div>
       {tracker.source ? (
         <>
+          {tracker.source.kind === "network" &&
+            (tracker.connection === "waiting" ||
+              tracker.connection === "reconnecting") && (
+              <div className="camera-recovery-banner" role="status">
+                {tracker.connection === "waiting"
+                  ? "Waiting for camera frames…"
+                  : "Reconnecting eye camera automatically…"}
+              </div>
+            )}
           {selectRegion && (
             <div className="eye-roi-toolbar">
               <span>
@@ -952,8 +993,7 @@ export function EyePreview({
           <div className="eye-camera-outline">
             <Camera size={30} strokeWidth={1.2} />
           </div>
-          <h2>Connect an eye camera</h2>
-          <p>Select a camera source to begin.</p>
+          <p>No camera connected</p>
         </div>
       )}
     </div>

@@ -1,11 +1,20 @@
 import { useEffect, useRef } from "react"
 import type { SceneCamera } from "./scene-camera"
+import type { Point } from "../eye-tracking/eye-tracking.types"
+import { MAX_HAND_RECOVERY_MS } from "./calibration"
+import {
+  NETWORK_CONNECTION_LABELS,
+  type NetworkConnectionState,
+} from "../eye-tracking/network-camera"
+import { Camera, LoaderCircle } from "lucide-react"
 import type {
+  CalibrationMethod,
   CalibrationHold,
   GazeMeasurement,
   HandObservation,
   SceneObservation,
 } from "./scene.types"
+import type { MarkerObservation } from "./marker-detector"
 const CONNECTIONS = [
   [0, 1],
   [1, 2],
@@ -33,18 +42,32 @@ export function ScenePreview({
   camera,
   frame,
   hand,
+  handRecovering = false,
+  marker = null,
+  hideMarkerPattern = false,
+  method = "hand",
   gaze,
   trace,
   holds,
   capturing,
+  target,
+  progress,
+  connection,
 }: {
   camera: SceneCamera
   frame: SceneObservation | null
   hand: HandObservation | null
+  handRecovering?: boolean
+  marker?: MarkerObservation | null
+  hideMarkerPattern?: boolean
+  method?: CalibrationMethod
   gaze: GazeMeasurement | null
   trace: GazeMeasurement[]
   holds: CalibrationHold[]
   capturing: boolean
+  target: Point | null
+  progress: number
+  connection: NetworkConnectionState
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -60,32 +83,71 @@ export function ScenePreview({
     const w = element.width,
       h = element.height,
       scale = Math.max(1, w / 640)
+    if (
+      hideMarkerPattern &&
+      marker?.position &&
+      marker.corners.length &&
+      marker.scene.generation === frame.generation &&
+      performance.now() - marker.scene.timestamp <= 250
+    ) {
+      // A same-screen preview must not become another optical calibration
+      // target. Mask only the display copy; detector and recordings use rawCanvas.
+      const xs = marker.corners.map(([x]) => x * w),
+        ys = marker.corners.map(([, y]) => y * h)
+      const left = Math.min(...xs),
+        top = Math.min(...ys),
+        width = Math.max(...xs) - left,
+        height = Math.max(...ys) - top
+      ctx.fillStyle = "#19231f"
+      ctx.fillRect(
+        left - width * 0.1,
+        top - height * 0.1,
+        width * 1.2,
+        height * 1.2
+      )
+    }
     if (capturing) {
-      ctx.lineWidth = scale
-      ctx.strokeStyle = "rgba(255,255,255,.35)"
-      for (let i = 1; i < 3; i++) {
-        ctx.beginPath()
-        ctx.moveTo((w * i) / 3, 0)
-        ctx.lineTo((w * i) / 3, h)
-        ctx.moveTo(0, (h * i) / 3)
-        ctx.lineTo(w, (h * i) / 3)
-        ctx.stroke()
-      }
       for (const hold of holds) {
-        ctx.fillStyle = "rgba(80,200,150,.18)"
-        ctx.fillRect(
-          ((hold.region % 3) * w) / 3,
-          (Math.floor(hold.region / 3) * h) / 3,
-          w / 3,
-          h / 3
+        ctx.fillStyle = "#83d7b2"
+        ctx.beginPath()
+        ctx.arc(
+          hold.target[0] * w,
+          hold.target[1] * h,
+          4 * scale,
+          0,
+          Math.PI * 2
         )
+        ctx.fill()
+      }
+      if (target) {
+        const radius = Math.min(w, h) * 0.1
+        ctx.lineWidth = 2 * scale
+        ctx.strokeStyle = "rgba(255,255,255,.6)"
+        ctx.setLineDash([6 * scale, 5 * scale])
+        ctx.beginPath()
+        ctx.arc(target[0] * w, target[1] * h, radius, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.strokeStyle = "#83d7b2"
+        ctx.lineWidth = 4 * scale
+        ctx.beginPath()
+        ctx.arc(
+          target[0] * w,
+          target[1] * h,
+          radius,
+          -Math.PI / 2,
+          -Math.PI / 2 + progress * Math.PI * 2
+        )
+        ctx.stroke()
       }
     }
     if (
       hand &&
+      connection === "live" &&
       hand.scene.generation === frame.generation &&
-      performance.now() - hand.scene.timestamp <= 250
-    )
+      performance.now() - hand.scene.timestamp <= MAX_HAND_RECOVERY_MS
+    ) {
+      ctx.globalAlpha = handRecovering ? 0.45 : 1
       for (const landmarks of hand.landmarks) {
         ctx.lineWidth = 2 * scale
         ctx.strokeStyle = "#7dd3fc"
@@ -106,10 +168,35 @@ export function ScenePreview({
           ctx.fill()
         }
       }
+      ctx.globalAlpha = 1
+    }
+    if (
+      marker?.position &&
+      marker.scene.generation === frame.generation &&
+      performance.now() - marker.scene.timestamp <= 250
+    ) {
+      ctx.strokeStyle = "#83d7b2"
+      ctx.lineWidth = 2 * scale
+      ctx.beginPath()
+      marker.corners.forEach(([x, y], index) =>
+        index ? ctx.lineTo(x * w, y * h) : ctx.moveTo(x * w, y * h)
+      )
+      ctx.closePath()
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(
+        marker.position[0] * w,
+        marker.position[1] * h,
+        6 * scale,
+        0,
+        Math.PI * 2
+      )
+      ctx.stroke()
+    }
     ctx.strokeStyle = "rgba(244,114,182,.7)"
     ctx.lineWidth = 2 * scale
     let previous: GazeMeasurement | null = null
-    for (const point of trace) {
+    for (const point of capturing ? [] : trace) {
       if (!point.valid || !point.position) {
         previous = null
         continue
@@ -122,7 +209,12 @@ export function ScenePreview({
       }
       previous = point
     }
-    if (gaze?.valid && gaze.position) {
+    if (
+      !capturing &&
+      connection === "live" &&
+      (gaze?.valid || gaze?.preview) &&
+      gaze.position
+    ) {
       ctx.beginPath()
       ctx.arc(
         gaze.position[0] * w,
@@ -131,35 +223,64 @@ export function ScenePreview({
         0,
         Math.PI * 2
       )
-      ctx.fillStyle = "#f472b6"
-      ctx.fill()
+      if (gaze.valid && !gaze.estimated) {
+        ctx.fillStyle = "#f472b6"
+        ctx.fill()
+      } else ctx.setLineDash([4 * scale, 3 * scale])
       ctx.lineWidth = 2 * scale
-      ctx.strokeStyle = "white"
+      ctx.strokeStyle = gaze.valid && !gaze.estimated ? "white" : "#fbbf24"
       ctx.stroke()
+      ctx.setLineDash([])
     }
-  }, [camera, frame, hand, gaze, trace, holds, capturing])
+  }, [
+    camera,
+    connection,
+    frame,
+    hand,
+    handRecovering,
+    marker,
+    hideMarkerPattern,
+    method,
+    gaze,
+    trace,
+    holds,
+    capturing,
+    target,
+    progress,
+  ])
   return (
-    <div
-      className={`scene-preview ${frame ? "has-scene" : ""}`}
-      style={{ aspectRatio: frame ? `${frame.width}/${frame.height}` : "4/3" }}
-    >
+    <div className={`scene-preview ${frame ? "has-scene" : ""}`}>
       <canvas
         ref={canvas}
-        aria-label="Scene camera preview with hand landmarks and mapped gaze"
+        aria-label={
+          method === "marker"
+            ? "Scene camera preview with calibration marker and mapped gaze"
+            : "Scene camera preview with hand landmarks and mapped gaze"
+        }
         hidden={!frame}
       />
       {!frame && (
         <div className="scene-empty">
-          <span className="eye-eyebrow">SCENE CAMERA</span>
-          <h2>The world in front of you</h2>
-          <p>
-            Connect the outward-facing camera to see your hand and map your
-            gaze.
-          </p>
+          <Camera size={32} strokeWidth={1.25} aria-hidden="true" />
+          <p>No camera connected</p>
+        </div>
+      )}
+      {(connection === "waiting" ||
+        connection === "reconnecting" ||
+        connection === "connecting") && (
+        <div className="scene-recovery" role="status" aria-live="polite">
+          <LoaderCircle size={18} aria-hidden="true" />
+          <span>{NETWORK_CONNECTION_LABELS[connection]}</span>
         </div>
       )}
       <div className="scene-preview-caption">
-        <span>Unmirrored scene view</span>
+        <span>
+          {camera.getSnapshot().transform.rotation}°
+          {camera.getSnapshot().transform.mirrorX ? " · Mirrored" : ""}
+          {camera.getSnapshot().transform.mirrorY ? " · Flipped" : ""}
+          {!capturing && gaze?.preview ? " · Unverified preview" : ""}
+          {!capturing && gaze?.estimated ? " · One-point estimate" : ""}
+        </span>
         {frame && (
           <span>
             {frame.width} × {frame.height}

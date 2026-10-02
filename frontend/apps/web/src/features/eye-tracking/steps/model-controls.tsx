@@ -1,5 +1,5 @@
-import { ChevronDown, RotateCcw, X } from "lucide-react"
-import { useState } from "react"
+import { ChevronDown, RotateCcw } from "lucide-react"
+import { HelpTip } from "../components/help-tip"
 import { SpherePreview } from "../components/sphere-preview"
 import { getEyeModelLockStatus } from "../eye-model"
 import type { Point } from "../eye-tracking.types"
@@ -12,7 +12,6 @@ export function ModelControls({
   setNotice,
 }: ModelControlsProps) {
   const { settings, frame } = tracker
-  const [showCornerInstructions, setShowCornerInstructions] = useState(true)
   const lockStatus = getEyeModelLockStatus(
     frame?.model ?? null,
     frame?.width ?? 0,
@@ -35,48 +34,26 @@ export function ModelControls({
     modelHeading = "Ready to lock."
     modelGuidance = "The eye model has a stable fit across enough movement."
   }
-  let cornerHeading = "Create the eye model."
-  let cornerDescription = "Choose Create, then click both eye corners."
+  let cornerDescription = "Click the inner, then outer eye corner."
   if (corner) {
-    cornerHeading = "Choose the opposite eye corner."
-    cornerDescription = "The first point is marked. Click the opposite corner."
+    cornerDescription = "Click the opposite eye corner."
   } else if (settings.corners) {
-    cornerHeading = "Eye model points saved."
-    cornerDescription =
-      "Choose Edit to move or resize the model. Choose Create to replace both points."
+    cornerDescription = "Points saved."
   }
   return (
     <>
       <SpherePreview frame={frame} />
       {settings.format === "classic" ? (
         <>
-          {showCornerInstructions && (
-            <aside
-              className="eye-corner-instructions"
-              aria-label="Manual eye corner instructions"
-              role="note"
-            >
-              <div>
-                <strong>Create or edit the eye model</strong>
-                <p>
-                  Choose Create and click the inner, then outer eye corner. Edit
-                  lets you drag a + endpoint to resize the circle, or drag
-                  inside it to move the model.
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Dismiss corner instructions"
-                onClick={() => setShowCornerInstructions(false)}
-              >
-                <X size={14} />
-              </button>
-            </aside>
-          )}
-          <h3>{cornerHeading}</h3>
-          <p className="eye-muted" role="status" aria-live="polite">
-            {cornerDescription}
-          </p>
+          <div className="eye-guidance-row">
+            <p className="eye-muted" role="status" aria-live="polite">
+              {cornerDescription}
+            </p>
+            <HelpTip
+              label="Manual eye model help"
+              text="Choose Create and click the inner, then outer eye corner. Edit lets you drag a + endpoint to resize the circle, or drag inside it to move the model."
+            />
+          </div>
           <div className="eye-number-grid">
             {[0, 1].map((i) => (
               <label className="eye-field" key={i}>
@@ -115,13 +92,17 @@ export function ModelControls({
               })
             }
           >
-            Use region-based starting corners
+            Reset corners
           </button>
         </>
       ) : (
         <>
-          <h3>{modelHeading}</h3>
-          <p className="eye-muted">{modelGuidance}</p>
+          <div className="eye-guidance-row">
+            <p className="eye-muted" role="status">
+              {modelHeading}
+            </p>
+            <HelpTip label="Eye model readiness help" text={modelGuidance} />
+          </div>
           <div
             className="eye-progress-track"
             role="progressbar"
@@ -135,14 +116,16 @@ export function ModelControls({
         </>
       )}
       <button
-        className="eye-button secondary"
+        className="eye-button secondary eye-action-icon"
+        aria-label="Rebuild model"
+        title="Rebuild model"
+        data-tooltip="Rebuild model"
         onClick={() => {
           update({ locked: false })
           setNotice("Look around to rebuild.")
         }}
       >
         <RotateCcw size={15} />
-        Rebuild model
       </button>
       {settings.format === "spatial" && (
         <details className="eye-details">

@@ -180,6 +180,37 @@ test("source dimensions survive ROI invalidation before a new frame arrives", as
   expect((controller as any).dimensions).toEqual({ width: 640, height: 360 })
   expect(controller.frame).toBeNull()
 })
+test("eye orientation resets coordinate-dependent setup and fits portrait frames", async () => {
+  await act(async () => controller.startSample())
+  await act(async () =>
+    controller.configure(
+      {
+        roi: { x: 20, y: 20, width: 100, height: 100 },
+        corners: [
+          [30, 30],
+          [60, 60],
+        ],
+        locked: true,
+      },
+      false
+    )
+  )
+  await act(async () =>
+    controller.setTransform({ rotation: 90, mirrorX: true, mirrorY: false })
+  )
+  expect(controller.dimensions).toEqual({ width: 360, height: 480 })
+  expect(controller.settings.roi).toEqual({
+    x: 0,
+    y: 0,
+    width: 360,
+    height: 480,
+  })
+  expect(controller.settings.corners).toBeNull()
+  expect(controller.settings.locked).toBe(false)
+  expect(controller.transform.rotation).toBe(90)
+  expect(controller.source?.kind).toBe("sample")
+  expect(controller.frame).toBeNull()
+})
 
 test("settings edits and source restarts cannot queue frames behind an active worker request", async () => {
   await act(async () => root?.unmount())
@@ -432,8 +463,8 @@ test("source controls show numbered USB cameras and only USB or network modes", 
   )
   const text = document.body.textContent ?? ""
   expect(labels).toContain("Camera 1")
-  expect(text).toContain("USB Camera")
-  expect(text).toContain("Network Stream")
+  expect(document.querySelector('[aria-label="USB camera"]')).not.toBeNull()
+  expect(document.querySelector('[aria-label="Network stream"]')).not.toBeNull()
   expect(text).not.toContain("Eye video")
   expect(text).not.toContain("Try sample")
 })
@@ -463,7 +494,7 @@ test("network stream URLs activate the camera pipeline with source dimensions", 
   try {
     await act(async () => {
       pending = (controller as any).startNetworkStream(
-        "https://camera.example/stream.mp4"
+        "http://camera.local/stream.mp4"
       )
     })
     await act(async () => {
@@ -474,9 +505,45 @@ test("network stream URLs activate the camera pipeline with source dimensions", 
     expect(controller.source?.kind).toBe("network")
     expect(controller.dimensions).toEqual({ width: 640, height: 360 })
     expect(controller.busy).toBe(false)
-    expect(requestedUrl).toBe("https://camera.example/stream.mp4")
+    expect(requestedUrl).toBe(
+      "http://127.0.0.1:4022/stream?url=http%3A%2F%2Fcamera.local%2Fstream.mp4"
+    )
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test("eye network recovery preserves the locked eye model and source", async () => {
+  const originalFetch = globalThis.fetch
+  const originalCreate = document.createElement.bind(document)
+  let video: HTMLVideoElement | null = null
+  globalThis.fetch = async () =>
+    new Response("video", {
+      headers: { "Content-Type": "video/mp4" },
+    })
+  document.createElement = ((tag: string) => {
+    const element = originalCreate(tag)
+    if (tag === "video") video = element as HTMLVideoElement
+    return element
+  }) as typeof document.createElement
+  try {
+    let pending: Promise<void>
+    await act(async () => {
+      pending = controller.startNetworkStream("http://eye.local/stream.mp4")
+    })
+    await act(async () => {
+      resolvePlay()
+      await pending!
+    })
+    await act(async () => controller.configure({ locked: true }, false))
+    await act(async () => video!.dispatchEvent(new Event("error")))
+    expect(controller.settings.locked).toBe(true)
+    expect(controller.source?.kind).toBe("network")
+    expect(controller.error).toBe("")
+    expect(controller.frame).toBeNull()
+  } finally {
+    globalThis.fetch = originalFetch
+    document.createElement = originalCreate
   }
 })
 
@@ -517,6 +584,73 @@ test("MJPEG network streams use decoded frame dimensions instead of video dimens
   } finally {
     globalThis.fetch = originalFetch
     globalThis.createImageBitmap = originalCreateImageBitmap
+  }
+})
+test("a changed network resolution invalidates setup even if the processing size stays the same", async () => {
+  const originalFetch = globalThis.fetch,
+    originalCreate = document.createElement.bind(document),
+    originalTimeout = globalThis.setTimeout
+  let width = 640,
+    height = 360,
+    retry!: () => void
+  const videos: HTMLVideoElement[] = []
+  Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+    configurable: true,
+    get: () => width,
+  })
+  Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+    configurable: true,
+    get: () => height,
+  })
+  document.createElement = ((tag: string) => {
+    const element = originalCreate(tag)
+    if (tag === "video") videos.push(element as HTMLVideoElement)
+    return element
+  }) as typeof document.createElement
+  globalThis.fetch = (async () =>
+    new Response("", {
+      headers: { "content-type": "video/mp4" },
+    })) as typeof fetch
+  globalThis.setTimeout = ((callback: () => void, delay: number) => {
+    if (delay === 1000) {
+      retry = callback
+      return 987654
+    }
+    return originalTimeout(callback, delay)
+  }) as typeof setTimeout
+  try {
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = controller.startNetworkStream("http://camera.local/stream.mp4")
+      await new Promise((resolve) => originalTimeout(resolve, 0))
+    })
+    await act(async () => {
+      resolvePlay()
+      await pending
+    })
+    await act(async () => controller.configure({ locked: true }, false))
+    const originalKey = controller.source?.key,
+      originalSize = controller.dimensions
+    await act(async () => videos[0].dispatchEvent(new Event("error")))
+    expect(controller.settings.locked).toBe(true)
+    width = 1280
+    height = 720
+    await act(async () => {
+      retry()
+      await new Promise((resolve) => originalTimeout(resolve, 0))
+    })
+    await act(async () => {
+      resolvePlay()
+      await new Promise((resolve) => originalTimeout(resolve, 0))
+    })
+    expect(controller.dimensions).toEqual(originalSize)
+    expect(controller.source?.key).not.toBe(originalKey)
+    expect(controller.settings.locked).toBe(false)
+    expect(controller.error).toBe("")
+  } finally {
+    globalThis.fetch = originalFetch
+    document.createElement = originalCreate
+    globalThis.setTimeout = originalTimeout
   }
 })
 

@@ -1,4 +1,5 @@
 import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
+import { cameraRelayStreamUrl } from "./camera-relay"
 import type { NetworkSource } from "./network-source.types"
 
 const VIDEO_READY_TIMEOUT_MS = 15_000
@@ -10,14 +11,15 @@ export async function openNetworkSource(
   const url = parseNetworkUrl(input)
   throwIfAborted(signal)
 
-  const response = await fetchCameraResponse(url, signal)
+  const relayUrl = cameraRelayStreamUrl(url)
+  const response = await fetchCameraResponse(relayUrl, signal)
   const contentType = response.headers.get("content-type") ?? ""
   if (contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
     return openMjpegSource(url, response, contentType, signal)
   }
 
   await cancelResponseBody(response)
-  return openVideoSource(url, signal)
+  return openVideoSource(url, relayUrl, signal)
 }
 
 function parseNetworkUrl(input: string): URL {
@@ -36,13 +38,12 @@ function parseNetworkUrl(input: string): URL {
 }
 
 async function fetchCameraResponse(
-  url: URL,
+  relayUrl: string,
   signal: AbortSignal
 ): Promise<Response> {
   let response: Response
   try {
-    response = await fetch(url.href, {
-      mode: "cors",
+    response = await fetch(relayUrl, {
       signal,
     })
   } catch {
@@ -50,11 +51,13 @@ async function fetchCameraResponse(
       throw createAbortError()
     }
 
-    throw new Error(getCameraAccessErrorMessage(url))
+    throw new Error(getCameraRelayErrorMessage())
   }
 
   if (!response.ok) {
+    const detail = await readRelayError(response)
     await cancelResponseBody(response)
+    if (response.status === 502 && detail) throw new Error(detail)
     throw new Error(
       `The camera returned HTTP ${response.status}. Check its stream URL and network connection.`
     )
@@ -103,17 +106,19 @@ async function openMjpegSource(
 
 async function openVideoSource(
   url: URL,
+  relayUrl: string,
   signal: AbortSignal
 ): Promise<NetworkSource> {
   const video = document.createElement("video")
   video.muted = true
   video.playsInline = true
   video.crossOrigin = "anonymous"
-  video.src = url.href
+  video.src = relayUrl
 
   try {
-    await video.play()
+    await playVideo(video, signal)
     await waitForVideoDimensions(video, signal)
+    throwIfAborted(signal)
   } catch {
     disposeVideo(video)
     if (signal.aborted) {
@@ -121,7 +126,7 @@ async function openVideoSource(
     }
 
     throw new Error(
-      "The browser could not play this network video. Check that its URL is reachable and that the camera allows this app's origin with CORS."
+      "The browser could not play this network video through the camera relay. Check the camera URL and that the local relay is running."
     )
   }
 
@@ -130,6 +135,36 @@ async function openVideoSource(
     name: url.hostname,
     video,
   }
+}
+
+function playVideo(
+  video: HTMLVideoElement,
+  signal: AbortSignal
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener("abort", onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onAbort = () => {
+      disposeVideo(video)
+      finish(createAbortError())
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    try {
+      video.play().then(() => finish(), finish)
+    } catch (error) {
+      finish(error)
+    }
+  })
 }
 
 function waitForVideoDimensions(
@@ -186,36 +221,31 @@ async function cancelResponseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => {})
 }
 
+async function readRelayError(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json()
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof body.error === "string"
+    ) {
+      return body.error
+    }
+  } catch {
+    /* Camera errors can also be plain text or an empty response. */
+  }
+  return ""
+}
+
 function disposeVideo(video: HTMLVideoElement): void {
   video.pause()
   video.removeAttribute("src")
   video.load()
 }
 
-function getCameraAccessErrorMessage(url: URL): string {
-  let streamPortHint = ""
-  if (!url.port && url.pathname === "/stream") {
-    const esp32StreamUrl = new URL(url.href)
-    esp32StreamUrl.port = "81"
-    streamPortHint =
-      `If this is the standard ESP32 CameraWebServer, try ${esp32StreamUrl.href};` +
-      " its stream endpoint uses port 81."
-  }
-
-  let appOrigin = window.location.origin
-  if (appOrigin === "null") {
-    appOrigin = "this app's origin"
-  }
-
-  const message = [
-    `The browser could not reach or read this camera. Confirm ${url.hostname} resolves`,
-    "and the camera is reachable from this device on the same network.",
-    streamPortHint,
-    `If it is reachable, the camera must return Access-Control-Allow-Origin: ${appOrigin}`,
-    "so the browser can read its frames.",
-  ]
-
-  return message.filter(Boolean).join(" ")
+function getCameraRelayErrorMessage(): string {
+  return "The local camera relay is not running or this app origin is not allowed. Start it from frontend/apps/web with `bun run camera-relay`, then reconnect. For a hosted app, add its origin to GAZE_CAMERA_RELAY_ALLOWED_ORIGINS."
 }
 
 function throwIfAborted(signal: AbortSignal): void {

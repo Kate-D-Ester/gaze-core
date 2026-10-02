@@ -15,6 +15,9 @@ export type EyePreviewProps = {
   onEditRegion?: () => void
   onThresholdViewChange?: (enabled: boolean) => void
   showModel?: boolean
+  onTransformChange?: () => void
+  transformDisabled?: boolean
+  readOnly?: boolean
 }
 
 export type ManualCornerMode = "create" | "edit"

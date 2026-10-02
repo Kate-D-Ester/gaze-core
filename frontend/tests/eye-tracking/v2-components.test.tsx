@@ -59,9 +59,7 @@ test("step panel exposes the active step and readable error feedback", async () 
       createElement(
         V2StepPanel,
         {
-          stepNumber: 3,
           stepName: "Eye model",
-          title: "Build the eye model",
           description: "Look around the full range.",
           error: "Pupil not detected",
         },
@@ -72,7 +70,7 @@ test("step panel exposes the active step and readable error feedback", async () 
 
   expect(host.querySelector("aside.eye-controls")).not.toBeNull()
   expect(host.querySelector("aside.eye-controls h2")?.textContent).toBe(
-    "Build the eye model"
+    "Eye model"
   )
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(
     "Pupil not detected"

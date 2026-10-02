@@ -49,7 +49,7 @@ test("scene-camera trial is public and shares both v2 eye formats and its first 
     "Eye region",
     "Eye model",
     "Scene camera",
-    "Finger calibration",
+    "Calibration",
     "Live scene gaze",
   ])
   const formats = [

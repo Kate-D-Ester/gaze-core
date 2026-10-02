@@ -3,6 +3,7 @@ import type { SceneObservation } from "./scene.types"
 
 // Compiled as a classic worker: MediaPipe 0.10.32 loads its WASM factory with importScripts.
 let detector: HandLandmarker | null = null
+let delegate: "GPU" | "CPU" = "GPU"
 const base = new URL(".", self.location.href).href
 const send = (message: object) => self.postMessage(message)
 async function initialize(generation: number) {
@@ -19,21 +20,25 @@ async function initialize(generation: number) {
     },
     canvas,
     runningMode: "VIDEO" as const,
-    numHands: 2,
-    minHandDetectionConfidence: 0.7,
-    minHandPresenceConfidence: 0.7,
-    minTrackingConfidence: 0.7,
+    // Tracking one calibration hand lets MediaPipe skip palm detection while
+    // it remains visible. Looking for a second hand runs that detector again.
+    numHands: 1,
+    minHandDetectionConfidence: 0.5,
+    minHandPresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
   }
   try {
+    delegate = "GPU"
     detector = await HandLandmarker.createFromOptions(fileset, options)
   } catch {
+    delegate = "CPU"
     detector?.close()
     detector = await HandLandmarker.createFromOptions(fileset, {
       ...options,
       baseOptions: { ...options.baseOptions, delegate: "CPU" },
     })
   }
-  send({ type: "ready", generation })
+  send({ type: "ready", generation, delegate })
 }
 self.onmessage = async (
   event: MessageEvent<{
@@ -47,10 +52,12 @@ self.onmessage = async (
   try {
     if (message.type === "init") {
       detector?.close()
+      detector = null
       await initialize(message.generation)
     } else if (message.type === "frame") {
       try {
         if (!detector) throw new Error("The hand detector has not loaded yet.")
+        const started = performance.now()
         const result = detector.detectForVideo(
           message.bitmap,
           message.scene.timestamp
@@ -59,6 +66,7 @@ self.onmessage = async (
           type: "result",
           generation: message.generation,
           scene: message.scene,
+          inferenceMs: performance.now() - started,
           landmarks: result.landmarks,
           worldLandmarks: result.worldLandmarks,
           handedness: result.handedness.map(

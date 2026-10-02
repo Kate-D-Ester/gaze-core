@@ -1,0 +1,316 @@
+import { openNetworkSource } from "./network-source"
+import type { NetworkSource } from "./network-source.types"
+
+export type NetworkConnectionState =
+  | "idle"
+  | "connecting"
+  | "live"
+  | "waiting"
+  | "reconnecting"
+  | "error"
+export type NetworkCameraFrame = {
+  image: HTMLVideoElement | ImageBitmap
+  width: number
+  height: number
+  timestamp: number
+  sequence: number
+}
+type Callbacks = {
+  onFrame: (frame: NetworkCameraFrame | null) => void
+  onStatus: (state: NetworkConnectionState, attempt: number) => void
+  onError: (message: string) => void
+}
+export const NETWORK_CONNECTION_LABELS: Record<NetworkConnectionState, string> =
+  {
+    idle: "Not connected",
+    connecting: "Connecting camera…",
+    live: "Live",
+    waiting: "Waiting for camera frames…",
+    reconnecting: "Reconnecting automatically…",
+    error: "Connection unavailable",
+  }
+
+// Owns the network media and retries. Consumers only borrow its latest image.
+export class NetworkCamera {
+  private active = false
+  private token = 0
+  private input = ""
+  private retries = 0
+  private sequence = 0
+  private state: NetworkConnectionState = "idle"
+  private abort: AbortController | null = null
+  private video: HTMLVideoElement | null = null
+  private bitmap: ImageBitmap | null = null
+  private frames: AsyncGenerator<Uint8Array, void, unknown> | null = null
+  private pending: { bytes: Uint8Array; timestamp: number } | null = null
+  private lastArrival = 0
+  private healthySince = 0
+  private hasFrame = false
+  private raf = 0
+  private videoCallback = 0
+  private heartbeat: ReturnType<typeof setInterval> | undefined
+  private deadline: ReturnType<typeof setTimeout> | undefined
+  private retry: ReturnType<typeof setTimeout> | undefined
+  private readonly callbacks: Callbacks
+  constructor(callbacks: Callbacks) {
+    this.callbacks = callbacks
+  }
+
+  async start(input: string): Promise<void> {
+    this.stop()
+    this.input = input.trim()
+    try {
+      const url = new URL(this.input)
+      if (url.protocol !== "http:" && url.protocol !== "https:")
+        throw new Error()
+    } catch {
+      this.status("error")
+      this.callbacks.onError(
+        "Enter a complete HTTP or HTTPS camera stream URL."
+      )
+      return
+    }
+    this.active = true
+    this.retries = 0
+    this.status("connecting")
+    this.heartbeat = setInterval(() => this.checkHealth(performance.now()), 500)
+    await this.connect()
+  }
+
+  stop(): void {
+    this.active = false
+    this.token++
+    clearInterval(this.heartbeat)
+    clearTimeout(this.retry)
+    this.heartbeat = undefined
+    this.retry = undefined
+    this.callbacks.onFrame(null)
+    this.releaseMedia()
+    this.status("idle")
+  }
+
+  private status(state: NetworkConnectionState) {
+    if (this.state === state && state !== "reconnecting") return
+    this.state = state
+    this.callbacks.onStatus(state, this.retries)
+  }
+
+  private async connect(): Promise<void> {
+    if (!this.active) return
+    const token = ++this.token
+    const abort = new AbortController()
+    this.abort = abort
+    this.hasFrame = false
+    this.deadline = setTimeout(() => this.reconnect(token), 15000)
+    try {
+      const source = await openNetworkSource(this.input, abort.signal)
+      if (!this.current(token)) {
+        this.disposeSource(source)
+        return
+      }
+      this.healthySince = performance.now()
+      if (source.kind === "video") {
+        this.video = source.video
+        this.publish(source.video, performance.now(), token)
+        this.watchVideo(source.video, token)
+      } else {
+        this.frames = source.frames
+        let bytes = source.firstFrame
+        let bitmap: ImageBitmap | null = null
+        while (this.current(token) && !bitmap) {
+          try {
+            bitmap = await createImageBitmap(
+              new Blob([new Uint8Array(bytes)], { type: "image/jpeg" })
+            )
+          } catch {
+            // Some cameras send a partial JPEG when a subscriber joins.
+            const next = await source.frames.next()
+            if (next.done)
+              throw new Error("Camera stream ended before a readable frame.")
+            bytes = next.value
+          }
+        }
+        if (!this.current(token)) {
+          bitmap?.close()
+          return
+        }
+        if (!bitmap) return
+        this.bitmap = bitmap
+        this.publish(this.bitmap, performance.now(), token)
+        void this.readFrames(source.frames, token)
+      }
+    } catch {
+      if (this.current(token)) this.reconnect(token)
+    }
+  }
+
+  private current(token: number) {
+    return this.active && token === this.token
+  }
+
+  private publish(
+    image: HTMLVideoElement | ImageBitmap,
+    timestamp: number,
+    token: number
+  ) {
+    if (!this.current(token)) return
+    clearTimeout(this.deadline)
+    this.deadline = undefined
+    this.hasFrame = true
+    this.lastArrival = timestamp
+    if (timestamp - this.healthySince >= 10000) this.retries = 0
+    this.status("live")
+    this.callbacks.onFrame({
+      image,
+      width: image instanceof HTMLVideoElement ? image.videoWidth : image.width,
+      height:
+        image instanceof HTMLVideoElement ? image.videoHeight : image.height,
+      timestamp,
+      sequence: ++this.sequence,
+    })
+  }
+
+  private async readFrames(
+    frames: AsyncGenerator<Uint8Array, void, unknown>,
+    token: number
+  ) {
+    let decoding = false
+    const decode = async () => {
+      decoding = true
+      try {
+        while (this.pending && this.current(token)) {
+          const pending = this.pending
+          this.pending = null
+          let bitmap: ImageBitmap
+          try {
+            bitmap = await createImageBitmap(
+              new Blob([new Uint8Array(pending.bytes)], { type: "image/jpeg" })
+            )
+          } catch {
+            // A damaged JPEG is a dropped frame, not a disconnected camera.
+            continue
+          }
+          if (!this.current(token)) {
+            bitmap.close()
+            return
+          }
+          const previous = this.bitmap
+          this.bitmap = bitmap
+          this.publish(bitmap, pending.timestamp, token)
+          previous?.close()
+        }
+      } finally {
+        decoding = false
+      }
+    }
+    try {
+      for await (const bytes of frames) {
+        if (!this.current(token)) return
+        // Keep only the newest waiting JPEG while a decode is in flight.
+        this.pending = { bytes, timestamp: performance.now() }
+        if (!decoding) void decode()
+      }
+      if (this.current(token)) this.reconnect(token)
+    } catch {
+      if (this.current(token)) this.reconnect(token)
+    }
+  }
+
+  private watchVideo(video: HTMLVideoElement, token: number) {
+    const interrupted = () => this.reconnect(token)
+    video.addEventListener("error", interrupted, { once: true })
+    video.addEventListener("ended", interrupted, { once: true })
+    const quality = video.getVideoPlaybackQuality?.()
+    let presented = quality
+      ? quality.totalVideoFrames - quality.droppedVideoFrames
+      : video.currentTime
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const frame: VideoFrameRequestCallback = (time, metadata) => {
+        if (!this.current(token)) return
+        if (metadata.presentedFrames !== presented) {
+          presented = metadata.presentedFrames
+          this.publish(video, time, token)
+        }
+        this.videoCallback = video.requestVideoFrameCallback(frame)
+      }
+      this.videoCallback = video.requestVideoFrameCallback(frame)
+    } else {
+      const loop = (time: number) => {
+        if (!this.current(token)) return
+        const quality = video.getVideoPlaybackQuality?.()
+        const count = quality
+          ? quality.totalVideoFrames - quality.droppedVideoFrames
+          : video.currentTime
+        if (video.readyState >= 2 && count !== presented) {
+          presented = count
+          this.publish(video, time, token)
+        }
+        this.checkHealth(time)
+        if (this.current(token)) this.raf = requestAnimationFrame(loop)
+      }
+      this.raf = requestAnimationFrame(loop)
+    }
+  }
+
+  private checkHealth(time: number) {
+    if (!this.active || !this.hasFrame) return
+    if (this.video && document.visibilityState === "hidden") {
+      this.lastArrival = time
+      return
+    }
+    const age = time - this.lastArrival
+    if (age >= 8000) this.reconnect(this.token)
+    else if (age >= 1500 && this.state === "live") {
+      this.status("waiting")
+      this.callbacks.onFrame(null)
+    }
+  }
+
+  private reconnect(token: number) {
+    if (!this.current(token)) return
+    this.token++
+    this.callbacks.onFrame(null)
+    this.releaseMedia()
+    const delay = Math.min(1000 * 2 ** Math.min(this.retries, 4), 15000)
+    this.retries++
+    this.status("reconnecting")
+    this.retry = setTimeout(() => {
+      this.retry = undefined
+      void this.connect()
+    }, delay)
+  }
+
+  private disposeSource(source: NetworkSource) {
+    if (source.kind === "mjpeg")
+      void source.frames.return(undefined).catch(() => {})
+    else {
+      source.video.pause()
+      source.video.removeAttribute("src")
+      source.video.load()
+    }
+  }
+
+  private releaseMedia() {
+    clearTimeout(this.deadline)
+    this.deadline = undefined
+    this.hasFrame = false
+    this.abort?.abort()
+    this.abort = null
+    cancelAnimationFrame(this.raf)
+    this.raf = 0
+    if (this.video) {
+      if (this.videoCallback)
+        this.video.cancelVideoFrameCallback?.(this.videoCallback)
+      this.video.pause()
+      this.video.removeAttribute("src")
+      this.video.load()
+    }
+    this.video = null
+    this.videoCallback = 0
+    this.bitmap?.close()
+    this.bitmap = null
+    this.pending = null
+    if (this.frames) void this.frames.return(undefined).catch(() => {})
+    this.frames = null
+  }
+}

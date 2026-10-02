@@ -1,43 +1,35 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
-import { gazeFeature } from "../eye-tracking/calibration"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
 import { SceneSession } from "./scene-session"
 import type { SceneCamera } from "./scene-camera"
-import type { HandObservation } from "./scene.types"
+import { sceneEyeEvidence } from "./eye-evidence"
+import { readCalibrationMethod } from "./calibration-preferences"
 
 export function useSceneSession(
   tracker: TrackerController,
   camera: SceneCamera,
-  hand: HandObservation | null,
   identity: string
 ) {
-  const [session] = useState(() => new SceneSession())
+  const [session] = useState(() => new SceneSession(readCalibrationMethod()))
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   useEffect(() => {
+    session.setCameraOrientation({
+      eye: tracker.transform,
+      scene: camera.getSnapshot().transform,
+    })
     session.invalidate()
-  }, [session, identity])
+  }, [session, identity, tracker.transform, camera])
   useEffect(() => {
     const frame = tracker.frame
     if (!frame) return
-    session.addEye(
-      {
-        id: frame.id,
-        timestamp: frame.timestamp,
-        feature: frame.gaze ? gazeFeature(frame.gaze.direction) : null,
-        confidence: frame.detection.ellipse?.confidence ?? 0,
-        valid:
-          tracker.settings.locked &&
-          !!frame.gaze &&
-          !!frame.detection.ellipse &&
-          frame.detection.tracking !== "reacquiring" &&
-          frame.detection.tracking !== "lost",
-      },
-      performance.now()
+    const now = performance.now()
+    const { observation } = sceneEyeEvidence(
+      frame,
+      tracker.settings.locked,
+      now
     )
+    if (observation) session.addEye(observation, now)
   }, [session, tracker.frame, tracker.settings.locked, identity])
-  useEffect(() => {
-    if (hand) session.observeHand(hand, performance.now())
-  }, [session, hand])
   useEffect(() => {
     const measure = () => {
       const now = performance.now()

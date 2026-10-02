@@ -271,6 +271,9 @@
   padding: 0 4% 8px;
   overflow: hidden;
 }
+.eye-workspace[hidden] {
+  display: none;
+}
 .eye-preview-column {
   min-width: 0;
   min-height: 0;
@@ -333,6 +336,7 @@
   background: var(--card);
 }
 .eye-preview {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -358,6 +362,9 @@
   align-self: stretch;
 }
 .eye-preview-heading {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
   position: relative;
   z-index: 4;
   display: flex;
@@ -373,7 +380,7 @@
   align-items: center;
   gap: 8px;
 }
-.eye-preview-heading > span:last-child {
+.eye-preview-heading > span:last-child:not(:first-child) {
   font-size: 8px;
   letter-spacing: 1.4px;
   color: var(--eye-preview-muted);
@@ -497,7 +504,7 @@
   flex: 0 0 auto;
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding-bottom: 11px;
@@ -507,11 +514,11 @@
   min-width: 0;
 }
 .eye-controls-heading h2 {
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1.25;
   letter-spacing: -0.5px;
   font-weight: 520;
-  margin: 4px 0;
+  margin: 0;
 }
 .eye-controls-heading p {
   font-size: 11px;
@@ -1316,8 +1323,8 @@
   height: 100%;
   align-self: stretch;
   display: grid;
-  grid-template-rows: auto auto auto;
-  align-content: space-between;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
   row-gap: 16px;
   padding: 16px 17px;
   margin: 0;
@@ -1360,6 +1367,9 @@
   color: var(--dim);
   font-size: 10px;
   font-weight: 550;
+  display: grid;
+  place-items: center;
+  min-height: 32px;
 }
 .eye-threshold-modes button[aria-pressed="true"] {
   color: var(--ink);
@@ -1730,5 +1740,294 @@
 @media (prefers-reduced-motion: reduce) {
   .eye-app * {
     transition: none !important;
+  }
+}
+
+.camera-transform-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #161817;
+}
+.camera-transform-controls button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+}
+.camera-transform-controls button:hover,
+.camera-transform-controls button[aria-pressed="true"] {
+  background: #303633;
+  color: var(--primary);
+}
+.camera-transform-controls [data-tooltip] {
+  position: relative;
+}
+.camera-transform-controls button[data-tooltip]::after,
+.camera-transform-controls .camera-angle[data-tooltip]::after {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 20;
+  content: attr(data-tooltip);
+  padding: 6px 9px;
+  border: 1px solid #414844;
+  border-radius: 5px;
+  background: #242826;
+  color: #f4f4f2;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(-50%);
+}
+.camera-transform-controls [data-tooltip]:hover::after,
+.camera-transform-controls [data-tooltip]:focus-visible::after,
+.camera-transform-controls .camera-angle:focus-within::after {
+  visibility: visible;
+  opacity: 1;
+}
+.camera-transform-controls button[data-tooltip]:first-child::after {
+  left: 0;
+  transform: none;
+}
+.camera-transform-controls button[data-tooltip]:last-child::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.camera-angle {
+  display: flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  padding-right: 4px;
+}
+.camera-angle input {
+  width: 46px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-align: right;
+  font-size: 11px;
+}
+.camera-recovery-banner {
+  position: absolute;
+  z-index: 3;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  width: max-content;
+  border: 1px solid #414844;
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-size: 11px;
+  background: #202a25e6;
+  color: var(--primary);
+  pointer-events: none;
+}
+.eye-formats button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 100px;
+}
+.eye-controls-heading h2 {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.eye-controls {
+  padding: 0;
+}
+.eye-controls-heading {
+  min-height: 44px;
+  padding: 8px 14px;
+}
+.eye-controls-body {
+  padding: 12px 14px;
+}
+.eye-preview-heading {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+.eye-preview-tools {
+  gap: 6px;
+}
+.eye-preview-switch button {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 28px;
+  padding: 0;
+}
+.eye-threshold-controls {
+  padding: 0;
+  row-gap: 0;
+}
+.eye-threshold-heading {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.eye-threshold-tuning {
+  display: grid;
+  align-content: center;
+  gap: 20px;
+  padding: 16px;
+}
+.eye-threshold-modes {
+  justify-self: start;
+}
+.eye-source-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.eye-source-actions > .primary {
+  flex: 1;
+}
+.eye-action-icon {
+  width: 39px;
+  min-width: 39px;
+  padding: 8px;
+}
+.eye-guidance-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0;
+}
+.eye-guidance-row .eye-muted {
+  margin: 0;
+}
+.eye-help-tip {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  z-index: 10;
+}
+.eye-help-tip > button {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  width: 28px;
+  height: 28px;
+}
+.eye-help-tip > button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.eye-help-tip [role="tooltip"] {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 20;
+  width: min(230px, calc(100vw - 48px));
+  padding: 10px 12px;
+  color: var(--foreground);
+  background: #242826;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  box-shadow: 0 5px 16px #0005;
+  visibility: hidden;
+  opacity: 0;
+}
+.eye-help-tip:not([data-dismissed]):hover [role="tooltip"],
+.eye-help-tip:not([data-dismissed]):focus-within [role="tooltip"],
+.eye-help-tip[data-open]:not([data-dismissed]) [role="tooltip"] {
+  visibility: visible;
+  opacity: 1;
+}
+.eye-app button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.eye-source-type button[data-tooltip],
+.eye-threshold-modes button[data-tooltip],
+.eye-action-icon[data-tooltip] {
+  position: relative;
+}
+.eye-source-type button[data-tooltip]::after,
+.eye-threshold-modes button[data-tooltip]::after,
+.eye-action-icon[data-tooltip]::after {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  width: max-content;
+  max-width: 170px;
+  content: attr(data-tooltip);
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: #242826;
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 400;
+  visibility: hidden;
+  pointer-events: none;
+}
+.eye-source-type button[data-tooltip]:hover::after,
+.eye-source-type button[data-tooltip]:focus-visible::after,
+.eye-threshold-modes button[data-tooltip]:hover::after,
+.eye-threshold-modes button[data-tooltip]:focus-visible::after,
+.eye-action-icon[data-tooltip]:hover::after,
+.eye-action-icon[data-tooltip]:focus-visible::after {
+  visibility: visible;
+}
+@container (max-width: 900px) {
+  .eye-threshold-controls {
+    grid-template-rows: auto auto;
+  }
+  .eye-threshold-tuning {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+  }
+  .eye-threshold-control-row {
+    grid-template-columns: minmax(0, 1fr) 58px;
+    grid-template-areas: "slider value";
+  }
+  .eye-threshold-field-label {
+    display: none;
+  }
+}
+@media (max-width: 480px) {
+  .eye-workspace {
+    grid-template-rows: minmax(0, 1fr) minmax(240px, 35%);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .scene-recovery svg {
+    animation: camera-reconnecting 1.5s linear infinite;
+  }
+  .camera-spinner {
+    animation: camera-reconnecting 1.5s linear infinite;
+  }
+  @keyframes camera-reconnecting {
+    to {
+      transform: rotate(360deg);
+    }
   }
 }

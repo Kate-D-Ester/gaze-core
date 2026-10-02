@@ -120,9 +120,11 @@ test("threshold view requests masks until the image view is selected again", asy
     host.querySelectorAll<HTMLButtonElement>(".eye-preview-switch button")
   )
   const thresholdButton = buttons.find(
-    (button) => button.textContent === "Threshold"
+    (button) => button.getAttribute("aria-label") === "Show threshold view"
   )!
-  const imageButton = buttons.find((button) => button.textContent === "Image")!
+  const imageButton = buttons.find(
+    (button) => button.getAttribute("aria-label") === "Show camera image"
+  )!
 
   await act(async () => thresholdButton.click())
   await act(async () => imageButton.click())
