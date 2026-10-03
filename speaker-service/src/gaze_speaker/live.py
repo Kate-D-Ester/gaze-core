@@ -42,6 +42,7 @@ class TargetConfig(BaseModel):
     type: Literal["target"]
     generation: int = Field(ge=1, le=2**32 - 1)
     target_id: str | None = Field(max_length=64)
+    replay_start_sample: int | None = Field(default=None, ge=0, le=2**53 - 1, strict=True)
 
 
 class RegionConfig(BaseModel):

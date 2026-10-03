@@ -236,3 +236,25 @@ async def test_face_discovery_without_target_does_not_accumulate_full_scene_fram
     finally:
         await session.close()
         owner.close()
+
+
+@pytest.mark.asyncio
+async def test_replay_rewind_reacquires_faces_without_future_observations(tmp_path):
+    from gaze_speaker.faces import FaceTrack
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+    session.faces.tracks["future-face"] = FaceTrack("future-face")
+    session.faces.last_detection = 9
+    session.last_feed = 9
+    try:
+        session.select(
+            TargetConfig(type="target", generation=1, target_id=None, replay_start_sample=16000)
+        )
+        assert session.faces.tracks == {}
+        assert session.faces.last_detection == -1
+        assert session.last_feed == -1
+        assert session.buffer.sample_count == 0
+    finally:
+        await session.close()
+        store.close()

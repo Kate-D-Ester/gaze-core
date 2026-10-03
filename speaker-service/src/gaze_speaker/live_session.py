@@ -87,6 +87,11 @@ class LiveSession:
             return
         if target.target_id and target.target_id not in self.faces.tracks:
             raise ValueError("Selected face expired; reacquire it")
+        if target.replay_start_sample is not None:
+            if self.config.source != "replay" or target.target_id is not None:
+                raise ValueError("Replay rewind requires a fresh face selection")
+            self.faces.correct(self.faces.region)
+            self.last_feed = -1
         self.generation = target.generation
         self.target = target.target_id
         self.buffer.reset()
