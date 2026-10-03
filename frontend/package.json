@@ -32,6 +32,7 @@
     "@humanfs/node": "0.16.8",
     "baseline-browser-mapping": "2.11.27",
     "picomatch": "4.0.7",
-    "browserslist": "4.29.3"
+    "browserslist": "4.29.3",
+    "minimatch": "10.2.4"
   }
 }
