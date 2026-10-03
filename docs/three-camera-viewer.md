@@ -1,6 +1,6 @@
 # Three-camera viewer
 
-This public trial previews Eye, Scene, and Auxiliary camera feeds independently. It provides static image markers and manual PNG photos. The Eye panel is a video preview; gaze estimation/calibration remains in the existing scene-camera trial. Static selection does not identify, track, or match an object across cameras.
+This public trial previews Eye, Scene, and Auxiliary camera feeds independently. It provides static image markers and manual PNG photos. The Eye panel now shares the existing v3 eye tracker and setup session. Static selection does not identify, track, or match an object across cameras.
 
 ## Run
 
@@ -15,15 +15,21 @@ Open `http://localhost:4001/trial/three-camera-viewer`, or choose Three-camera v
 
 Choose USB or Network separately in each panel and press Connect. Use three distinct USB devices. The default-camera option may select an already connected device; choose an explicit available device if that happens. USB connection attempts are serialized to prevent duplicate allocation. Disconnect affects only its feed; stop cameras disconnects all three.
 
-Network feeds use the existing local relay on port 4022, started by the development command. The relay supports the stream formats already supported by GazeCore, including local MJPEG and browser-readable video. Unsupported codecs/transports need conversion outside this viewer. RTSP URLs do not play directly in a browser. Network URLs remain in component memory and are not saved as preferences.
+Network feeds use the existing local relay on port 4022, started by the development command. The relay supports the stream formats already supported by GazeCore, including local MJPEG and browser-readable video. Unsupported codecs/transports need conversion outside this viewer. RTSP URLs do not play directly in a browser. Source type, device and ordinary stream URLs are remembered locally. URLs containing credentials, a query string or a fragment stay in memory and must be entered again after reload.
 
-Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Orientation preferences are stored locally under separate viewer keys and do not alter existing tracking orientation.
+Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Eye and Scene orientation share the tracker setup preferences, so the same transformed image appears in both views. Auxiliary orientation has its own viewer key. Changing Eye or Scene orientation invalidates incompatible calibration.
 
 ## Setup and calibration
 
 The default view shows the camera panels and a compact command bar. Help contains three short setup steps and links to the camera panels. Orientation expands each feed’s rotate/mirror controls. A single connected feed is enough for static selection and photos.
 
-For gaze tracking, choose **Gaze setup**. This opens the existing `/trial/scene-camera-eye-tracking` workflow, where you connect its eye and scene feeds and run its calibration. Calibration belongs to that trial and is not transferred to this preview viewer. Connecting an Eye preview here does not estimate gaze or enable eye-driven selection.
+Choose **Gaze setup**, configure Eye camera → Eye region → Eye model → Scene camera → Calibration, then choose **Use in viewer**. Setup runs inside this page. Both views share one eye worker, the same camera connections and the live scene calibration session; switching views does not refit or discard the model. Viewer speech stops while setup is open. Finish or cancel capture/recording before returning.
+
+A compact status distinguishes eye setup needed, a ready eye model, a loaded saved mapping, an estimated mapping and a current accuracy check. The existing v3 readiness, saved-profile compatibility and accuracy checks still apply. Camera allocation prevents reuse of the Auxiliary USB device during setup and blocks view/step changes while a connection is pending.
+
+On a fresh page load, saved source fields, orientation, eye-region/model settings and scene profiles load from this browser origin. Connect explicitly, rebuild and lock the live eye model, then load the compatible saved scene profile or calibrate again. The fitted automatic model is held by the worker and cannot survive a full page reload. A previous setup page that has already unmounted cannot supply its old worker/model. Browser ports/origins have separate local preferences.
+
+Static viewer points remain manual; calibration does not turn them into tracked targets or eye-driven selection.
 
 ## Commands
 
@@ -47,7 +53,7 @@ Enable local voice explicitly. This uses English (`en-US`) browser [on-device sp
 
 When offered, Download English voice model asks the browser to download its English language model; this does not start the microphone. The requirement is explained before the download control. Enable voice afterward. An installation can fail even after the browser reports that the model is downloadable. The viewer now explains that browser failure and keeps Retry voice download available. A policy rejection is shown separately; repeatedly downloading cannot bypass it. A model already downloading can be completed through the setup control. Cameras, buttons and typed commands work regardless of voice setup. Microphone permission is still required. Voice stops on errors, page hiding, browser recognition ending, stop cameras, and leaving the viewer. A browser ending recognition after silence requires Enable local voice again.
 
-Frames, photos, transcripts, commands, and the supplied reference video are not uploaded by this feature. Source URLs are not logged or saved. Only orientation settings persist. The viewer does not contain object acquisition/tracking, cross-camera matching, hardware-control output, or firing commands.
+Frames, photos, transcripts, commands, and the supplied reference video are not uploaded by this feature. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. The viewer does not contain object acquisition/tracking, cross-camera matching, hardware-control output, or firing commands.
 
 ## Verification on this branch
 
@@ -62,3 +68,9 @@ The inherited global `brace-expansion` v5 override was removed because `minimatc
 ### Minimal interface follow-up
 
 Setup instructions, command examples and optional voice details use expandable help. Gaze setup remains visible. Idle voice messages and repeated descriptions are removed from the default view; actionable errors and speech installation recovery remain available.
+
+### Shared setup and v3 integration
+
+Merged local v3 commit `4458a3c` at `8b95543`, including the model stability and annotated-session fixes. The shared setup implementation passed 719 frontend tests, lint, typecheck and the production build. The final compact setup header also passed its 14 focused workspace tests and repeated lint/typecheck/build checks. Independent code review found no remaining Critical/Important issues.
+
+Browser checks confirmed the saved ESP URL, on-page setup/return controls and narrow/wide layout. The real ESP eye feed became live at 640×480 and remained connected across viewer → setup → viewer, checked through connection status without capturing live images. Complete physical calibration and three simultaneous physical camera feeds still require the user's devices; automated regression tests cover model/calibration continuity, invalidation, pending USB requests, worker failure, device exclusion and source preferences.

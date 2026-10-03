@@ -1,4 +1,4 @@
-import type { SceneCamera } from "../scene-eye-tracking/scene-camera"
+import type { ViewerCamera } from "./viewer-camera.types"
 import type { SceneCameraSnapshot } from "../scene-eye-tracking/scene-camera.types"
 import type { CameraRole } from "./commands.types"
 import type { PreviewPoint, VisualSelection } from "./selection.types"
@@ -6,7 +6,7 @@ export type ViewerSourceKind = "camera" | "network"
 export type CameraPanelProps = {
   role: CameraRole
   label: string
-  camera: SceneCamera
+  camera: ViewerCamera
   state: SceneCameraSnapshot
   active: boolean
   connectionPending: boolean

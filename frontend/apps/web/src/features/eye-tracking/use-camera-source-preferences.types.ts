@@ -17,6 +17,7 @@ export type CameraSourceRole =
   | "scene-eye"
   | "scene"
   | "head"
+  | "auxiliary"
   | "remote-mobile"
   | "remote-webcam"
   | "remote-ir"

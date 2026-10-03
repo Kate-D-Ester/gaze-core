@@ -67,7 +67,10 @@ export type TrackerController = {
   setError: Dispatch<SetStateAction<string>>
   engineReady: boolean
   devices: MediaDeviceInfo[]
-  startCamera: (deviceId: string, excludedDeviceId?: string) => Promise<void>
+  startCamera: (
+    deviceId: string,
+    excludedDeviceId?: string | readonly string[]
+  ) => Promise<void>
   startNetworkStream: (input: string) => Promise<void>
   startVideo: (file: File) => Promise<void>
   startSample: () => void

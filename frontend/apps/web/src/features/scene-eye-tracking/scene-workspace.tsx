@@ -40,6 +40,8 @@ export type { SceneStatus } from "./scene-workspace.types"
 const NAMES = ["Scene camera", "Calibration", "Live scene gaze"]
 export function SceneWorkspace({
   tracker,
+  sceneCamera,
+  excludedDeviceIds,
   step,
   onStepChange,
   onStatus,
@@ -58,7 +60,7 @@ export function SceneWorkspace({
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
   }, [step])
-  const scene = useSceneCamera()
+  const scene = useSceneCamera({ camera: sceneCamera })
   const identity = JSON.stringify([
     eyeRevision,
     tracker.source,
@@ -107,14 +109,28 @@ export function SceneWorkspace({
     }
   }, [hands.hand, isMarker, markers.marker, state.session])
   const calibrated = canUseSceneCalibration(state)
+  const verified = hasCurrentAccuracyCheck(state)
   useEffect(() => {
     onStatus({
       connected: !!scene.source,
       calibrated,
+      verified,
+      reused: !!state.reusedCalibration,
       deviceId: scene.source?.deviceId,
       recording,
+      connecting: scene.busy,
+      capturing: !!state.capture,
     })
-  }, [onStatus, recording, scene.source, calibrated])
+  }, [
+    onStatus,
+    recording,
+    scene.source,
+    scene.busy,
+    calibrated,
+    verified,
+    state.reusedCalibration,
+    state.capture,
+  ])
   const canCapture =
     !!scene.source &&
     scene.connection === "live" &&
@@ -307,6 +323,7 @@ export function SceneWorkspace({
             camera={scene.camera}
             state={scene}
             eyeDeviceId={tracker.source?.deviceId}
+            excludedDeviceIds={excludedDeviceIds}
             onConnected={() => onStepChange(1)}
             active={step === 0 && tracker.settings.locked}
           />

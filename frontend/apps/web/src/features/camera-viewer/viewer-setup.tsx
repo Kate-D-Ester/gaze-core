@@ -1,14 +1,22 @@
+import type { ViewerSetupProps } from "./viewer-setup.types"
 import { EyeButtonStyles } from "../tracking-ui/control-styles"
 
-export function ViewerSetup() {
+export function ViewerSetup({ onSetup, status, disabled }: ViewerSetupProps) {
   return (
     <div className="flex items-center gap-3">
-      <a
-        href="/trial/scene-camera-eye-tracking"
+      {status && (
+        <span role="status" className="text-xs text-muted-foreground">
+          {status}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onSetup}
+        disabled={disabled}
         className={`secondary ${EyeButtonStyles}`}
       >
         Gaze setup
-      </a>
+      </button>
       <details className="relative text-xs">
         <summary className="cursor-pointer rounded px-2 py-2 text-muted-foreground">
           Help
@@ -40,8 +48,8 @@ export function ViewerSetup() {
             </a>
           </div>
           <p className="mt-3 text-muted-foreground">
-            Eye is a preview here. Gaze setup opens the separate calibration
-            trial.
+            Gaze setup configures the eye tracker and scene calibration. Use in
+            viewer keeps that session connected.
           </p>
         </div>
       </details>

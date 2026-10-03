@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, beforeEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import type { Root } from "../../apps/web/node_modules/react-dom/client"
 import { SceneSession } from "../../apps/web/src/features/scene-eye-tracking/scene-session"
@@ -28,6 +28,7 @@ import type { TrackerController } from "../../apps/web/src/features/eye-tracking
 import type { RecordingOverlayFrame } from "../../apps/web/src/features/scene-eye-tracking/recording-controls.types"
 let root: Root | null = null,
   host: HTMLDivElement
+beforeEach(() => localStorage.removeItem("gazecore.scene-camera.source.v1"))
 afterEach(async () => {
   if (root) await act(async () => root!.unmount())
   root = null

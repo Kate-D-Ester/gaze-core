@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { download } from "../scene-eye-tracking/download"
-import { useSceneCamera } from "../scene-eye-tracking/use-scene-camera"
+import { useViewerCamera } from "./use-viewer-camera"
 import { EyeAppStyles } from "../tracking-ui/layout-styles"
 import { TrackingBrand } from "../tracking-ui/tracking-brand"
 import { CameraPanel } from "./camera-panel"
@@ -27,6 +27,7 @@ import {
 } from "./selection"
 import type { PreviewPoint } from "./selection.types"
 import type {
+  ViewerWorkspaceProps,
   ConnectionGuard,
   ViewerCameras,
   ViewerSelections,
@@ -39,13 +40,26 @@ const LABELS: Record<CameraRole, string> = {
   auxiliary: "Auxiliary camera",
 }
 
-export function ViewerWorkspace() {
-  const eye = useSceneCamera({ transformRole: "viewer-eye", label: LABELS.eye })
-  const scene = useSceneCamera({
+export function ViewerWorkspace({
+  eyeCamera,
+  sceneCamera,
+  auxiliaryCamera,
+  onSetup,
+  setupStatus,
+  visible = true,
+}: ViewerWorkspaceProps = {}) {
+  const eye = useViewerCamera({
+    camera: eyeCamera,
+    transformRole: "viewer-eye",
+    label: LABELS.eye,
+  })
+  const scene = useViewerCamera({
+    camera: sceneCamera,
     transformRole: "viewer-scene",
     label: LABELS.scene,
   })
-  const auxiliary = useSceneCamera({
+  const auxiliary = useViewerCamera({
+    camera: auxiliaryCamera,
     transformRole: "viewer-auxiliary",
     label: LABELS.auxiliary,
   })
@@ -85,6 +99,11 @@ export function ViewerWorkspace() {
   const [voice] = useState(() => new LocalVoiceController())
   const voiceState = useSyncExternalStore(voice.subscribe, voice.getSnapshot)
 
+  useEffect(() => {
+    if (!visible) {
+      voice.stop()
+    }
+  }, [visible, voice])
   useEffect(() => {
     mounted.current = true
     voice.mount()
@@ -282,7 +301,13 @@ export function ViewerWorkspace() {
             <h1 className="text-xl font-semibold tracking-tight">
               Three-camera viewer
             </h1>
-            <ViewerSetup />
+            <ViewerSetup
+              onSetup={onSetup}
+              status={setupStatus}
+              disabled={
+                connectionPending || ROLES.some((role) => snapshots[role].busy)
+              }
+            />
           </div>
           <CommandBar
             activeLabel={LABELS[active]}

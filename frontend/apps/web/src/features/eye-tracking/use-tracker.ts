@@ -269,7 +269,7 @@ export function useTracker(): TrackerController {
     []
   )
   const startCamera = useCallback(
-    async (deviceId: string, excludedDeviceId?: string) => {
+    async (deviceId: string, excludedDeviceId?: string | readonly string[]) => {
       stop()
       setBusy(true)
       setError("")
@@ -296,10 +296,12 @@ export function useTracker(): TrackerController {
         c.stream = stream
         const actualId =
           stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId
-        if (excludedDeviceId && actualId === excludedDeviceId) {
-          throw new Error(
-            "Choose different USB devices for the eye camera and the scene camera."
-          )
+        const excluded =
+          typeof excludedDeviceId === "string"
+            ? [excludedDeviceId]
+            : (excludedDeviceId ?? [])
+        if (excluded.includes(actualId)) {
+          throw new Error("Choose different USB devices for each camera.")
         }
         const video = document.createElement("video")
         video.muted = true

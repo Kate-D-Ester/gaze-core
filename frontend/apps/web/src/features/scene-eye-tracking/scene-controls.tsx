@@ -54,6 +54,7 @@ export function SceneSourceControls({
   camera,
   state,
   eyeDeviceId,
+  excludedDeviceIds = [],
   onConnected,
   active = true,
 }: SceneSourceControlsProps) {
@@ -88,7 +89,10 @@ export function SceneSourceControls({
   async function connect() {
     advanceOnConnect.current = true
     if (kind === "usb") {
-      await camera.startCamera(deviceId, eyeDeviceId)
+      const excluded = excludedDeviceIds.length
+        ? [...excludedDeviceIds, ...(eyeDeviceId ? [eyeDeviceId] : [])]
+        : eyeDeviceId
+      await camera.startCamera(deviceId, excluded)
     } else {
       await camera.startNetworkStream(url)
     }
@@ -113,7 +117,10 @@ export function SceneSourceControls({
               <option
                 key={d.deviceId || i}
                 value={d.deviceId}
-                disabled={!!eyeDeviceId && d.deviceId === eyeDeviceId}
+                disabled={
+                  d.deviceId === eyeDeviceId ||
+                  excludedDeviceIds.includes(d.deviceId)
+                }
               >
                 {d.label.trim() || `Camera ${i + 1}`}
                 {d.deviceId === eyeDeviceId ? " (eye camera)" : ""}
@@ -269,7 +276,8 @@ export function FingerControls({
       ? `camera-spinner ${CameraSpinnerStyles}`
       : undefined
   const retryIndex = state.fitFailure?.retryIndex
-  const retryHold = retryIndex != null ? state.fitFailure?.holds[retryIndex] : null
+  const retryHold =
+    retryIndex != null ? state.fitFailure?.holds[retryIndex] : null
   let calibrationActionLabel = state.calibration ? "Recalibrate" : "Calibrate"
   if (retryHold) {
     calibrationActionLabel = `Retry ${sceneRegionLabel(retryHold.region).toLowerCase()}`

@@ -27,8 +27,8 @@ const RemoteEyeTracking = dynamic(
 )
 const CameraViewer = dynamic(
   () =>
-    import("@/features/camera-viewer/viewer-workspace").then(
-      (module) => module.ViewerWorkspace
+    import("@/features/camera-viewer/three-camera-workspace").then(
+      (module) => module.ThreeCameraWorkspace
     ),
   { ssr: false, loading: LoadingTracker }
 )

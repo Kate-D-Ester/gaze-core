@@ -20,6 +20,7 @@ export type SceneSourceControlsProps = {
   camera: SceneCamera
   state: SceneCameraSnapshot
   eyeDeviceId?: string
+  excludedDeviceIds?: readonly string[]
   onConnected: () => void
   active?: boolean
 }

@@ -15,6 +15,7 @@ export function SourceControls({
   role = "eye",
   resetSource,
   excludedDeviceId,
+  excludedDeviceIds = [],
 }: SourceControlsProps) {
   const {
     deviceId,
@@ -42,7 +43,13 @@ export function SourceControls({
   function startPreview() {
     resetSource()
     if (kind === "usb") {
-      void tracker.startCamera(deviceId, excludedDeviceId)
+      const excluded = excludedDeviceIds.length
+        ? [
+            ...excludedDeviceIds,
+            ...(excludedDeviceId ? [excludedDeviceId] : []),
+          ]
+        : excludedDeviceId
+      void tracker.startCamera(deviceId, excluded)
     } else {
       void tracker.startNetworkStream(streamUrl)
     }
@@ -65,7 +72,8 @@ export function SourceControls({
                 key={device.deviceId}
                 value={device.deviceId}
                 disabled={
-                  !!excludedDeviceId && device.deviceId === excludedDeviceId
+                  device.deviceId === excludedDeviceId ||
+                  excludedDeviceIds.includes(device.deviceId)
                 }
               >
                 {device.label.trim() || `Camera ${index + 1}`}

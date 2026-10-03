@@ -44,6 +44,32 @@ function readCameraSourcePreferences(
     return DEFAULT_PREFERENCES
   }
 }
+function preferencesForSource(
+  saved: CameraSourcePreferences,
+  source?: CameraSourceSnapshot | null
+): CameraSourcePreferences {
+  if (!source) {
+    return saved
+  }
+  return {
+    ...saved,
+    kind: source.kind === "network" ? "network" : "usb",
+    url: source.url ?? saved.url,
+    deviceId: source.deviceId ?? saved.deviceId,
+  }
+}
+/** Credential-bearing stream URLs stay in the current session only. */
+export function cameraSourceUrlForStorage(input: string): string {
+  try {
+    const url = new URL(input)
+    if (url.username || url.password || url.search || url.hash) {
+      return ""
+    }
+    return input
+  } catch {
+    return ""
+  }
+}
 export function useCameraSourcePreferences(
   role: CameraSourceRole = "eye",
   source?: CameraSourceSnapshot | null
@@ -55,30 +81,40 @@ export function useCameraSourcePreferences(
       role === "scene-eye" ? "gazecore.eye-camera.source.v1" : undefined
     return readCameraSourcePreferences(key, fallbackKey)
   }, [key, role])
-  const [selection, setSelection] = useState(() => {
-    let preferences = saved
-    if (source) {
-      preferences = {
-        ...saved,
-        kind: source.kind === "network" ? "network" : "usb",
-        url: source.url ?? saved.url,
-        deviceId: source.deviceId ?? saved.deviceId,
-      }
-    }
-    return { key, preferences }
-  })
-  // Remote camera modes can change without unmounting the page. Never copy
-  // the previous mode's device or URL into the newly selected mode's key.
+  const sourceIdentity = JSON.stringify([
+    source?.kind,
+    source?.url,
+    source?.deviceId,
+  ])
+  const [selection, setSelection] = useState(() => ({
+    key,
+    sourceIdentity,
+    preferences: preferencesForSource(saved, source),
+  }))
+  // Synchronize a changed connection without overwriting edits on ordinary frames.
+  // Adjusting this component's state during render avoids a stale commit/effect.
+  if (selection.key !== key || selection.sourceIdentity !== sourceIdentity) {
+    const previous = selection.key === key ? selection.preferences : saved
+    setSelection({
+      key,
+      sourceIdentity,
+      preferences: preferencesForSource(previous, source),
+    })
+  }
   const preferences = selection.key === key ? selection.preferences : saved
   function updatePreferences(patch: Partial<CameraSourcePreferences>): void {
     setSelection((current) => {
       const previous = current.key === key ? current.preferences : saved
-      return { key, preferences: { ...previous, ...patch } }
+      return { key, sourceIdentity, preferences: { ...previous, ...patch } }
     })
   }
   useEffect(() => {
     try {
-      globalThis.localStorage?.setItem(key, JSON.stringify(preferences))
+      const stored = {
+        ...preferences,
+        url: cameraSourceUrlForStorage(preferences.url),
+      }
+      globalThis.localStorage?.setItem(key, JSON.stringify(stored))
     } catch {
       // Camera controls remain usable when browser storage is unavailable.
     }

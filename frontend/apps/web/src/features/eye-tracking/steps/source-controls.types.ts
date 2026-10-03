@@ -3,6 +3,7 @@ import type { TrackerController } from "../use-tracker.types"
 
 export type SourceControlsProps = {
   excludedDeviceId?: string
+  excludedDeviceIds?: readonly string[]
   tracker: TrackerController
   role?: CameraSourceRole
   resetSource: () => void

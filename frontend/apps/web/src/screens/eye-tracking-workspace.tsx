@@ -74,6 +74,7 @@ import {
 import { RemoteTrialLinkStyles } from "../features/tracking-ui/remote-styles"
 import type {
   EyeTrackingWorkspaceProps,
+  EyeTrackingWorkspaceContentProps,
   SetupStepName,
 } from "./eye-tracking-workspace.types"
 const STEPS: readonly SetupStepName[] = [
@@ -106,15 +107,35 @@ const SCENE_STEP_HELP = [
   "Choose a hand, marker, or one-point reference to calibrate the scene.",
   "View, adjust, and record scene gaze.",
 ] as const
-export function EyeTrackingWorkspace({
+export function EyeTrackingWorkspace(props: EyeTrackingWorkspaceProps) {
+  if (props.tracker) {
+    return <EyeTrackingWorkspaceContent {...props} tracker={props.tracker} />
+  }
+  return <StandaloneEyeTrackingWorkspace {...props} />
+}
+function StandaloneEyeTrackingWorkspace(props: EyeTrackingWorkspaceProps) {
+  const tracker = useTracker()
+  return <EyeTrackingWorkspaceContent {...props} tracker={tracker} />
+}
+function EyeTrackingWorkspaceContent({
   sceneMode = false,
-}: EyeTrackingWorkspaceProps) {
+  tracker,
+  sceneCamera,
+  onSceneStatus,
+  excludedDeviceIds,
+  visible = true,
+  onReturnToViewer,
+  returnDisabled,
+}: EyeTrackingWorkspaceContentProps) {
   const steps = sceneMode ? SCENE_STEPS : STEPS
   const stepHelp = sceneMode ? SCENE_STEP_HELP : STEP_HELP
   const [sceneStatus, setSceneStatus] = useState<SceneStatus>({
     connected: false,
     calibrated: false,
   })
+  useEffect(() => {
+    onSceneStatus?.(sceneStatus)
+  }, [onSceneStatus, sceneStatus])
   const [eyeRevision, setEyeRevision] = useState(0)
   const [diagnostics] = useState(() => new CalibrationDiagnostics())
   const [diagnosticsAvailable, setDiagnosticsAvailable] = useState(false)
@@ -128,7 +149,6 @@ export function EyeTrackingWorkspace({
   const pendingFit = useRef<AbortController | null>(null)
   const [fitting, setFitting] = useState(false)
   useEffect(() => () => pendingFit.current?.abort(), [])
-  const tracker = useTracker()
   const { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
   const head = useHeadTracking(!sceneMode && !!source)
   const [orientation, setOrientation] = useState<GazeOrientation>(
@@ -197,12 +217,14 @@ export function EyeTrackingWorkspace({
   }, [diagnostics, geometry])
   useEffect(() => {
     setPreviewMasksEnabled(
-      !!source &&
+      visible &&
+        !!source &&
         (!sceneMode || step < 3) &&
         (thresholdViewOpen || (pipelineOpen && step >= 2))
     )
   }, [
     pipelineOpen,
+    visible,
     sceneMode,
     setPreviewMasksEnabled,
     source,
@@ -290,7 +312,11 @@ export function EyeTrackingWorkspace({
     stepDescription =
       "Create two eye-corner points, then use Edit to adjust their spacing."
   }
+  const connectionPending = tracker.busy || !!sceneStatus.connecting
   const go = (index: number) => {
+    if (sceneMode && connectionPending) {
+      return
+    }
     if (allowed[index]) {
       setStep(index)
       setNotice("")
@@ -490,12 +516,23 @@ export function EyeTrackingWorkspace({
       <header className={`eye-header ${EyeHeaderStyles}`}>
         <TrackingBrand version={sceneMode ? "SCENE" : "SCREEN"} />
         <div className={`eye-header-right ${EyeHeaderRightStyles}`}>
-          <Link
-            href="/trial/remote-eye-tracking"
-            className={`remote-trial-link ${RemoteTrialLinkStyles}`}
-          >
-            Remote eye tracking
-          </Link>
+          {onReturnToViewer ? (
+            <button
+              type="button"
+              className={`eye-button ${EyeButtonStyles} primary`}
+              disabled={returnDisabled}
+              onClick={onReturnToViewer}
+            >
+              Use in viewer
+            </button>
+          ) : (
+            <Link
+              href="/trial/remote-eye-tracking"
+              className={`remote-trial-link ${RemoteTrialLinkStyles}`}
+            >
+              Remote eye tracking
+            </Link>
+          )}
           <span className={`eye-local ${EyeLocalStyles}`}>
             <span className={`status-light ${StatusLightStyles} on`} />
             On-device processing
@@ -515,6 +552,7 @@ export function EyeTrackingWorkspace({
           {(["classic", "spatial"] as const).map((format, i) => (
             <button
               key={format}
+              disabled={sceneMode && connectionPending}
               aria-label={`Eye Tracker ${i + 1}: ${i === 0 ? "Manual" : "Auto"} tracking`}
               title={i === 0 ? "Manual eye model" : "Automatic eye model"}
               aria-pressed={settings.format === format}
@@ -551,7 +589,11 @@ export function EyeTrackingWorkspace({
         }
         availableSteps={
           new Set(
-            allowed.flatMap((canSelect, index) => (canSelect ? [index] : []))
+            allowed.flatMap((canSelect, index) =>
+              canSelect && (!sceneMode || !connectionPending || index === step)
+                ? [index]
+                : []
+            )
           )
         }
         onSelectStep={go}
@@ -559,7 +601,9 @@ export function EyeTrackingWorkspace({
       {sceneMode && (
         <SceneWorkspace
           tracker={tracker}
-          step={step - 3}
+          sceneCamera={sceneCamera}
+          excludedDeviceIds={excludedDeviceIds}
+          step={visible ? step - 3 : -1}
           onStepChange={(next) => setStep(next + 3)}
           onStatus={setSceneStatus}
           eyeRevision={eyeRevision}
@@ -638,6 +682,7 @@ export function EyeTrackingWorkspace({
               <SourceControls
                 tracker={tracker}
                 excludedDeviceId={sceneMode ? sceneStatus.deviceId : undefined}
+                excludedDeviceIds={excludedDeviceIds}
                 role={sceneMode ? "scene-eye" : "eye"}
                 resetSource={resetSource}
               />
@@ -725,7 +770,13 @@ export function EyeTrackingWorkspace({
           {step > 0 && (
             <button
               className={`eye-button ${EyeButtonStyles} secondary`}
-              onClick={() => setStep(step - 1)}
+              disabled={sceneMode && connectionPending}
+              onClick={() => {
+                if (sceneMode && connectionPending) {
+                  return
+                }
+                setStep(step - 1)
+              }}
             >
               <ArrowLeft size={15} />
               Back
@@ -754,7 +805,7 @@ export function EyeTrackingWorkspace({
           {(step < 3 || (!sceneMode && step === 3)) && (
             <button
               className={`eye-button ${EyeButtonStyles} primary`}
-              disabled={continueDisabled}
+              disabled={continueDisabled || (sceneMode && connectionPending)}
               aria-describedby={
                 step === 2 ? "eye-model-lock-status" : undefined
               }

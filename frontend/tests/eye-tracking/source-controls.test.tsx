@@ -297,3 +297,50 @@ test("scene eye cameras inherit the previous shared selection once", async () =>
     localStorage.removeItem(sceneKey)
   }
 })
+
+test("connected source updates synchronize fields while equivalent live sources preserve user edits", async () => {
+  try {
+    await mountControls()
+    tracker.source = {
+      kind: "network",
+      name: "Eye",
+      url: "http://eye.local/stream",
+      key: "eye:1",
+    }
+    await mountControls()
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="Network stream URL"]')
+        ?.value
+    ).toBe("http://eye.local/stream")
+    await enterUrl("http://replacement.local/stream")
+    tracker.source = { ...tracker.source }
+    await mountControls()
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="Network stream URL"]')
+        ?.value
+    ).toBe("http://replacement.local/stream")
+  } finally {
+    tracker.source = null
+  }
+})
+test.each([
+  "http://user:secret@camera.local/stream",
+  "http://camera.local/stream?token=private",
+  "http://camera.local/stream#private",
+])(
+  "credential-bearing URL stays usable in memory but is omitted from saved settings: %s",
+  async (url) => {
+    await mountControls()
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="Network stream"]')!
+        .click()
+    )
+    await enterUrl(url)
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="Network stream URL"]')
+        ?.value
+    ).toBe(url)
+    expect(JSON.parse(localStorage.getItem(storageKey)!).url).toBe("")
+  }
+)

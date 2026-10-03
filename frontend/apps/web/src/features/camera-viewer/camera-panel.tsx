@@ -1,5 +1,6 @@
 import { Cable, Video, Wifi } from "lucide-react"
-import { useState } from "react"
+import { useCameraSourcePreferences } from "../eye-tracking/use-camera-source-preferences"
+import { SavedCameraOption } from "../eye-tracking/components/saved-camera-option"
 import { CameraTransformControls } from "../eye-tracking/components/camera-transform-controls"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
 import {
@@ -9,7 +10,7 @@ import {
 } from "../tracking-ui/control-styles"
 import { StatusLightStyles } from "../tracking-ui/layout-styles"
 import { CameraPreview } from "./camera-preview"
-import type { CameraPanelProps, ViewerSourceKind } from "./camera-panel.types"
+import type { CameraPanelProps } from "./camera-panel.types"
 
 export function CameraPanel({
   role,
@@ -25,10 +26,13 @@ export function CameraPanel({
   onDisconnect,
   onPoint,
 }: CameraPanelProps) {
-  const [kind, setKind] = useState<ViewerSourceKind>("camera")
-  const [deviceId, setDeviceId] = useState("")
-  const [url, setUrl] = useState("")
-  const disabled = connectionPending || state.busy
+  const { kind, setKind, deviceId, setDeviceId, url, setUrl } =
+    useCameraSourcePreferences(
+      role === "eye" ? "scene-eye" : role,
+      state.source
+    )
+  const disabled =
+    connectionPending || state.busy || camera.canConnect === false
   return (
     <section
       id={`${role}-camera-panel`}
@@ -90,7 +94,10 @@ export function CameraPanel({
           aria-label={`${label} source`}
           onSubmit={(event) => {
             event.preventDefault()
-            onConnect(kind, kind === "camera" ? deviceId : url)
+            onConnect(
+              kind === "usb" ? "camera" : "network",
+              kind === "usb" ? deviceId : url
+            )
           }}
         >
           <fieldset disabled={disabled}>
@@ -103,8 +110,8 @@ export function CameraPanel({
               <button
                 type="button"
                 className={`secondary ${EyeButtonStyles}`}
-                aria-pressed={kind === "camera"}
-                onClick={() => setKind("camera")}
+                aria-pressed={kind === "usb"}
+                onClick={() => setKind("usb")}
               >
                 <Cable size={14} aria-hidden="true" />
                 USB camera
@@ -119,7 +126,7 @@ export function CameraPanel({
                 Network
               </button>
             </div>
-            {kind === "camera" ? (
+            {kind === "usb" ? (
               <label className={EyeFieldStyles}>
                 Camera device
                 <select
@@ -128,6 +135,10 @@ export function CameraPanel({
                   onChange={(event) => setDeviceId(event.target.value)}
                 >
                   <option value="">Default camera</option>
+                  <SavedCameraOption
+                    deviceId={deviceId}
+                    devices={state.devices}
+                  />
                   {state.devices.map((device, index) => (
                     <option
                       key={device.deviceId}
