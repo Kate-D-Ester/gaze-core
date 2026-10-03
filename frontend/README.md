@@ -26,6 +26,7 @@ by default; development origins are not opened to every website.
 - `apps/web/src/screens`: screen composition and workflow state.
 - `apps/web/src/features/eye-tracking`: shared near-eye camera, pupil worker, manual/automatic eye models, screen calibration and optional head compensation.
 - `apps/web/src/features/remote-eye-tracking`: mobile/webcam/IR remote tracking, shared calibration, reusable remote presentation components.
+- `apps/web/src/features/camera-viewer`: three independent previews, local commands, static selection and manual photos.
 - `apps/web/src/features/scene-eye-tracking`: outward camera, hand/marker calibration, local profiles and recordings.
 - `apps/web/src/features/tracking-ui`: shared tracker branding and Tailwind utilities organized by purpose.
 - `apps/web/src/features/account`: account screen composition and auth/session orchestration.
@@ -44,6 +45,7 @@ component stylesheets. Runtime canvas/overlay geometry remains computed in code.
 ## Routes
 
 - `/dashboard`: account and the three trial cards.
+- `/trial/three-camera-viewer`
 - `/trial/screen-eye-tracking`
 - `/trial/remote-eye-tracking`
 - `/trial/scene-camera-eye-tracking`

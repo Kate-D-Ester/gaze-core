@@ -2,8 +2,9 @@
 
 GazeCore provides a Next.js browser-based eye-tracking experience and a separate auth/API-key service. Eye tracking is available at `/trial/screen-eye-tracking`; `/v2` redirects there for older links.
 
-The dashboard offers three **Try it out** cards:
+The dashboard offers four **Try it out** cards:
 
+- Three-camera viewer: `/trial/three-camera-viewer`
 - Screen eye tracking: `/trial/screen-eye-tracking`
 - Remote eye tracking: `/trial/remote-eye-tracking`
 - Scene camera eye tracking: `/trial/scene-camera-eye-tracking`
@@ -30,6 +31,10 @@ assets are bundled locally; camera frames remain on the device.
 ## Scene-camera tracking
 
 Open `/trial/scene-camera-eye-tracking` for the headset eye-camera + scene-camera flow, hand/marker/one-point calibration, local raw recording, coordinate exports and heatmaps. See [the scene-camera guide](docs/scene-camera-eye-tracking.md) for setup, synchronization and accuracy limits. Integration into another working branch is documented in the [worktree-v4 merge handoff](docs/worktree-v4-merge-handoff.md).
+
+## Three-camera viewer
+
+Open `/trial/three-camera-viewer` for independent eye, scene, and auxiliary USB/network previews, per-feed orientation, static visual selection, local voice/typed commands and manual PNG capture. See [the viewer guide](docs/three-camera-viewer.md) for setup and privacy limits.
 
 ## Auth and API keys
 

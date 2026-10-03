@@ -1,4 +1,8 @@
-import type { CameraTransform, FrameDimensions } from "./camera-transform.types"
+import type {
+  CameraTransform,
+  CameraTransformRole,
+  FrameDimensions,
+} from "./camera-transform.types"
 export type { CameraTransform } from "./camera-transform.types"
 export const DEFAULT_CAMERA_TRANSFORM: CameraTransform = {
   rotation: 0,
@@ -79,7 +83,9 @@ export function drawCameraFrame(
   ctx.drawImage(image, 0, 0, width, height)
   ctx.restore()
 }
-export function readCameraTransform(role: "eye" | "scene"): CameraTransform {
+export function readCameraTransform(
+  role: CameraTransformRole
+): CameraTransform {
   try {
     const value = JSON.parse(
       localStorage.getItem(`gazecore.${role}-camera.transform.v1`) ?? "null"
@@ -98,7 +104,7 @@ export function readCameraTransform(role: "eye" | "scene"): CameraTransform {
   return { ...DEFAULT_CAMERA_TRANSFORM }
 }
 export function saveCameraTransform(
-  role: "eye" | "scene",
+  role: CameraTransformRole,
   value: CameraTransform
 ): void {
   try {

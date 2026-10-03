@@ -67,3 +67,6 @@ next-env.d.ts
 
 # Generated Next.js type references
 frontend/apps/web/next-env.d.ts
+
+# Local camera-viewer reference frames and verification artifacts
+.local-reference/

@@ -1,3 +1,4 @@
+import type { CameraTransformRole } from "../eye-tracking/camera-transform.types"
 import type { NetworkConnectionState } from "../eye-tracking/network-camera"
 
 import type { CameraTransform } from "../eye-tracking/camera-transform"
@@ -21,4 +22,9 @@ export type SceneCameraSnapshot = {
   connection: NetworkConnectionState
   retryAttempt: number
   transform: CameraTransform
+}
+
+export type SceneCameraOptions = {
+  transformRole?: CameraTransformRole
+  label?: string
 }

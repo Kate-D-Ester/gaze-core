@@ -4,6 +4,13 @@ import Link from "next/link"
 import type { TrackingTrial } from "./tracking-trials.types"
 const TRIALS: readonly TrackingTrial[] = [
   {
+    name: "Three-camera viewer",
+    description:
+      "Preview eye, scene, and auxiliary cameras with local commands.",
+    path: "/trial/three-camera-viewer",
+    icon: Video,
+  },
+  {
     name: "Screen eye tracking",
     description: "Use your head-mounted eye camera to track screen gaze.",
     path: "/trial/screen-eye-tracking",
@@ -28,7 +35,7 @@ export function TrackingTrials() {
       <h2 id="tracking-trials-heading" className="text-lg font-semibold">
         Eye tracking
       </h2>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {TRIALS.map(({ name, description, path, icon: Icon }) => (
           <article
             key={path}

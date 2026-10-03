@@ -5,7 +5,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act, createElement } = await import("../../apps/web/node_modules/react")
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
-const { RemoteEyeTrackingPage } = await import("../../apps/web/src/screens/remote-eye-tracking-page")
+const { RemoteEyeTrackingPage } =
+  await import("../../apps/web/src/screens/remote-eye-tracking-page")
 const { default: nextConfig } = await import("../../apps/web/next.config")
 let root: ReturnType<typeof createRoot> | null = null
 let host: HTMLDivElement
@@ -15,9 +16,7 @@ async function render() {
   document.body.append(host)
   await act(async () => {
     root = createRoot(host)
-    root.render(
-      createElement(RemoteEyeTrackingPage)
-    )
+    root.render(createElement(RemoteEyeTrackingPage))
   })
 }
 afterEach(async () => {
@@ -88,10 +87,26 @@ test("changing the camera concept replaces its instructions and motion reference
 })
 test("legacy tracker aliases permanently redirect to canonical Next routes", async () => {
   expect(await nextConfig.redirects?.()).toEqual([
-    { source: "/v2", destination: "/trial/screen-eye-tracking", permanent: true },
-    { source: "/trial", destination: "/trial/screen-eye-tracking", permanent: true },
-    { source: "/trials", destination: "/trial/screen-eye-tracking", permanent: true },
-    { source: "/trials/remote-eye-tracking", destination: "/trial/remote-eye-tracking", permanent: true },
+    {
+      source: "/v2",
+      destination: "/trial/screen-eye-tracking",
+      permanent: true,
+    },
+    {
+      source: "/trial",
+      destination: "/trial/screen-eye-tracking",
+      permanent: true,
+    },
+    {
+      source: "/trials",
+      destination: "/trial/screen-eye-tracking",
+      permanent: true,
+    },
+    {
+      source: "/trials/remote-eye-tracking",
+      destination: "/trial/remote-eye-tracking",
+      permanent: true,
+    },
   ])
 })
 
@@ -99,16 +114,24 @@ test.each([
   ["screen-eye-tracking", "screen"],
   ["remote-eye-tracking", "remote"],
   ["scene-camera-eye-tracking", "scene"],
+  ["three-camera-viewer", "viewer"],
 ])("Next route %s selects the %s browser tracker", async (route, mode) => {
-  const source = await Bun.file(new URL(`../../apps/web/src/app/trial/${route}/page.tsx`, import.meta.url)).text()
+  const source = await Bun.file(
+    new URL(`../../apps/web/src/app/trial/${route}/page.tsx`, import.meta.url)
+  ).text()
   expect(source).toContain(`<TrackingClient mode="${mode}" />`)
   expect(source).not.toContain("Auth")
 })
 
 test("camera screens load behind a client boundary without server rendering", async () => {
-  const source = await Bun.file(new URL("../../apps/web/src/components/tracking-client.tsx", import.meta.url)).text()
+  const source = await Bun.file(
+    new URL(
+      "../../apps/web/src/components/tracking-client.tsx",
+      import.meta.url
+    )
+  ).text()
   expect(source).toMatch(/^"use client"/)
-  expect(source.match(/ssr: false/g)).toHaveLength(2)
+  expect(source.match(/ssr: false/g)).toHaveLength(3)
 })
 
 test("resizing before choosing a setup leaves all camera cards available", async () => {

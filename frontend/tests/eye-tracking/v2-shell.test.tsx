@@ -142,7 +142,7 @@ test("the screen tracker has a public Next page and a permanent v2 redirect", as
   })
 })
 
-test("dashboard offers exactly three trial cards with working navigation", async () => {
+test("dashboard offers the tracking trials and camera viewer with working navigation", async () => {
   document.body.append(host)
   await act(async () => {
     root = createRoot(host)
@@ -168,11 +168,12 @@ test("dashboard offers exactly three trial cards with working navigation", async
 
   expect(host.querySelector("header")?.textContent).not.toContain("Try it out")
   const expected = [
+    ["Three-camera viewer", "/trial/three-camera-viewer"],
     ["Screen eye tracking", "/trial/screen-eye-tracking"],
     ["Remote eye tracking", "/trial/remote-eye-tracking"],
     ["Scene camera eye tracking", "/trial/scene-camera-eye-tracking"],
   ]
-  expect(host.querySelectorAll("article")).toHaveLength(3)
+  expect(host.querySelectorAll("article")).toHaveLength(4)
   for (const [name, path] of expected) {
     const card = host.querySelector(`article[aria-label="${name}"]`)!
     const link = card.querySelector<HTMLAnchorElement>("a")!

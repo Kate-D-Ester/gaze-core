@@ -66,6 +66,7 @@ beforeEach(() => {
     }
     if (tag === "canvas")
       Object.defineProperty(element, "getContext", {
+        configurable: true,
         value: () => ({
           drawImage() {},
           save() {},
@@ -339,4 +340,81 @@ test("video-frame-count fallback ignores media clock ticks without newly present
   callbacks.clear()
   repaint.forEach((cb) => cb(now + 50))
   expect(c.latest).toBe(first)
+})
+
+test("viewer camera orientation preferences remain independent from scene tracking", () => {
+  const eye = new SceneCamera({
+    transformRole: "viewer-eye",
+    label: "Eye camera",
+  })
+  const auxiliary = new SceneCamera({
+    transformRole: "viewer-auxiliary",
+    label: "Auxiliary camera",
+  })
+  cameras.push(eye, auxiliary)
+  eye.setTransform({ rotation: 90, mirrorX: true, mirrorY: false })
+  auxiliary.setTransform({ rotation: 180, mirrorX: false, mirrorY: true })
+  const restoredEye = new SceneCamera({ transformRole: "viewer-eye" })
+  const restoredAuxiliary = new SceneCamera({
+    transformRole: "viewer-auxiliary",
+  })
+  const normalScene = new SceneCamera()
+  cameras.push(restoredEye, restoredAuxiliary, normalScene)
+  expect(restoredEye.getSnapshot().transform).toEqual({
+    rotation: 90,
+    mirrorX: true,
+    mirrorY: false,
+  })
+  expect(restoredAuxiliary.getSnapshot().transform).toEqual({
+    rotation: 180,
+    mirrorX: false,
+    mirrorY: true,
+  })
+  expect(normalScene.getSnapshot().transform).toEqual({
+    rotation: 0,
+    mirrorX: false,
+    mirrorY: false,
+  })
+})
+
+test("a viewer feed rejects every already allocated USB device and stops the new stream", async () => {
+  const c = camera()
+  const startup = c.startCamera("", ["eye-device", "scene-device"])
+  pending.shift()!(stream("scene-device"))
+  await startup
+  expect(c.getSnapshot().connection).toBe("error")
+  expect(c.getSnapshot().source).toBeNull()
+  expect(stopped).toContain("scene-device")
+})
+
+test("a failed transformed draw invalidates the public frame snapshot before photo capture", async () => {
+  const c = camera()
+  c.setTransform({ rotation: 90, mirrorX: true, mirrorY: false })
+  const start = c.startCamera("scene")
+  pending[0](stream("scene"))
+  await start
+  tick(performance.now())
+  expect(c.getSnapshot().frame).not.toBeNull()
+  const previousGeneration = c.getSnapshot().frame!.generation
+  const originalContext = c.rawCanvas.getContext
+  Object.defineProperty(c.rawCanvas, "getContext", {
+    value: () => ({
+      save() {},
+      setTransform() {},
+      fillRect() {},
+      restore() {},
+      drawImage() {
+        throw new DOMException("Frame unavailable", "InvalidStateError")
+      },
+    }),
+  })
+  tick(performance.now())
+  expect(c.latest).toBeNull()
+  expect(c.getSnapshot().frame).toBeNull()
+  const { captureCameraPhoto } =
+    await import("../../apps/web/src/features/camera-viewer/photo")
+  await expect(captureCameraPhoto(c)).rejects.toThrow("fresh frame")
+  Object.defineProperty(c.rawCanvas, "getContext", { value: originalContext })
+  tick(performance.now())
+  expect(c.getSnapshot().frame!.generation).toBeGreaterThan(previousGeneration)
 })

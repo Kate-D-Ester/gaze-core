@@ -11,23 +11,35 @@ import {
   getCameraErrorMessage,
   waitForVideoDimensions,
 } from "../eye-tracking/video-source"
-import type { SceneCameraSnapshot, SceneSource } from "./scene-camera.types"
+import type {
+  SceneCameraOptions,
+  SceneCameraSnapshot,
+  SceneSource,
+} from "./scene-camera.types"
+import type { CameraTransformRole } from "../eye-tracking/camera-transform.types"
 import type { SceneObservation } from "./scene.types"
 export type { SceneCameraSnapshot, SceneSource } from "./scene-camera.types"
 export class SceneCamera {
   readonly rawCanvas = document.createElement("canvas")
   latest: SceneObservation | null = null
   stream: MediaStream | null = null
-  private snapshot: SceneCameraSnapshot = {
-    source: null,
-    busy: false,
-    error: "",
-    devices: [],
-    frame: null,
-    connection: "idle",
-    retryAttempt: 0,
-    transform: readCameraTransform("scene"),
+  private readonly transformRole: CameraTransformRole
+  private readonly label: string
+  constructor(options: SceneCameraOptions = {}) {
+    this.transformRole = options.transformRole ?? "scene"
+    this.label = options.label ?? "Scene camera"
+    this.snapshot = {
+      source: null,
+      busy: false,
+      error: "",
+      devices: [],
+      frame: null,
+      connection: "idle",
+      retryAttempt: 0,
+      transform: readCameraTransform(this.transformRole),
+    }
   }
+  private snapshot: SceneCameraSnapshot
   private listeners = new Set<() => void>()
   private video: HTMLVideoElement | null = null
   private network: NetworkCamera | null = null
@@ -111,7 +123,10 @@ export class SceneCamera {
       this.refreshDevices
     )
   }
-  async startCamera(deviceId: string, excludedDeviceId?: string) {
+  async startCamera(
+    deviceId: string,
+    excludedDeviceId?: string | readonly string[]
+  ) {
     this.stop()
     this.update({ busy: true })
     const epoch = this.generation
@@ -136,9 +151,13 @@ export class SceneCamera {
       this.stream = stream
       const track = stream.getVideoTracks()[0]
       const actualId = track?.getSettings().deviceId
-      if (excludedDeviceId && actualId === excludedDeviceId) {
+      const excluded =
+        typeof excludedDeviceId === "string"
+          ? [excludedDeviceId]
+          : (excludedDeviceId ?? [])
+      if (actualId && excluded.includes(actualId)) {
         throw new Error(
-          "Choose a different USB device for the scene camera and the eye camera."
+          "Choose a different USB device. This camera is already used by another feed."
         )
       }
       const video = document.createElement("video")
@@ -154,7 +173,7 @@ export class SceneCamera {
       this.activate(
         {
           kind: "camera",
-          name: track?.label || "Scene camera",
+          name: track?.label || this.label,
           key: `usb:${actualId || deviceId}:${epoch}`,
           deviceId: actualId,
         },
@@ -164,7 +183,7 @@ export class SceneCamera {
         "ended",
         () => {
           if (this.stream === stream) {
-            this.stop("Scene camera disconnected. Reconnect it and try again.")
+            this.stop(`${this.label} disconnected. Reconnect it and try again.`)
           }
         },
         { once: true }
@@ -181,7 +200,7 @@ export class SceneCamera {
     if (JSON.stringify(transform) === JSON.stringify(this.snapshot.transform)) {
       return
     }
-    saveCameraTransform("scene", transform)
+    saveCameraTransform(this.transformRole, transform)
     this.observationGeneration++
     this.latest = null
     this.update({ transform, frame: null })
@@ -218,6 +237,7 @@ export class SceneCamera {
         if (!frame) {
           this.latest = null
           this.observationGeneration++
+          this.update({ frame: null })
           return
         }
         this.draw(frame.image, frame.width, frame.height, frame.timestamp)
@@ -254,7 +274,9 @@ export class SceneCamera {
     }
     const ctx = this.rawCanvas.getContext("2d")
     if (!ctx) {
-      this.stop("Unable to create a scene preview in this browser.")
+      this.stop(
+        `Unable to create a ${this.label.toLowerCase()} preview in this browser.`
+      )
       return
     }
     try {
@@ -268,6 +290,8 @@ export class SceneCamera {
       )
     } catch {
       this.latest = null
+      this.observationGeneration++
+      this.update({ frame: null })
       return
     }
     this.latest = {
@@ -299,7 +323,7 @@ export class SceneCamera {
       this.videoFrameHandle = video.requestVideoFrameCallback(presented)
     } else if (video && typeof video.getVideoPlaybackQuality !== "function") {
       this.stop(
-        "Scene video needs video-frame callbacks or playback frame counters. Use a current browser."
+        `${this.label} needs video-frame callbacks or playback frame counters. Use a current browser.`
       )
       return
     }
@@ -337,7 +361,7 @@ export class SceneCamera {
       }
       if (time - this.lastArrival > 2000) {
         this.stop(
-          "The scene camera stopped sending frames. Reconnect it and try again."
+          `The ${this.label.toLowerCase()} stopped sending frames. Reconnect it and try again.`
         )
         return
       }

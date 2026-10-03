@@ -5,3 +5,6 @@ export type CameraTransform = {
 }
 
 export type FrameDimensions = { width: number; height: number }
+
+export type CameraTransformRole =
+  "eye" | "scene" | "viewer-eye" | "viewer-scene" | "viewer-auxiliary"
