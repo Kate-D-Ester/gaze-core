@@ -96,11 +96,11 @@ Final post-review verification: **792 frontend tests across 96 files** and
 upstream warnings. Frontend lint, type checking, production build and Ruff passed.
 Production build used an ignored copy of the same frontend source so the running
 feature URL was not interrupted. The v3 relay was checked at the earlier feature restart; its checkout was not changed.
-After the final review, the frontend loaded the recovery fixes through the running
-dev server. Automatic approval rejected stopping the feature launcher, so the
-final atomic worker-admission changes require a backend restart before they are
-active in the running service. Source tests and the isolated build include those
-changes; the current feature URL remains available.
+After the final review, Kate explicitly approved a brief feature restart after
+automatic approval initially blocked it. Reference playback was released before
+restarting only the feature launcher. All three feature ports returned, the model
+reported ready on MPS with an empty queue, and the test page returned HTTP 200.
+The running backend now includes the atomic worker-admission fix.
 
 The independent final review found seven Important recovery/admission issues;
 each received a failing regression before its fix. Three minor gaps are deferred:
