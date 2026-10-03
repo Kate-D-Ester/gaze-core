@@ -15,6 +15,8 @@ export type SceneProfileCalibration = {
   method: CalibrationMethod
   offset: Point
   delayMs: number
+  /** Save unfinished accuracy checks without promoting them to reusable estimates. */
+  unverified?: boolean
 }
 
 export type SceneCalibrationProfile = SceneProfileCalibration & {

@@ -32,13 +32,14 @@ export function useCalibrationProfiles({
   const restoredOnce = useRef(false)
   const selectedMapping = useRef<SceneCalibration | null>(null)
   const { calibration, method, offset, delayMs } = state
+  const unverified = !canUseSceneCalibration(state)
   const profileData = useMemo(() => {
     if (!calibration) {
       return null
     }
-    return { calibration, method, offset, delayMs }
-  }, [calibration, method, offset, delayMs])
-  const canSave = !disabled && canUseSceneCalibration(state)
+    return { calibration, method, offset, delayMs, unverified }
+  }, [calibration, method, offset, delayMs, unverified])
+  const canSave = !disabled && !state.capture && !!calibration
   const load = useCallback(
     (id: string) => {
       if (!ready || disabled) {
@@ -60,7 +61,11 @@ export function useCalibrationProfiles({
         setSelectedId(id)
         setLibrary(readSceneProfiles())
         setError("")
-        setMessage("Loaded · adjust X/Y if needed")
+        setMessage(
+          profile.unverified
+            ? "Loaded · accuracy not verified"
+            : "Loaded · adjust X/Y if needed"
+        )
         onLoaded()
       } catch (cause) {
         setError(errorMessage(cause))
@@ -96,6 +101,7 @@ export function useCalibrationProfiles({
     }
     const changed =
       profile.delayMs !== profileData.delayMs ||
+      !!profile.unverified !== profileData.unverified ||
       profile.offset.some((value, axis) => value !== profileData.offset[axis])
     if (!changed) {
       return
@@ -104,7 +110,11 @@ export function useCalibrationProfiles({
       saveSceneProfile(profile.name, profileData, profile.setup, profile.id)
       setLibrary(readSceneProfiles())
       setError("")
-      setMessage("Adjustment saved")
+      setMessage(
+        profileData.unverified
+          ? "Saved on this device · accuracy not verified"
+          : "Adjustment saved"
+      )
     } catch (cause) {
       setError(errorMessage(cause))
     }
@@ -120,7 +130,11 @@ export function useCalibrationProfiles({
       setSelectedId(profile.id)
       setLibrary(readSceneProfiles())
       setError("")
-      setMessage("Saved on this device")
+      setMessage(
+        profileData.unverified
+          ? "Saved on this device · accuracy not verified"
+          : "Saved on this device"
+      )
       return true
     } catch (cause) {
       setError(errorMessage(cause))

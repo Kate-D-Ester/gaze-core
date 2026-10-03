@@ -100,6 +100,7 @@ export function saveSceneProfile(
     method: data.method,
     offset: [...data.offset],
     delayMs: data.delayMs,
+    unverified: data.unverified,
     setup: structuredClone(setup),
   }
   if (!isSceneCalibrationProfile(profile)) {
