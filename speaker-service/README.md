@@ -23,8 +23,7 @@ separately from software licensing. The published weights are approximately
 parameters. Actual inference memory and throughput are measured, not inferred
 from checkpoint size.
 
-Full frontend/service startup and reference benchmark instructions are added
-with the integrated application.
+The root README contains a complete two-terminal startup flow for the integrated trial.
 
 Start the local service from this directory:
 
