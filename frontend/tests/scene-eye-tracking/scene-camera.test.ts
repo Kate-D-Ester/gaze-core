@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 if (typeof document === "undefined") GlobalRegistrator.register()
+;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
+import { SceneWorkspace } from "../../apps/web/src/features/scene-eye-tracking/scene-workspace"
+import { saveSceneProfile } from "../../apps/web/src/features/scene-eye-tracking/calibration-profiles"
+import { DEFAULT_SETTINGS } from "../../apps/web/src/features/eye-tracking/use-tracker"
+import { DEFAULT_CAMERA_TRANSFORM } from "../../apps/web/src/features/eye-tracking/camera-transform"
+import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
+import type { SceneStatus } from "../../apps/web/src/features/scene-eye-tracking/scene-workspace.types"
+import { calibrate } from "./fixtures"
+const { act, createElement, useState } =
+  await import("../../apps/web/node_modules/react")
+const { createRoot } =
+  await import("../../apps/web/node_modules/react-dom/client")
 
 let stopped: string[],
   cameras: SceneCamera[],
@@ -49,8 +61,8 @@ beforeEach(() => {
       videos.push(element as HTMLVideoElement)
       Object.defineProperties(element, {
         srcObject: { value: null, writable: true },
-        videoWidth: { get: () => 640 },
-        videoHeight: { get: () => 480 },
+        videoWidth: { configurable: true, get: () => 640 },
+        videoHeight: { configurable: true, get: () => 480 },
         readyState: { get: () => 2 },
         currentTime: { get: () => videoTime },
         getVideoPlaybackQuality: {
@@ -68,6 +80,7 @@ beforeEach(() => {
       Object.defineProperty(element, "getContext", {
         value: () => ({
           drawImage() {},
+          clearRect() {},
           save() {},
           setTransform() {},
           fillRect() {},
@@ -149,7 +162,7 @@ test("same USB device cannot become both the eye and scene camera", async () => 
   expect(c.getSnapshot().error).toContain("different")
   expect(stopped).toEqual(["eye"])
 })
-test("fresh decoded frames keep native dimensions and stalled video becomes an error", async () => {
+test("a USB frame stall pauses evidence and resumes without discarding the selected camera", async () => {
   const c = camera(),
     start = c.startCamera("scene")
   pending[0](stream("scene"))
@@ -158,13 +171,156 @@ test("fresh decoded frames keep native dimensions and stalled video becomes an e
   expect(c.latest?.width).toBe(640)
   expect(c.latest?.height).toBe(480)
   expect(c.rawCanvas.width).toBe(640)
+  const source = c.getSnapshot().source
+  const generation = c.latest!.generation
   const last = c.latest!.timestamp
   const next = [...callbacks.values()]
   callbacks.clear()
   next.forEach((cb) => cb(last + 3000))
-  expect(c.getSnapshot().error).toContain("stopped")
-  expect(c.getSnapshot().source).toBeNull()
+  expect(c.getSnapshot().error).toBe("")
+  expect(c.getSnapshot().source).toBe(source)
+  expect(c.getSnapshot().connection).toBe("waiting")
+  expect(c.getSnapshot().frame).toBeNull()
+  expect(c.latest).toBeNull()
+  expect(stopped).toEqual([])
+  tick(last + 3200)
+  expect(c.getSnapshot().connection).toBe("live")
+  expect(c.getSnapshot().source).toBe(source)
+  expect(c.latest?.generation).not.toBe(generation)
+  expect(c.latest?.timestamp).toBe(last + 3200)
 })
+
+test.each(["USB", "network"])(
+  "%s scene calibration survives a camera stall, while a real frame-size change invalidates it",
+  async (sourceKind) => {
+    const originalWorker = globalThis.Worker
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    let status: SceneStatus = { connected: false, calibrated: false }
+    globalThis.Worker = class {
+      onmessage = null
+      onerror = null
+      postMessage() {}
+      terminate() {}
+    } as unknown as typeof Worker
+    const tracker: TrackerController = {
+      settings: { ...DEFAULT_SETTINGS, locked: true },
+      dimensions: { width: 640, height: 480 },
+      transform: DEFAULT_CAMERA_TRANSFORM,
+      source: { kind: "camera", name: "Eye camera", deviceId: "eye" },
+      sourceCanvas: { current: null },
+      frame: null,
+      latest: { current: null },
+      connection: "live",
+      reconnectAttempt: 0,
+      busy: false,
+      error: "",
+      engineReady: true,
+      devices: [],
+      configure() {},
+      setTransform() {},
+      setError() {},
+      async startCamera() {},
+      async startNetworkStream() {},
+      async startVideo() {},
+      startSample() {},
+      stop() {},
+      setSampleTarget() {},
+      setPreviewMasksEnabled() {},
+      setBlink() {},
+    }
+    const calibrated = calibrate().s.getSnapshot()
+    if (sourceKind === "network") {
+      localStorage.setItem(
+        "gazecore.scene-camera.source.v1",
+        JSON.stringify({
+          kind: "network",
+          url: "http://scene.local/stream.mp4",
+          deviceId: "",
+        })
+      )
+      globalThis.fetch = (async () =>
+        new Response("", {
+          headers: { "content-type": "video/mp4" },
+        })) as typeof fetch
+    }
+    saveSceneProfile(
+      "Frame recovery",
+      {
+        calibration: calibrated.calibration!,
+        method: "hand",
+        offset: [0.03, -0.02],
+        delayMs: 0,
+      },
+      {
+        trackerFormat: "spatial",
+        orientation: {
+          eye: DEFAULT_CAMERA_TRANSFORM,
+          scene: DEFAULT_CAMERA_TRANSFORM,
+        },
+      }
+    )
+    function Workspace() {
+      const [step, setStep] = useState(0)
+      return createElement(SceneWorkspace, {
+        tracker,
+        step,
+        onStepChange: setStep,
+        onStatus: (value) => {
+          status = value
+        },
+        eyeRevision: 0,
+      })
+    }
+    try {
+      await act(async () => root.render(createElement(Workspace)))
+      const connect = host.querySelector<HTMLButtonElement>(
+        ".eye-button.primary"
+      )!
+      await act(async () => connect.click())
+      await act(async () => {
+        if (sourceKind === "USB") {
+          pending[0](stream("scene"))
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      const now = performance.now()
+      await act(async () => tick(now))
+      expect(status.calibrated).toBe(true)
+      const save = () =>
+        host.querySelector<HTMLButtonElement>(
+          '[aria-label="Save calibration profile"]'
+        )!
+      expect(save().disabled).toBe(false)
+
+      await act(async () => {
+        const next = [...callbacks.values()]
+        callbacks.clear()
+        next.forEach((callback) => callback(now + 3000))
+      })
+      expect(status.connected).toBe(true)
+      expect(status.calibrated).toBe(true)
+      expect(save().disabled).toBe(false)
+      expect(host.textContent).toContain("Waiting for camera frames")
+      await act(async () => tick(now + 3200))
+      expect(status.calibrated).toBe(true)
+      expect(save().disabled).toBe(false)
+
+      Object.defineProperties(videos[0], {
+        videoWidth: { get: () => 800 },
+        videoHeight: { get: () => 600 },
+      })
+      await act(async () => tick(now + 3400))
+      expect(status.calibrated).toBe(false)
+      expect(save().disabled).toBe(true)
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+      globalThis.Worker = originalWorker
+    }
+  }
+)
 test("network mDNS video uses the existing browser-readable source pipeline", async () => {
   globalThis.fetch = (async () =>
     new Response("", {
@@ -214,6 +370,7 @@ test("network video pauses keep the selected source and recover automatically", 
     expect(c.getSnapshot().error).toBe("")
     expect(c.latest).toBeNull()
     expect((c.getSnapshot() as any).connection).toBe("reconnecting")
+    expect(c.getSnapshot().frame).toBeNull()
     const retry = scheduled.find(
       (timer) => timer.delay >= 1000 && timer.delay < 15000
     )
@@ -245,6 +402,23 @@ test("a short network stall does not disconnect the camera", async () => {
   expect(c.getSnapshot().source).toEqual(source)
   expect(c.getSnapshot().error).toBe("")
   expect(c.latest).toBeNull()
+  expect(c.getSnapshot().frame).toBeNull()
+})
+test("an ended USB track still disconnects the scene camera", async () => {
+  const c = camera()
+  const ownedStream = stream("scene")
+  const start = c.startCamera("scene")
+  pending[0](ownedStream)
+  await start
+  tick(performance.now())
+
+  ownedStream.getVideoTracks()[0].dispatchEvent(new Event("ended"))
+
+  expect(c.getSnapshot().source).toBeNull()
+  expect(c.getSnapshot().connection).toBe("error")
+  expect(c.getSnapshot().error).toContain("disconnected")
+  expect(c.latest).toBeNull()
+  expect(stopped).toEqual(["scene"])
 })
 test("abort releases a pending MJPEG response reader", async () => {
   let cancelled = false
@@ -323,7 +497,14 @@ test("media-clock advancement without a presented frame neither refreshes scene 
   tick(now + 50)
   expect(c.latest).toBe(first)
   tick(now + 3000)
-  expect(c.getSnapshot().error).toContain("stopped")
+  expect(c.getSnapshot().connection).toBe("waiting")
+  expect(c.latest).toBeNull()
+  expect(canceled).toBe(0)
+  callback?.(now + 3200, { presentedFrames: 2 } as VideoFrameCallbackMetadata)
+  tick(now + 3200)
+  expect(c.getSnapshot().connection).toBe("live")
+  expect(c.latest?.generation).not.toBe(first!.generation)
+  c.stop()
   expect(canceled).toBe(1)
 })
 test("video-frame-count fallback ignores media clock ticks without newly presented frames", async () => {
