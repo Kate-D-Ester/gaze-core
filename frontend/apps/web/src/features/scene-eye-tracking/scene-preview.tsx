@@ -1,5 +1,6 @@
 import { Camera, LoaderCircle } from "lucide-react"
 import { useEffect, useRef } from "react"
+import { GazeBubbleOverlay } from "../gaze-bubble/gaze-bubble-overlay"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
 import {
   SceneEmptyStyles,
@@ -42,6 +43,7 @@ export function ScenePreview({
   hideMarkerPattern = false,
   method = "hand",
   gaze,
+  gazeDisplay,
   trace,
   holds,
   capturing,
@@ -201,31 +203,6 @@ export function ScenePreview({
       }
       previous = point
     }
-    if (
-      !capturing &&
-      connection === "live" &&
-      (gaze?.valid || gaze?.preview) &&
-      gaze.position
-    ) {
-      ctx.beginPath()
-      ctx.arc(
-        gaze.position[0] * w,
-        gaze.position[1] * h,
-        9 * scale,
-        0,
-        Math.PI * 2
-      )
-      if (gaze.valid && !gaze.estimated) {
-        ctx.fillStyle = "#f472b6"
-        ctx.fill()
-      } else {
-        ctx.setLineDash([4 * scale, 3 * scale])
-      }
-      ctx.lineWidth = 2 * scale
-      ctx.strokeStyle = gaze.valid && !gaze.estimated ? "white" : "#fbbf24"
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
   }, [
     camera,
     connection,
@@ -235,7 +212,6 @@ export function ScenePreview({
     marker,
     hideMarkerPattern,
     method,
-    gaze,
     trace,
     holds,
     capturing,
@@ -255,6 +231,22 @@ export function ScenePreview({
         }
         hidden={!frame}
       />
+      {frame && (
+        <GazeBubbleOverlay
+          {...gazeDisplay}
+          point={
+            !capturing &&
+            connection === "live" &&
+            (gaze?.valid || gaze?.preview)
+              ? gaze.position
+              : null
+          }
+          timestamp={gaze?.eyeTimestamp ?? null}
+          imageSize={frame}
+          fixed={false}
+          stabilize={false}
+        />
+      )}
       {!frame && (
         <div className={`scene-empty ${SceneEmptyStyles}`}>
           <Camera size={32} strokeWidth={1.25} aria-hidden="true" />

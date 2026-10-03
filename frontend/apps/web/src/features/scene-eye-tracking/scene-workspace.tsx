@@ -13,7 +13,7 @@ import {
   SceneWorkspaceStyles,
 } from "../tracking-ui/scene-styles"
 import { StatusLightStyles } from "../tracking-ui/layout-styles"
-import { MAX_HAND_RECOVERY_MS } from "./calibration"
+import { MAX_FRAME_AGE_MS, MAX_HAND_RECOVERY_MS } from "./calibration"
 import { CalibrationEyePreview } from "./calibration-eye-preview"
 import { CalibrationProfileControls } from "./calibration-profile-controls"
 import { sceneEyeEvidence } from "./eye-evidence"
@@ -24,7 +24,10 @@ import {
   SceneSourceControls,
 } from "./scene-controls"
 import { ScenePreview } from "./scene-preview"
-import { canUseSceneCalibration } from "./scene-session"
+import {
+  canUseSceneCalibration,
+  hasCurrentAccuracyCheck,
+} from "./scene-session"
 import type { SceneWorkspaceProps } from "./scene-workspace.types"
 import { ScreenCalibrationMarker } from "./screen-calibration-marker"
 import { useCalibrationProfiles } from "./use-calibration-profiles"
@@ -218,6 +221,18 @@ export function SceneWorkspace({
           hideMarkerPattern={isMarker && showEye}
           method={state.method}
           gaze={state.measurement}
+          gazeDisplay={{
+            errorRadiusPx: state.offset.every(
+              (value, index) =>
+                value === (state.validation?.offset?.[index] ?? 0)
+            )
+              ? (state.validation?.pixelRms ?? null)
+              : null,
+            verified: hasCurrentAccuracyCheck(state),
+            resetKey: state.calibration,
+            offset: state.offset,
+            maxAgeMs: MAX_FRAME_AGE_MS + Math.abs(state.delayMs),
+          }}
           trace={state.trace}
           holds={state.collection?.holds ?? []}
           capturing={!!state.capture}

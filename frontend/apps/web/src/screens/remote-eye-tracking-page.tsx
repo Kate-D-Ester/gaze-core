@@ -1,4 +1,5 @@
 import { TrackingBrand } from "@/features/tracking-ui/tracking-brand"
+import { GazeBubbleOverlay } from "@/features/gaze-bubble/gaze-bubble-overlay"
 import { CalibratedHeadRange } from "@/features/remote-eye-tracking/components/calibrated-head-range"
 import { RemoteValidationSummary } from "@/features/remote-eye-tracking/components/remote-validation-summary"
 import { REMOTE_MODES } from "@/features/remote-eye-tracking/components/remote-setup"
@@ -82,7 +83,6 @@ import {
   RemoteHeadPanelStyles,
   RemoteHeaderToolsStyles,
   RemoteIconButtonStyles,
-  RemoteLiveDotStyles,
   RemoteLiveStatusStyles,
   RemoteMutedStyles,
   RemotePageHeadingStyles,
@@ -894,16 +894,19 @@ export function RemoteEyeTrackingPage() {
           }}
         />
       )}
-      {showGaze &&
-        !capture &&
-        point &&
-        point.every((value) => value >= 0 && value <= 1) && (
-          <div
-            className={`remote-live-dot ${RemoteLiveDotStyles}`}
-            style={{ left: `${point[0] * 100}%`, top: `${point[1] * 100}%` }}
-            aria-hidden="true"
-          />
-        )}
+      {showGaze && !capture && (
+        <GazeBubbleOverlay
+          point={point}
+          timestamp={observation?.timestamp ?? null}
+          errorRadiusPx={
+            adjustedSinceValidation ? null : (validation?.p95Pixels ?? null)
+          }
+          verified={!!validation && !adjustedSinceValidation}
+          resetKey={activeCalibration}
+          offset={offset}
+          markerClassName="remote-live-dot"
+        />
+      )}
     </main>
   )
 }

@@ -71,8 +71,3 @@ export const EyeFocusCaptionStyles = `
   absolute [top:28px] [left:30px] [&_h2]:[font-size:25px]
   [&_h2]:[font-weight:450] [&_h2]:[margin:6px_0] [&_p]:[font-size:12px] [&_p]:[color:var(--muted-foreground)]
 `
-
-export const EyeLiveDotStyles = `
-  absolute [width:12px] [height:12px] [border-radius:50%]
-  [background:var(--primary)] [box-shadow:0_0_0_12px_color-mix(in_srgb,_var(--primary)_10%,_transparent)] [transform:translate(-50%,_-50%)] pointer-events-none
-`

@@ -27,6 +27,19 @@ The relay preserves the entered local-camera host, port, and path, including `.l
 
 Changing the source, format, crop, threshold, corners or camera geometry resets dependent estimates. Resizing the window invalidates screen calibration. Rebuild and recalibrate after moving the eye camera relative to your eye. Lost or stale pupils produce no current gaze instead of retaining the previous point. ROI, manual corners and threshold preferences persist separately for each tracker; screen calibration and head compensation last only for the current session.
 
+## Compact live gaze bubble
+
+Live gaze uses a shared bubble across screen, remote and scene trackers. Its outer diameter, including the border, is capped at **300 CSS pixels or half of the shorter displayed view dimension, whichever is smaller**. The smaller-view guard keeps the ring from filling a preview. The unchecked default is 28 pixels, subject to that same cap. There is no exterior glow. Screen validation RMS informs the requested radius: a 76 CSS-pixel error requests a 152 CSS-pixel diameter. This visual size is not a calibrated confidence region or a correction of systematic error.
+
+The 300-pixel limit is a product choice based on the 150-pixel radius documented for Tobii Gaze Trace in [Newn et al., CHI PLAY 2017](https://www.researchgate.net/publication/319136008_Evaluating_Real-Time_Gaze_Representations_to_Infer_Intentions_in_Competitive_Turn-Based_Strategy_Games). It is not a verified fixed Eye Tracker 5 default. [Tobii's Ghost guide](https://help.tobii.com/hc/en-us/articles/210245345-How-to-set-up-Tobii-Ghost) allows size customization without specifying one universal pixel diameter. We adopt the historical numeric reference in browser CSS pixels; physical size varies with screen density and browser zoom.
+
+For screen and remote views, four distinct fresh samples spanning at least 120 ms can establish a steady fixation. The sample window adapts to slower cameras. Small jitter stays inside a fixed center; a single isolated spike cannot move the anchor. Confirmed movement releases it, and the movement threshold stays small even when the measured error is large. The small inner point shows the raw sample's offset from the bubble's target center only when it fits inside the bubble; outliers are never artificially clamped inside it. During movement it shares the ring's visual transition, so it is a jitter indicator, not an independent raw-position overlay.
+
+The bubble has a continuous red outline and a faint transparent fill. Screen/remote movement and size changes ease over 100 ms; scene transitions take 50 ms to reduce visual lag. Reduced-motion preferences disable these animations. The size cap also applies during transitions and resizing.
+
+Error beyond the cap shows **Calibration error is larger than the bubble · Recalibrate**. Missing or no-longer-current validation shows **Accuracy not checked**. These amber status labels stay separate from the red ring. Stale, lost and offscreen gaze hides the bubble immediately. Calibration, offset and view changes reset display history. Calibration inputs, validation metrics and exports retain the mapped measurements; display smoothing does not alter them. Correct a consistent offset with the existing controls and check accuracy again.
+
+
 ## Optional head compensation
 
 The front camera runs MediaPipe Face Landmarker in a separate worker, with one frame in flight and a requested maximum capture rate of 30 Hz. Device or inference speed may reduce this rate. The orientation toolbar applies quarter turns and mirrors before inference and to the preview. These settings persist locally; changing them clears calibration and expires old poses. Two visible faces, invalid non-rigid matrices, camera loss and worker errors suspend compensation. Disconnecting the eye source releases the front camera.

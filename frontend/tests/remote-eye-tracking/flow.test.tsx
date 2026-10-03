@@ -172,11 +172,7 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
         for (const [, cb] of queued) cb(clock)
         await Promise.resolve()
       })
-    await act(async () =>
-      root.render(
-        createElement(RemoteEyeTrackingPage)
-      )
-    )
+    await act(async () => root.render(createElement(RemoteEyeTrackingPage)))
     await click("Webcam-based eye tracker")
     await click("Start camera")
     await tick()
@@ -218,6 +214,10 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     expect(host.textContent).toContain("Mean target error")
     expect(host.textContent).toContain("5 targets")
     await click("Show live gaze")
+    const liveBubble = host.querySelector<HTMLElement>(".remote-live-dot")!
+    expect(parseFloat(liveBubble.style.width)).toBeGreaterThan(0)
+    expect(parseFloat(liveBubble.style.width)).toBeLessThanOrEqual(300)
+    expect(liveBubble.style.boxShadow).toBe("none")
     const originalLeft = parseFloat(
       host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
     )

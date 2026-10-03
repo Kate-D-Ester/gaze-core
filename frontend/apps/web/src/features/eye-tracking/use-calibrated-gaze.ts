@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import type { Point } from "./eye-tracking.types"
 import { synchronizedHeadPose } from "./head-tracking/head-pose"
 import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
 import { getScreenGaze } from "./screen-gaze"
@@ -19,8 +18,6 @@ export function useCalibratedGaze({
   })
   useEffect(() => {
     const synchronizer = new GazeFrameSynchronizer()
-    let filtered: Point | null = null
-    let previousTime = performance.now()
     const timer = setInterval(() => {
       const now = performance.now()
       let frame = eye.current
@@ -43,7 +40,6 @@ export function useCalibratedGaze({
         })
       }
       if (next.status !== "tracking" || !next.point) {
-        filtered = null
         setReading((current) => {
           if (
             !current.point &&
@@ -53,28 +49,12 @@ export function useCalibratedGaze({
           ) {
             return current
           }
-          return next
+          return { ...next, timestamp: frame?.timestamp }
         })
-        previousTime = now
         return
       }
-      if (filtered) {
-        const elapsed = Math.max(0.001, (now - previousTime) / 1000)
-        const distance = Math.hypot(
-          next.point[0] - filtered[0],
-          next.point[1] - filtered[1]
-        )
-        const cutoff = 2 + (15 * distance) / elapsed
-        const alpha = 1 - Math.exp(-2 * Math.PI * cutoff * elapsed)
-        filtered = [
-          filtered[0] + alpha * (next.point[0] - filtered[0]),
-          filtered[1] + alpha * (next.point[1] - filtered[1]),
-        ]
-      } else {
-        filtered = next.point
-      }
-      setReading({ ...next, point: filtered })
-      previousTime = now
+      // Keep measurement output unsmoothed. Only the shared bubble filters its display.
+      setReading({ ...next, timestamp: frame?.timestamp })
     }, 40)
     return () => clearInterval(timer)
   }, [calibration, eye, head, headHistory, onDiagnosticReading])
