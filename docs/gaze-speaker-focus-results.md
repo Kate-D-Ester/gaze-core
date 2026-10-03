@@ -1,4 +1,101 @@
-# Speaker-focus measurements
+# Adaptive streaming measurements (2026-10-04)
+
+Current implementation: protocol v2, engine-specific context, stateful RNNoise,
+dynamic playback reserve and exact final flushing. The fixed four-second / GSP1
+measurements below are historical and do not describe the current listener.
+
+Apple M1 Pro, 16 GB unified memory, macOS 27.0. Actual AV-MossFormer2 device: MPS.
+The checkpoint SHA-256 remains
+`0e60209aab0b31c38deea4ab116100acbbf3a07db8bc559f796f118da1a767d5`.
+The tested native RNNoise dylib SHA-256 is
+`b0b0f3c038b8106f04c638596bd8d6594bddaeeaef5db39c5b401de80334efee`.
+
+## Actual paced mixed-input replay
+
+The 31.936-second degraded debate's single original mixed PCM and only elapsed
+video frames enter the same WebSocket/worker/overlap/noise path as the browser.
+No target stems or future face observations enter inference. AV context is
+3 seconds / 1.8-second stride; original mixed PCM may be decoded ahead for source
+storage, but it is sent only as playback advances. Six final per-person baseline
+and seeded-noise runs completed with **510,976 accepted and emitted samples**
+each, no stale-generation output accepted, and conserved final drain.
+
+| Run | Output samples | Processing median / p95, s | Arrival-delay p95, s | Source flow pause, s |
+| --- | ---: | ---: | ---: | ---: |
+| baseline-left | 510976 | 1.498 / 1.709 | 4.976 | 0.248 |
+| baseline-middle-corrected | 510976 | 1.617 / 1.934 | 4.999 | 0.415 |
+| baseline-right | 510976 | 1.516 / 1.651 | 4.822 | 0.210 |
+| noisy-left | 510976 | 1.579 / 1.804 | 4.898 | 0.267 |
+| noisy-middle | 510976 | 1.655 / 2.180 | 5.228 | 0.507 |
+| noisy-right | 510976 | 1.625 / 2.074 | 5.102 | 0.454 |
+
+Latency is a measurement, never a pass threshold. Arrival delay is measured from
+the first source sample's capture clock to receipt, not physical microphone-to-ear
+latency. Browser testing showed **Focused · 5.0 s delay**, a progressing played
+source cursor and selected-face outline. Model context remains even on faster
+hardware. The player dynamically adds reserve, preserves late valid output,
+rebuffers on underrun and keeps audio rate unchanged. It does not impose a fixed
+four-second deadline. A slow live computer stops capture, drains accepted content
+and offers Resume; replay pauses source advancement under worker backpressure.
+
+Explicit correction regions were used: left `[0,0.05,0.35,0.65]`, center
+`[0.40,0.10,0.20,0.55]`, right `[0.65,0.05,0.35,0.65]`. The initial broad center
+region produced a multiple-face error at 23.45 seconds and remains saved as an
+incomplete test (`baseline-middle`); a tighter single-person region completed.
+Automatic full-scene browser tracking also dropped identities on the low-quality
+clip. It pauses and requires reselection instead of silently switching voices.
+These are material detection limitations, not successful automatic full-clip runs.
+
+Synthetic noise seed **20261004** adds hiss, 50/100 Hz hum and brief transients to
+one complete mixture. Noise MOV SHA-256:
+`4d1b39cfb5f0e8027085c32b0e57dfbeb48901b3b5df0633c1d2d5eeceaf8965`.
+The fixture mux preserves the final partial audio packet; a real mux regression
+caught and fixed FFmpeg `-shortest` trimming. It does not recreate physical ESP32
+optics, IR sensitivity, room acoustics or microphone synchronization.
+
+All six focused WAVs are finite, retain exact duration and peak below 0.70.
+`signal-diagnostics.json` records actual output boundary steps; these are not an
+audible click/pumping or intelligibility score. Sampled process RSS ranged from
+0.20 to 0.57 GB across these runs, and excludes unsampled GPU/unified allocation.
+The reports retain individual RSS values, warm timings, processing stages, queue
+and flow events, capture maps, hashes, errors and source/output intervals.
+
+## Listening artifacts and limits
+
+Local artifacts are under ignored `speaker-service/data/benchmarks/adaptive-streaming/`.
+Every run directory contains `original-mixed.wav`, `focused.wav`,
+`focused-preview.mp4` and `report.json`. Compare baseline and noisy versions at
+0–10, 10–18 and 19–27 seconds for target presence, shared moderator speech,
+consonants, gain, pumping, clicks and audio/video alignment. The MP4 previews align
+source audio/video for listening and do not themselves reproduce browser delay.
+
+Conservation, finite output and different conditioned waveforms do not prove
+clean voice isolation. There are no debate clean stems, so no debate SI-SDR,
+PESQ, STOI or perceptual score is reported. Saved comparisons require human
+listening; this session does not certify subjective quality. Native denoising's
+separate controlled GRID test checks consonant-band retention and zero residual
+sample lag, not arbitrary-noise quality. Competing voices and artifacts can remain.
+No physical gaze/headset/ESP32 or hours-long live trial was performed.
+
+Browser verification covered actual Buffering→Focused playback, original-mode
+comparison after a busy service, seeking, manual correction and safe target loss.
+Output clock suspension now pauses and retains the source for retry; service
+errors remain actionable through socket cleanup. Screenshot evidence:
+`focused-playback.png`, `narrow.png`, `desktop.png`. Guided setup/calibration and
+bubble/sticky-lock regression coverage remain in the frontend suite.
+
+Final pre-review verification: **783 frontend tests across 95 files** and
+**148 service tests**, with all real-model/reference flags enabled and eight known
+upstream warnings. Frontend lint, type checking, production build and Ruff passed.
+Production build used an ignored copy of the same frontend source so the running
+feature URL was not interrupted. The original v3 relay remained available.
+
+Reproduction commands are in [the service README](../speaker-service/README.md).
+Use `--automatic-faces` for full-scene tracking rather than correction regions.
+
+---
+
+# Historical speaker-focus measurements (2026-10-03)
 
 Final branch measurements, 2026-10-03. This report separates processing throughput, playback delay, and speech quality.
 

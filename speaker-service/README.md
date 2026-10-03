@@ -49,13 +49,14 @@ On Apple Silicon this engine runs its complete network on MPS with `auto`/`mps`;
 112x112 grayscale face-box crop and 0.4161/0.1688 normalization. RTFS retains its
 aligned 88x88 mouth input. The two prepared formats cannot be interchanged.
 
-AV clip extraction defaults to 3-second windows and 1.8-second stride, using the
-service's existing normalized overlap-add and cancellation checks. Live timing
-stays at 2-second windows, 1-second stride and 4-second playout delay. Warmed
-research inference ranged from 0.97 to 1.26 seconds per live-sized window, with a
-4.57-second cold pass; this does **not** establish sustainable realtime operation.
-Overload, face loss and stale target generations retain their existing failure
-behavior. One model worker is shared by clip and live tasks.
+AV clip and streaming extraction use 3-second windows and 1.8-second stride.
+RTFS streaming uses 2-second windows / 1-second stride. Streaming has generalized
+weighted overlap-add, exact EOF trimming and continuous native noise suppression.
+One worker loads the model, checks the native runtime and runs four warm-up passes
+before advertising streaming readiness (the three warmed timings seed playback).
+File extraction remains available if only streaming warm-up fails. A live/replay
+session reserves the worker; concurrent exports report busy rather than building
+a hidden backlog. Face loss retires the identity and requires reselection.
 
 The complete degraded debate clip and synchronized listening comparisons are
 available under `data/research/clearvoice/results-mps-full/`. Research uses the
@@ -125,25 +126,47 @@ speech and video offset; changing source, orientation, dimensions or
 offset invalidates that manual check. Arrival-only network sources are rejected even after a manual alignment
 check: changing upstream latency cannot be detected from reception timestamps.
 Use USB camera mode or a synchronized recording until capture-clock provenance
-and a monitored mapping are available. The UI rejects stale frames, more than 150 ms residual
-skew, clock discontinuity, and late audio. Use headphones to avoid microphone
-feedback. The listening preview/audio is deliberately delayed **4 seconds**,
-including the 2-second model context; it is not instant hearing enhancement.
-One live session, one model worker, one CPU face preprocessor, and at most two
-waiting inference windows are allowed. Stop/unmount closes its microphone,
-WebSocket and audio context while leaving the shared scene camera owned by its
-existing scene session.
+and a monitored mapping are available. The UI rejects stale frames, more than 150 ms residual skew and clock
+discontinuity. Use headphones to avoid microphone feedback. Protocol v2 carries
+source sample indices separately from capture-clock spans; old clients are
+rejected with a version message. Audio and preview follow the same played source
+cursor. The adaptive reserve uses warmed speed, device latency and recent arrival
+variation, grows after an underrun, and has no fixed delay cutoff. It preserves
+late valid audio instead of speeding it up or discarding it.
 
-To reproduce the timestamp-paced, actual mixed-input transport benchmark with the
-service running:
+Reference playback advances incrementally and pauses input on worker backpressure.
+Live microphone capture stops on resource overload, drains already accepted audio
+and requires explicit Resume. One live session, one worker and at most two pending
+windows are allowed. Byte limits bound memory independently of playback delay.
+Stop/unmount closes microphone, socket, preview and audio context. The shared scene
+camera remains owned by its scene session. Clip uploads retain their 120-second
+limit; continuous live streams do not inherit it.
+
+With the service running, reproduce actual paced mixed-input replay and a seeded
+noise variant (only the original mixture enters inference):
 
 ```sh
-uv run python -m gaze_speaker.live_benchmark --origin http://localhost:4001
+uv run python -m gaze_speaker.streaming_reference \
+  --input ../frontend/apps/web/public/speaker-reference/debate.mp4 \
+  --output data/benchmarks/adaptive-streaming/baseline-left \
+  --origin http://127.0.0.1:4010 --speaker left
+uv run python -m gaze_speaker.noise_fixture \
+  --input ../frontend/apps/web/public/speaker-reference/debate.mp4 \
+  --output data/benchmarks/adaptive-streaming/seeded-noise.mov
+uv run python -m gaze_speaker.streaming_reference \
+  --input data/benchmarks/adaptive-streaming/seeded-noise.mov \
+  --output data/benchmarks/adaptive-streaming/noisy-left \
+  --speaker left
 ```
 
-Generated report/chunks are in `data/benchmarks/live/`. This replay verifies the
-local transport/model pipeline; it does not certify ESP32 microphone clocks or
-gaze hardware. Model quality and measured throughput remain separate results.
+The benchmark defaults to an explicit single-person correction region; use
+`--automatic-faces` to test full-scene detection. Each report records exact
+accepted/output samples, flow and queue history, errors, processing/arrival
+measurements, provenance and sampled service RSS with `--server-pid`. Incomplete
+runs are marked failed and their unprocessed audio tail is silence, not a claimed
+complete result. WAV and aligned preview artifacts permit human A/B listening.
+This is synthetic/replay coverage, not physical ESP32 or microphone validation.
+See `../docs/gaze-speaker-focus-results.md` for current measurements.
 
 ## Stateful environmental-noise suppression
 

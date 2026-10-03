@@ -4,7 +4,7 @@ import { LivePlayer } from "./live-player"
 import { PreviewBuffer } from "./preview-buffer"
 import { ReplaySource } from "./replay-source"
 import { StreamConnection } from "./stream-connection"
-import { boxAtTime } from "./selection"
+import { selectByPoint } from "./selection"
 import { packetBytes } from "./stream-protocol"
 import type { ImagePoint } from "./selection.types"
 import type { ListeningMode } from "./playback.types"
@@ -112,10 +112,11 @@ export class ReplayController {
       this.context = context
       this.player = new LivePlayer({
         context,
-        onError: (message) => this.fail(message),
+        onError: (message) => this.pauseForOutput(message),
       })
       this.player.reset(0)
       this.preview.reset(0)
+      let connected = false
       const connection = new StreamConnection({
         baseUrl: this.client.baseUrl,
         onReply: (reply) => {
@@ -125,7 +126,9 @@ export class ReplayController {
         },
         onError: (message) => {
           if (epoch === this.epoch) {
-            this.fail(message)
+            if (connected) {
+              this.streamUnavailable(message)
+            }
           }
         },
       })
@@ -204,6 +207,7 @@ export class ReplayController {
       this.source = source
       const media = await source.load(input, abort.signal)
       abort.signal.throwIfAborted()
+      this.update({ status: "ready", media })
       const ready = await connection.open(
         {
           source: "replay",
@@ -215,17 +219,58 @@ export class ReplayController {
       if (epoch !== this.epoch) {
         return
       }
+      connected = true
       this.player.setWarmTimings(ready.warm_timings)
       this.update({ status: "ready", media, error: "", serviceError: "" })
       void this.connect()
       await this.restart(0, null, false)
     } catch (error) {
       if (epoch === this.epoch) {
-        this.fail(
-          error instanceof Error ? error.message : "Reference could not start"
-        )
+        const message = error instanceof Error ? error.message : "Reference could not start"
+        if (this.snapshot.media) {
+          this.streamUnavailable(message)
+        } else {
+          this.fail(message)
+        }
       }
     }
+  }
+  private pauseForOutput(message: string): void {
+    void this.restart(this.cursor(), this.selectedPoint, false)
+      .then(() => this.update({ status: "paused", error: message }))
+      .catch((error: unknown) => {
+        this.fail(error instanceof Error ? error.message : "Playback reset failed")
+      })
+  }
+  private streamUnavailable(message: string): void {
+    const sample = this.cursor()
+    this.desired = false
+    this.source?.pause()
+    this.source?.setFlow(false)
+    this.connection?.close()
+    this.connection = null
+    this.generation++
+    this.player?.reset(this.generation)
+    this.preview.reset(this.generation)
+    this.pendingPoint = null
+    this.selectedPoint = null
+    this.acceptedEnd = null
+    this.anchor = sample
+    this.update({
+      status: "paused",
+      tracks: [],
+      selectedId: null,
+      sourceSample: sample,
+      timing: null,
+      serviceError: message,
+      error: message,
+    })
+    const generation = this.generation
+    void this.source?.seek(sample).catch((error: unknown) => {
+      if (generation === this.generation) {
+        this.fail(error instanceof Error ? error.message : "Reference seek failed")
+      }
+    })
   }
   private fail(message: string): void {
     this.release()
@@ -302,7 +347,12 @@ export class ReplayController {
         this.update({ status: "playing", error: "" })
       }
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Playback failed")
+      this.desired = false
+      this.source.pause()
+      this.update({
+        status: "paused",
+        error: error instanceof Error ? error.message : "Playback failed",
+      })
     }
   }
   async pause(): Promise<void> {
@@ -322,16 +372,7 @@ export class ReplayController {
   }
   async select(point: ImagePoint): Promise<void> {
     const time = this.cursor() / 16000
-    const valid = this.snapshot.tracks.some((track) => {
-      const box = boxAtTime(track, time)
-      return (
-        box &&
-        point[0] >= box[0] &&
-        point[0] <= box[0] + box[2] &&
-        point[1] >= box[1] &&
-        point[1] <= box[1] + box[3]
-      )
-    })
+    const valid = selectByPoint(this.snapshot.tracks, point, time)
     if (!valid) {
       this.update({ error: "Select a currently visible face" })
       return
@@ -419,16 +460,7 @@ export class ReplayController {
       this.update({ tracks })
       if (this.pendingPoint) {
         const point = this.pendingPoint
-        const match = tracks.find((track) => {
-          const box = track.observations[track.observations.length - 1]?.box
-          return (
-            box &&
-            point[0] >= box[0] &&
-            point[0] <= box[0] + box[2] &&
-            point[1] >= box[1] &&
-            point[1] <= box[1] + box[3]
-          )
-        })
+        const match = selectByPoint(tracks, point, this.anchor / 16000)
         this.pendingPoint = null
         if (!match) {
           this.update({
@@ -439,8 +471,8 @@ export class ReplayController {
         this.generation++
         this.player?.reset(this.generation)
         this.preview.reset(this.generation)
-        this.connection?.select(this.generation, match.id)
-        this.update({ selectedId: match.id })
+        this.connection?.select(this.generation, match)
+        this.update({ selectedId: match })
         const generation = this.generation
         void this.source
           ?.seek(this.anchor)

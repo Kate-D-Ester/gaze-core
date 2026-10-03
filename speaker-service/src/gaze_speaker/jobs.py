@@ -295,6 +295,9 @@ class Store:
             )
 
     def health(self) -> HealthView:
+        from .stream_profile import profile_for
+
+        profile = profile_for(self.settings.engine)
         return HealthView(
             ready=self.separator is not None,
             model_state=self.model_state,
@@ -313,6 +316,8 @@ class Store:
             max_upload_bytes=self.settings.max_upload_bytes,
             max_duration=self.settings.max_duration,
             queued=self.queue.qsize(),
+            window_seconds=profile.duration,
+            stride_seconds=profile.stride_samples / 16000,
         )
 
     def analyse(self, identity: str, region: Box | None = None):

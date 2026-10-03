@@ -78,3 +78,58 @@ test("abort while connecting closes the socket and ignores late replies", async 
   expect(closed).toBe(1)
   expect(replies).toEqual([])
 })
+
+test("startup errors preserve the service reason instead of reporting cancellation", async () => {
+  const socket = {
+    readyState: 1, close() {}, send() {}, bufferedAmount: 0,
+    onopen: null, onmessage: null, onclose: null, onerror: null,
+  } as unknown as WebSocket
+  const errors: string[] = []
+  const connection = new StreamConnection({
+    baseUrl: "http://127.0.0.1:4033",
+    socketFactory: () => socket,
+    onReply() {},
+    onError: (message) => errors.push(message),
+  })
+  const opening = connection.open(
+    { source: "replay", video_offset_ms: 0, client_time: 1 },
+    new AbortController().signal
+  )
+  socket.onmessage?.({
+    data: JSON.stringify({
+      type: "error", generation: 0, code: "live_busy",
+      message: "Another listener owns the processing worker",
+    }),
+  } as MessageEvent)
+  await expect(opening).rejects.toThrow("Another listener")
+  expect(errors).toEqual(["Another listener owns the processing worker"])
+})
+
+test("a runtime service error survives the subsequent socket close", async () => {
+  const socket = {
+    readyState: 1, close() {}, send() {}, bufferedAmount: 0,
+    onopen: null, onmessage: null, onclose: null, onerror: null,
+  } as unknown as WebSocket
+  const errors: string[] = []
+  const connection = new StreamConnection({
+    baseUrl: "http://127.0.0.1:4033", socketFactory: () => socket,
+    onReply() {}, onError: (message) => errors.push(message),
+  })
+  const opening = connection.open(
+    { source: "replay", video_offset_ms: 0, client_time: 1 },
+    new AbortController().signal
+  )
+  socket.onmessage?.({data: JSON.stringify({
+    type: "ready", protocol_version: 2, generation: 0, device: "cpu",
+    window_samples: 32000, stride_samples: 16000,
+    noise_processor: "rnnoise", warm_timings: [0.1,0.2,0.15],
+  })} as MessageEvent)
+  await opening
+  socket.onmessage?.({data: JSON.stringify({
+    type: "error", generation: 1, code: "invalid_live_input",
+    message: "Video frame gap exceeds synchronization tolerance",
+  })} as MessageEvent)
+  socket.onclose?.({} as CloseEvent)
+  expect(errors).toEqual(["Video frame gap exceeds synchronization tolerance"])
+  connection.close()
+})

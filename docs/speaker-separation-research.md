@@ -56,7 +56,7 @@ The candidate previews use H264 / AAC, 320x180 at 15 fps, with audio and video s
 | [pyannote.audio](https://github.com/pyannote/pyannote-audio) | Diarization, activity/overlap detection and embeddings | Supporting metadata, not a target PCM isolation engine |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | Local speech activity detection | Can gate silence; cannot remove another simultaneous speaker |
 
-Minimal candidate inference boundary: `extract(mixed_pcm: float32[N], prepared_face_frames: float32[round(N/16000*25),112,112]) -> float32[N]`. Validate dimensions, timing and finite values; preserve gain after normalization. Load one verified model explicitly, keep one inference worker, use engine-specific preprocessing in both clip and live paths, and preserve existing face-loss/generation/cancellation protections. Do not implicitly download weights. Prefer 3-second / 1.8-second clip scheduling; fixed live 2-second / 1-second scheduling remains experimental and must not be advertised as sustainable realtime.
+Minimal candidate inference boundary: `extract(mixed_pcm: float32[N], prepared_face_frames: float32[round(N/16000*25),112,112]) -> float32[N]`. Validate dimensions, timing and finite values; preserve gain after normalization. Load one verified model explicitly, keep one inference worker, use engine-specific preprocessing in both clip and live paths, and preserve existing face-loss/generation/cancellation protections. Do not implicitly download weights. Use the validated 3-second / 1.8-second AV schedule for clip and streaming extraction. The adaptive streaming integration below replaces the former fixed live schedule; it does not establish sub-second target hearing.
 
 ## Reproduction
 
@@ -124,3 +124,22 @@ its WAV, job metadata and `reference-ready.png`. This verifies the clip workflow
 not physical gaze calibration, listening quality or sustained live throughput.
 The final frontend suite passed **763 tests**, lint/typecheck/production build
 passed, and independent frontend/backend reviews had no remaining findings.
+
+## Adaptive streaming integration (2026-10-04)
+
+Both the reference player and live listener now share protocol v2, incremental
+input, a source-sample player, encoded preview buffering and dynamic reserve.
+AV uses its validated 3-second / 1.8-second profile. Stateful RNNoise v0.2 via
+pyrnnoise 0.4.5 follows extraction and overlap-add, with continuous FIR conversion,
+21.25 ms compensated enhancement delay and exact final flushing. Its embedded
+native model is local; no streaming session downloads weights. Package/license,
+platform limits and native regression measurements are in the service README.
+
+Dynamic scheduling accepts valid late output, keeps audio rate unchanged, and
+rebuffers if needed. Resource overload pauses replay input or ends/drains live
+capture before Resume. The one worker is reserved against concurrent file jobs.
+No whole-file target waveform is generated ahead of reference playback. Current
+paced/noisy results and qualified listening artifacts are in
+[gaze-speaker-focus-results.md](gaze-speaker-focus-results.md). Clear output and
+competing-speaker rejection remain model quality questions; buffering alone
+cannot improve weak conditioning or restore degraded lip detail.

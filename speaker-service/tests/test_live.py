@@ -258,3 +258,15 @@ async def test_replay_rewind_reacquires_faces_without_future_observations(tmp_pa
     finally:
         await session.close()
         store.close()
+
+
+def test_health_reports_the_active_model_stream_profile(tmp_path):
+    store = Store(
+        Settings(data_dir=tmp_path, engine="av-mossformer2"), start_worker=False, load_model=False
+    )
+    try:
+        health = store.health()
+        assert health.window_seconds == 3
+        assert health.stride_seconds == 1.8
+    finally:
+        store.close()

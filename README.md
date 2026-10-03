@@ -72,10 +72,11 @@ the largest area of that bubble wins; equal coverage keeps the current lock.
 Returning to setup preserves its calibration. Recalibrate clears the old mapping.
 
 The local service extracts the selected face's voice from the original mixed audio
-and synchronized face video. Original audio stays available during extraction.
-The computed voice becomes available when its waveform is ready; you can compare
-Original and Focused without processing the same target again. Outputs remain
-experimental: overlapping voices and artifacts can remain.
+and synchronized face video. Reference playback feeds only elapsed audio and
+presented frames to the same streaming engine as live microphone capture. Focused
+starts in Buffering; it never plays the mixture while waiting. Original is an
+explicit comparison mode. File export is a separate whole-file operation.
+Outputs remain experimental: overlapping voices and artifacts can remain.
 
 Prepare dependencies and the approved mixed reference once:
 
@@ -112,7 +113,14 @@ See [reusable model research](docs/speaker-separation-research.md) for primary s
 measured Mac performance and limitations.
 
 Live listening requests a microphone explicitly and requires a camera/microphone
-alignment check. It has **4 seconds of playback delay** and one selected target.
+alignment check. Playback delay adapts to warmed inference speed, arrival jitter
+and audio-device latency, with one selected target. AV-MossFormer2 uses 3 seconds
+of context and a 1.8-second stride; RTFS uses 2 seconds / 1 second. Faster hardware
+reduces processing delay but does not remove the model context. Continuous RNNoise
+suppresses environmental noise after separation. On overload, reference input
+pauses without dropping source samples; live capture stops, drains accepted audio
+and offers Resume. There is no fixed four-second playback deadline or live
+120-second recording limit.
 An arrival-only network scene stream, including ordinary ESP32 MJPEG, cannot supply
 capture-clock evidence for synchronized extraction; use a USB scene camera or a
 synchronized video. An ESP32 eye stream can still supply gaze through the relay.

@@ -186,7 +186,7 @@ def test_official_opt_in_av_engine_smoke():
         pytest.skip("Explicit official AV-MossFormer2 checkpoint smoke check")
     separator = model.load_separator(Path("data/av-assets"), "auto", "av-mossformer2")
     media, track = sample_media(3)
-    frames = faces.prepare_frames(media, track, 0, 2, "av-mossformer2")
+    frames = faces.prepare_frames(media, track, 0, 3, "av-mossformer2")
     actual = separator.extract(media.audio, frames)
     assert actual.shape == media.audio.shape and actual.dtype == np.float32
     assert np.isfinite(actual).all()
@@ -253,13 +253,14 @@ async def test_live_av_uses_112_face_frames_and_discards_changed_generation(tmp_
     import base64
     from time import monotonic
 
+    from test_noise import IdentityNative
+
     from gaze_speaker.jobs import Store
     from gaze_speaker.live import LiveConfig, LiveSession
-    from gaze_speaker.stream_protocol import LiveWindow
-    from gaze_speaker.stream_profile import CaptureSpan
-    from gaze_speaker.stream_processor import StreamProcessor
     from gaze_speaker.noise import NoiseSuppressor
-    from test_noise import IdentityNative
+    from gaze_speaker.stream_processor import StreamProcessor
+    from gaze_speaker.stream_profile import CaptureSpan
+    from gaze_speaker.stream_protocol import LiveWindow
 
     owner = Store(
         Settings(data_dir=tmp_path / "sessions", engine="av-mossformer2"),

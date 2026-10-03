@@ -15,6 +15,7 @@ export class StreamConnection {
     signal.throwIfAborted()
     return new Promise((resolve, reject) => {
       let ready = false
+      let serviceError: string | null = null
       this.reject = reject
       const socket = (
         this.options.socketFactory ?? ((url) => new WebSocket(url))
@@ -34,8 +35,9 @@ export class StreamConnection {
         if (this.socket !== socket) {
           return
         }
-        this.close()
+        this.reject = null
         reject(new Error(message))
+        this.close()
         this.options.onError(message)
       }
       socket.onopen = () =>
@@ -74,6 +76,7 @@ export class StreamConnection {
           } else if (!ready && reply.type === "error") {
             fail(reply.message)
           } else if (ready) {
+            serviceError = reply.type === "error" ? reply.message : null
             this.options.onReply(reply)
           } else {
             throw new Error("Streaming service did not initialize")
@@ -85,7 +88,7 @@ export class StreamConnection {
       socket.onerror = () => fail("Local streaming connection failed")
       socket.onclose = () => {
         if (this.socket === socket) {
-          fail("Local streaming connection closed; reconnect to listen")
+          fail(serviceError ?? "Local streaming connection closed; reconnect to listen")
           this.options.onDisconnect?.()
         }
       }
