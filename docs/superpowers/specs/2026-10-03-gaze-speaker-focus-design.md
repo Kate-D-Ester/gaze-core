@@ -1,6 +1,6 @@
 # Gaze-selected speech separation
 
-Status: proposed design for Kate's review; implementation has not started.
+Status: approved by Kate on 2026-10-03; implementation awaits plan review.
 
 ## Purpose and success criteria
 
