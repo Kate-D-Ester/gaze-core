@@ -38,42 +38,6 @@ def test_decode_budget_rejects_huge_dimensions():
         media_api().validate_media_info(2.0, 20000, 180, media_api().MediaLimits())
 
 
-@pytest.fixture
-def offset_video(tmp_path):
-    import subprocess
-
-    path = tmp_path / "offset.mov"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=black:size=64x64:rate=10:duration=0.6",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:sample_rate=16000:duration=0.4",
-            "-filter_complex",
-            "[1:a]asetpts=PTS+0.2/TB[a]",
-            "-map",
-            "0:v",
-            "-map",
-            "[a]",
-            "-c:v",
-            "libx264",
-            "-c:a",
-            "pcm_s16le",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return path
-
-
 def test_real_decoder_preserves_delayed_audio(offset_video):
     media = media_api().decode_media(offset_video)
     assert len(media.frames) == 6
