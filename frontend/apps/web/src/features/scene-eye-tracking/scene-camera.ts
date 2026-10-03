@@ -63,6 +63,11 @@ export class SceneCamera {
     this.snapshot = { ...this.snapshot, ...next }
     this.listeners.forEach((listener) => listener())
   }
+  private clearCurrentFrame(connection: SceneCameraSnapshot["connection"]) {
+    this.latest = null
+    this.observationGeneration++
+    this.update({ frame: null, connection })
+  }
   mount() {
     this.disposed = false
     void this.refreshDevices()
@@ -216,8 +221,7 @@ export class SceneCamera {
           return
         }
         if (!frame) {
-          this.latest = null
-          this.observationGeneration++
+          this.clearCurrentFrame(this.snapshot.connection)
           return
         }
         this.draw(frame.image, frame.width, frame.height, frame.timestamp)
@@ -277,7 +281,7 @@ export class SceneCamera {
       height,
       generation: this.observationGeneration,
     }
-    this.update({ frame: this.latest })
+    this.update({ frame: this.latest, connection: "live" })
   }
   private activate(source: SceneSource, epoch: number) {
     this.lastArrival = performance.now()
@@ -335,11 +339,11 @@ export class SceneCamera {
           this.draw(image, width, height, this.lastArrival)
         }
       }
-      if (time - this.lastArrival > 2000) {
-        this.stop(
-          "The scene camera stopped sending frames. Reconnect it and try again."
-        )
-        return
+      if (
+        time - this.lastArrival > 2000 &&
+        this.snapshot.connection !== "waiting"
+      ) {
+        this.clearCurrentFrame("waiting")
       }
       this.raf = requestAnimationFrame(loop)
     }

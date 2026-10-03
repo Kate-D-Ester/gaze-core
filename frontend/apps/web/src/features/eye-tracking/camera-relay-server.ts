@@ -10,6 +10,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:4173",
   "http://localhost:4173",
 ]
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const MAX_CAMERA_REDIRECTS = 5
 export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
   const allowedOrigins = new Set(
     options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS
@@ -58,11 +60,12 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
     }
     let upstream: Response
     try {
-      upstream = await fetcher(cameraUrl.href, {
-        headers: upstreamHeaders,
-        redirect: "manual",
-        signal: request.signal,
-      })
+      upstream = await fetchCameraStream(
+        cameraUrl,
+        fetcher,
+        upstreamHeaders,
+        request.signal
+      )
     } catch (error) {
       if (request.signal.aborted) {
         return new Response(null, { status: 499 })
@@ -71,14 +74,6 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
         error instanceof Error ? error.message : "Camera connection failed."
       return jsonError(
         `The camera relay could not reach the camera: ${message}`,
-        502,
-        corsHeaders
-      )
-    }
-    if (upstream.status >= 300 && upstream.status < 400) {
-      await upstream.body?.cancel().catch(() => {})
-      return jsonError(
-        "The camera redirected the stream. Enter its final stream URL directly.",
         502,
         corsHeaders
       )
@@ -100,12 +95,60 @@ export function createCameraRelayHandler(options: CameraRelayOptions = {}) {
     })
   }
 }
-function parseCameraUrl(input: string | null): URL | null {
+async function fetchCameraStream(
+  cameraUrl: URL,
+  fetcher: typeof fetch,
+  headers: Headers,
+  signal: AbortSignal
+): Promise<Response> {
+  const visitedUrls = new Set<string>()
+  let currentUrl = cameraUrl
+  let redirects = 0
+  while (true) {
+    signal.throwIfAborted()
+    if (visitedUrls.has(currentUrl.href)) {
+      throw new Error(
+        "The camera returned a redirect loop. Check its stream settings."
+      )
+    }
+    visitedUrls.add(currentUrl.href)
+    // Validate each hop ourselves so redirects cannot bypass the LAN-only policy.
+    const response = await fetcher(currentUrl.href, {
+      headers,
+      redirect: "manual",
+      signal,
+    })
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return response
+    }
+    const location = response.headers.get("location")?.trim()
+    await response.body?.cancel().catch(() => {})
+    if (!location) {
+      throw new Error(
+        "The camera redirected without a destination. Check its stream settings."
+      )
+    }
+    const nextUrl = parseCameraUrl(location, currentUrl)
+    if (!nextUrl) {
+      throw new Error(
+        "The camera redirect must point to an HTTP(S) local camera URL without credentials."
+      )
+    }
+    if (redirects >= MAX_CAMERA_REDIRECTS) {
+      throw new Error(
+        "The camera returned too many redirects. Check its stream settings."
+      )
+    }
+    redirects++
+    currentUrl = nextUrl
+  }
+}
+function parseCameraUrl(input: string | null, base?: URL): URL | null {
   if (!input) {
     return null
   }
   try {
-    const url = new URL(input)
+    const url = new URL(input, base)
     if (
       (url.protocol !== "http:" && url.protocol !== "https:") ||
       url.username ||
@@ -114,6 +157,8 @@ function parseCameraUrl(input: string | null): URL | null {
     ) {
       return null
     }
+    // Fragments are not sent to cameras and must not disguise redirect loops.
+    url.hash = ""
     return url
   } catch {
     return null

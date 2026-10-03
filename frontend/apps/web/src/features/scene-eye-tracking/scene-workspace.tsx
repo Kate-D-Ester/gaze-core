@@ -67,8 +67,8 @@ export function SceneWorkspace({
     tracker.transform,
     scene.transform,
     scene.source?.key,
-    scene.frame?.width,
-    scene.frame?.height,
+    scene.camera.rawCanvas.width,
+    scene.camera.rawCanvas.height,
   ])
   const state = useSceneSession(tracker, scene.camera, identity)
   const profiles = useCalibrationProfiles({
