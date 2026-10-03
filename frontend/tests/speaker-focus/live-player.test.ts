@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test"
 import { LivePlayer } from "../../apps/web/src/features/speaker-focus/live-player"
 function fixture() {
-  const sources: { stopped: boolean; when: number }[] = []
+  const sources: { stopped: boolean; when: number; ramps: number[] }[] = []
+  let now = 20
   const context = {
     currentTime: 10,
+    sampleRate: 16000,
+    baseLatency: 0.01,
+    state: "running",
     addEventListener() {},
     removeEventListener() {},
-    state: "running",
     destination: {},
-    resume: async () => {},
     close: async () => {},
     createBuffer: () => ({ copyToChannel() {} }),
     createGain: () => ({
@@ -25,6 +27,7 @@ function fixture() {
       const source = {
         stopped: false,
         when: 0,
+        ramps: [],
         connect() {},
         disconnect() {},
         start(time: number) {
@@ -40,90 +43,73 @@ function fixture() {
       return source
     },
   } as unknown as AudioContext
-  const player = new LivePlayer({ context, now: () => 20, onError: () => {} })
-  return { player, sources, context }
+  const errors: string[] = []
+  const player = new LivePlayer({
+    context,
+    now: () => now,
+    onError: (e) => errors.push(e),
+  })
+  player.reset(2)
+  const advance = (seconds: number) => {
+    now += seconds
+    Object.assign(context, { currentTime: context.currentTime + seconds })
+  }
+  const chunk = (startSample: number, captureTime = 0, size = 16000) => ({
+    generation: 2,
+    startSample,
+    pcm: new Float32Array(size),
+    captures: [{ startSample, endSample: startSample + size, captureTime }],
+  })
+  return { player, sources, context, errors, advance, chunk }
 }
-test("live playback rejects old targets and late output", () => {
+test("historical contiguous output is accepted and appended without a fixed delay", () => {
   const f = fixture()
-  f.player.reset(2)
-  expect(f.player.audio(new Float32Array(16000), 18, 1)).toBe(false)
-  expect(f.player.audio(new Float32Array(16000), 10, 2)).toBe(false)
-  f.player.reset(2)
-  expect(f.player.audio(new Float32Array(16000), 18, 2)).toBe(true)
-  expect(f.sources[0]?.when).toBe(12)
+  expect(f.player.audio(f.chunk(0, 10))).toBe(true)
+  expect(f.player.audio(f.chunk(16000, 11))).toBe(true)
+  expect(f.sources[1]!.when).toBeCloseTo(f.sources[0]!.when + 1, 6)
+  expect(f.player.getTiming().state).not.toBe("failed")
   f.player.reset(3)
-  expect(f.sources[0]?.stopped).toBe(true)
-  f.player.dispose()
+  expect(f.sources[0]!.stopped).toBe(true)
 })
-test("overload and clock discontinuities never schedule historical audio", () => {
+test("duplicates and gaps stop invalid sound", () => {
+  for (const second of [0, 16001]) {
+    const f = fixture()
+    f.player.audio(f.chunk(0))
+    expect(f.player.audio(f.chunk(second))).toBe(false)
+    expect(f.sources[0]!.stopped).toBe(true)
+  }
+})
+test("underrun rebuilds reserve without failing or speeding up speech", () => {
   const f = fixture()
-  f.player.reset(1)
-  expect(f.player.audio(new Float32Array(16000), 18, 1)).toBe(true)
-  expect(f.player.audio(new Float32Array(16000), 17, 1)).toBe(false)
-  expect(f.player.audio(new Float32Array(16000), 19.2, 1)).toBe(false)
-  f.player.dispose()
+  f.player.audio(f.chunk(0))
+  const reserve = f.player.getTiming().reserveSeconds
+  f.advance(3)
+  expect(f.player.getTiming().state).toBe("buffering")
+  expect(f.player.audio(f.chunk(16000, 3))).toBe(true)
+  expect(f.player.getTiming().reserveSeconds).toBeGreaterThan(reserve)
+  expect(f.errors).toEqual([])
 })
-
-test("continuous live chunks use an envelope only at the target transition", () => {
-  const values: number[][] = []
-  const context = {
-    currentTime: 10,
-    addEventListener() {},
-    removeEventListener() {},
-    destination: {},
-    state: "running",
-    close: async () => {},
-    createBuffer: () => ({ duration: 1, copyToChannel() {} }),
-    createBufferSource: () => ({
-      connect() {},
-      disconnect() {},
-      start() {},
-      stop() {},
-      onended: null,
-      buffer: null,
-    }),
-    createGain: () => {
-      const scheduled: number[] = []
-      values.push(scheduled)
-      return {
-        connect() {},
-        disconnect() {},
-        gain: {
-          value: 1,
-          cancelScheduledValues() {},
-          setValueAtTime(value: number) {
-            scheduled.push(value)
-          },
-          linearRampToValueAtTime(value: number) {
-            scheduled.push(value)
-          },
-        },
-      }
-    },
-  } as unknown as AudioContext
-  const player = new LivePlayer({ context, now: () => 20, onError: () => {} })
-  player.reset(1)
-  player.audio(new Float32Array(16000), 18, 1)
-  player.audio(new Float32Array(16000), 19, 1)
-  expect(values[1]).not.toContain(0)
-  player.dispose()
-})
-
-test("an audio clock discontinuity stops previously scheduled live sound", () => {
+test("cursor, piecewise capture delay and EOF follow scheduled samples", () => {
   const f = fixture()
-  f.player.reset(1)
-  f.player.audio(new Float32Array(16000), 18, 1)
-  f.player.audio(new Float32Array(16000), 19.2, 1)
-  expect(f.sources[0]?.stopped).toBe(true)
-  f.player.dispose()
+  f.player.audio(f.chunk(0, 10))
+  f.player.audio(f.chunk(16000, 19))
+  const when = f.sources[0]!.when
+  f.advance(when - 10 + 1.5)
+  expect(f.player.sourceSample()).toBe(24000)
+  expect(f.player.getTiming().delaySeconds).toBeCloseTo(
+    20 + when - 10 + 1.5 - 19.5 + 0.01,
+    3
+  )
+  f.player.flushEnd(32000)
+  f.advance(1)
+  expect(f.player.getTiming().state).toBe("ended")
 })
-
-test("audio output clock drift pauses instead of rebasing old scheduled chunks", () => {
-  const f = fixture()
-  f.player.reset(1)
-  expect(f.player.audio(new Float32Array(16000), 18, 1)).toBe(true)
-  Object.assign(f.context, { currentTime: 9 })
-  expect(f.player.audio(new Float32Array(16000), 19, 1)).toBe(false)
-  expect(f.sources[0]?.stopped).toBe(true)
-  f.player.dispose()
+test("real clock discontinuity and suspension reject output", () => {
+  for (const state of ["drift", "suspended"]) {
+    const f = fixture()
+    f.player.audio(f.chunk(0))
+    Object.assign(f.context, state === "drift" ? { currentTime: 9 } : { state })
+    expect(f.player.audio(f.chunk(16000))).toBe(false)
+    expect(f.sources[0]!.stopped).toBe(true)
+  }
 })
