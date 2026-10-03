@@ -37,32 +37,15 @@ function saveTheme(storageKey: string, theme: Theme) {
   }
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  if (target.isContentEditable) {
-    return true
-  }
-
-  const editableParent = target.closest(
-    "input, textarea, select, [contenteditable='true']"
-  )
-  if (editableParent) {
-    return true
-  }
-
-  return false
-}
-
 export function ThemeProvider({
   children,
   defaultTheme = "dark",
+  forcedTheme,
   storageKey = "gazecore-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = React.useState<Theme>(defaultTheme)
+  const [preferredTheme, setThemeState] = React.useState<Theme>(defaultTheme)
+  const theme = forcedTheme ?? preferredTheme
 
   React.useEffect(() => {
     try {
@@ -77,10 +60,13 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
+      if (forcedTheme) {
+        return
+      }
       saveTheme(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
-    [storageKey]
+    [forcedTheme, storageKey]
   )
 
   const applyTheme = React.useCallback((nextTheme: Theme) => {
@@ -108,46 +94,6 @@ export function ThemeProvider({
       mediaQuery.removeEventListener("change", handleChange)
     }
   }, [theme, applyTheme])
-
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) {
-        return
-      }
-
-      if (event.metaKey || event.ctrlKey || event.altKey) {
-        return
-      }
-
-      if (isEditableTarget(event.target)) {
-        return
-      }
-
-      if (event.key.toLowerCase() !== "d") {
-        return
-      }
-
-      setThemeState((currentTheme) => {
-        let nextTheme: Theme
-        if (currentTheme === "dark") {
-          nextTheme = "light"
-        } else if (currentTheme === "light") {
-          nextTheme = "dark"
-        } else {
-          nextTheme = getSystemTheme() === "dark" ? "light" : "dark"
-        }
-
-        saveTheme(storageKey, nextTheme)
-        return nextTheme
-      })
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [storageKey])
 
   React.useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {

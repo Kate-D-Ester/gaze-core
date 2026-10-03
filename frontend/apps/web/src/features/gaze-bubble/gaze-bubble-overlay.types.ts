@@ -1,5 +1,15 @@
 import type { Point } from "../eye-tracking/eye-tracking.types"
-import type { GazeImageSize } from "./gaze-bubble.types"
+import type { MutableRefObject } from "react"
+import type {
+  GazeBubbleState,
+  GazeImageSize,
+  GazeView,
+} from "./gaze-bubble.types"
+
+export type GazeBubbleOverlaySnapshot = {
+  bubble: GazeBubbleState
+  view: GazeView
+}
 
 export type GazeBubbleOverlayProps = {
   point: Point | null
@@ -14,4 +24,5 @@ export type GazeBubbleOverlayProps = {
   /** Native image dimensions; errorRadiusPx is then in native image pixels. */
   imageSize?: GazeImageSize
   markerClassName?: string
+  snapshotRef?: MutableRefObject<GazeBubbleOverlaySnapshot | null>
 }

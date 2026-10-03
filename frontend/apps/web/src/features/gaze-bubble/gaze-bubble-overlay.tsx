@@ -1,8 +1,44 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getGazeBubbleMaxDiameter, getGazeView } from "./gaze-bubble"
-import type { GazeBubbleOverlayProps } from "./gaze-bubble-overlay.types"
+import type {
+  GazeBubbleOverlayProps,
+  GazeBubbleOverlaySnapshot,
+} from "./gaze-bubble-overlay.types"
 import type { GazeView } from "./gaze-bubble.types"
 import { useGazeBubble } from "./use-gaze-bubble"
+
+export function drawGazeBubbleOverlay(
+  context: CanvasRenderingContext2D,
+  snapshot: GazeBubbleOverlaySnapshot,
+  width: number,
+  height: number
+) {
+  const { bubble, view } = snapshot
+  if (view.width <= 0 || view.height <= 0) {
+    return
+  }
+  const scale = width / view.width
+  const radius = bubble.radiusPx * scale
+  const x = bubble.center[0] * width
+  const y = bubble.center[1] * height
+  const rawX = bubble.rawPoint[0] * width
+  const rawY = bubble.rawPoint[1] * height
+  context.save()
+  context.beginPath()
+  context.arc(x, y, radius, 0, Math.PI * 2)
+  context.fillStyle = "rgba(255,77,87,0.05)"
+  context.fill()
+  context.strokeStyle = "#ff4d57"
+  context.lineWidth = Math.min(2, bubble.radiusPx / 3) * scale
+  context.stroke()
+  if (Math.hypot(rawX - x, rawY - y) + 1.5 * scale <= radius) {
+    context.beginPath()
+    context.arc(rawX, rawY, 1.5 * scale, 0, Math.PI * 2)
+    context.fillStyle = "rgba(255,117,128,0.6)"
+    context.fill()
+  }
+  context.restore()
+}
 
 export function GazeBubbleOverlay({
   point,
@@ -16,6 +52,7 @@ export function GazeBubbleOverlay({
   imageSize,
   markerClassName = "",
   maxAgeMs,
+  snapshotRef,
 }: GazeBubbleOverlayProps) {
   const container = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<GazeView | null>(null)
@@ -68,6 +105,15 @@ export function GazeBubbleOverlay({
     offset,
     maxAgeMs,
   })
+  useLayoutEffect(() => {
+    if (!snapshotRef) {
+      return
+    }
+    snapshotRef.current = bubble && view ? { bubble, view } : null
+    return () => {
+      snapshotRef.current = null
+    }
+  }, [bubble, view, snapshotRef])
   const maxDiameter = view
     ? getGazeBubbleMaxDiameter(view.width, view.height)
     : 0

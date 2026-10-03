@@ -21,7 +21,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
     >
       <body className="min-h-svh bg-background font-sans text-foreground antialiased">
         <Script src="/runtime-config.js" strategy="beforeInteractive" />
-        <ThemeProvider>
+        <ThemeProvider forcedTheme="dark">
           <BrowserMaintenance />
           {children}
         </ThemeProvider>

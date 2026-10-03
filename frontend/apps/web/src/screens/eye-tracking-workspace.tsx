@@ -19,7 +19,7 @@ import { EyeTooltipLayer } from "@/features/eye-tracking/components/eye-tooltip-
 import { PipelinePreviews } from "@/features/eye-tracking/components/pipeline-previews"
 import { SetupStepNavigation } from "@/features/eye-tracking/components/setup-step-navigation"
 import { SetupStepPanel } from "@/features/eye-tracking/components/setup-step-panel"
-import { getEyeModelLockStatus } from "@/features/eye-tracking/eye-model"
+import { getTrackerModelLockStatus } from "@/features/eye-tracking/eye-model"
 import type {
   Calibration,
   CalibrationSample,
@@ -226,12 +226,10 @@ export function EyeTrackingWorkspace({
   const usable =
     !!frame?.detection.ellipse &&
     (settings.format === "classic" || frame.detection.tracking === "tracking")
-  const modelLockStatus = getEyeModelLockStatus(
-    frame?.model ?? null,
-    frame?.width ?? 0,
-    frame?.height ?? 0,
-    frame?.roi.width ?? 0,
-    frame?.roi.height ?? 0
+  const modelLockStatus = getTrackerModelLockStatus(
+    settings,
+    tracker.dimensions,
+    frame?.model ?? null
   )
   const gazeReading = useCalibratedGaze({
     calibration,
@@ -741,12 +739,14 @@ export function EyeTrackingWorkspace({
               aria-live="polite"
             >
               {modelLockStatus.blocker === "waiting" && "Waiting for pupil"}
+              {modelLockStatus.blocker === "corners" &&
+                "Place two separate eye corners"}
               {modelLockStatus.blocker === "samples" &&
                 `Stable samples ${frame?.model?.samples ?? 0}/30`}
               {modelLockStatus.blocker === "coverage" &&
                 `Coverage ${modelLockStatus.coveredDirections}/8 · needs ${modelLockStatus.requiredDirections}`}
               {modelLockStatus.blocker === "radius" &&
-                "Look farther from center"}
+                "Check the eye region, then rebuild"}
               {modelLockStatus.blocker === "fit" && "Keep gaze steady"}
               {modelLockStatus.blocker === "ready" && "Model ready"}
             </span>

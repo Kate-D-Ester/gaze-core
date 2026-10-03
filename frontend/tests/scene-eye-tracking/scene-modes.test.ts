@@ -229,8 +229,11 @@ test("one-point estimates still suppress stale scene frames and lost pupils, and
     calibrationMethod: "one-point",
   })
   appendMeasurement(log, s.getSnapshot().measurement!)
-  expect(exportSessionCsv(log).split("\n")[0]).toContain(",estimated")
-  expect(exportSessionCsv(log).split("\n")[1].endsWith(",1")).toBe(true)
+  const [header, row] = exportSessionCsv(log).trim().split("\n")
+  const fields = header.split(",")
+  const values = row.split(",")
+  expect(values[fields.indexOf("estimated")]).toBe("1")
+  expect(values[fields.indexOf("preview")]).toBe("0")
   expect(JSON.parse(exportSessionJson(log)).measurements[0].estimated).toBe(
     true
   )
