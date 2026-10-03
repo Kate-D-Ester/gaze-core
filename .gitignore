@@ -67,3 +67,14 @@ next-env.d.ts
 
 # Generated Next.js type references
 frontend/apps/web/next-env.d.ts
+
+# Local speaker inference/runtime assets
+.cache/
+speaker-service/data/
+speaker-service/third_party/rtfs_net/__pycache__/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+!speaker-service/tests/
+!speaker-service/tests/**
+frontend/apps/web/public/speaker-reference/
