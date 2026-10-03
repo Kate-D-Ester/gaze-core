@@ -3,7 +3,6 @@ import type {
   LiveClock,
   LivePlayerOptions,
   PlaybackTiming,
-  PreviewFrame,
   ScheduledChunk,
   StreamAudioChunk,
 } from "./live-player.types"
@@ -11,7 +10,6 @@ export class LivePlayer {
   generation = 0
   private sources = new Map<AudioBufferSourceNode, GainNode>()
   private scheduled: ScheduledChunk[] = []
-  private frames: PreviewFrame[] = []
   private nextSample: number | null = null
   private nextTime: number | null = null
   private disposed = false
@@ -55,8 +53,6 @@ export class LivePlayer {
     this.sources.clear()
     this.scheduled = []
     this.bytes = 0
-    this.frames.forEach((f) => f.image.close())
-    this.frames = []
   }
   private fail(message: string): false {
     this.reset(this.generation)
@@ -121,7 +117,7 @@ export class LivePlayer {
     }
     when ??= context.currentTime + this.jitter.reserve
     const buffer = context.createBuffer(1, chunk.pcm.length, 16000)
-    buffer.copyToChannel(chunk.pcm, 0)
+    buffer.copyToChannel(chunk.pcm.slice(), 0)
     const source = context.createBufferSource()
     const gain = context.createGain()
     source.buffer = buffer
@@ -134,7 +130,9 @@ export class LivePlayer {
     this.bytes += chunk.pcm.byteLength
     source.onended = () => {
       this.sources.delete(source)
-      this.bytes = Math.max(0, this.bytes - chunk.pcm.byteLength)
+      if (chunk.generation === this.generation) {
+        this.bytes = Math.max(0, this.bytes - chunk.pcm.byteLength)
+      }
       source.disconnect()
       gain.disconnect()
     }
@@ -214,30 +212,6 @@ export class LivePlayer {
       return
     }
     this.finalSample = sourceEndSample
-  }
-  frame(frame: PreviewFrame): void {
-    if (this.disposed || frame.generation !== this.generation) {
-      frame.image.close()
-      return
-    }
-    this.frames.push(frame)
-  }
-  draw(canvas: HTMLCanvasElement): void {
-    const sample = this.sourceSample()
-    if (sample === null) {
-      return
-    }
-    let chosen: PreviewFrame | undefined
-    while (this.frames[0] && this.frames[0].timestamp * 16000 <= sample) {
-      chosen?.image.close()
-      chosen = this.frames.shift()
-    }
-    if (chosen) {
-      canvas.width = chosen.image.width
-      canvas.height = chosen.image.height
-      canvas.getContext("2d")?.drawImage(chosen.image, 0, 0)
-      chosen.image.close()
-    }
   }
   dispose(): void {
     this.disposed = true

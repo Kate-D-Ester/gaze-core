@@ -4,32 +4,8 @@ import type {
   MicrophoneOptions,
 } from "./capture.types"
 export { PcmResampler } from "./resampler"
-export function packetBytes(
-  kind: 1 | 2,
-  generation: number,
-  timestamp: number,
-  payload: ArrayBuffer
-): ArrayBuffer {
-  if (
-    !Number.isInteger(generation) ||
-    generation < 0 ||
-    generation > 0xffffffff ||
-    !Number.isFinite(timestamp) ||
-    timestamp < 0 ||
-    payload.byteLength > 200000
-  ) {
-    throw new Error("Invalid live packet")
-  }
-  const bytes = new Uint8Array(24 + payload.byteLength)
-  bytes.set([71, 83, 80, 49])
-  const view = new DataView(bytes.buffer)
-  view.setUint8(4, kind)
-  view.setUint32(8, generation, true)
-  view.setFloat64(12, timestamp, true)
-  view.setUint32(20, payload.byteLength, true)
-  bytes.set(new Uint8Array(payload), 24)
-  return bytes.buffer
-}
+import { packetBytes } from "./stream-protocol"
+export { packetBytes } from "./stream-protocol"
 export async function startMicrophone(
   options: MicrophoneOptions
 ): Promise<MediaStream> {
@@ -113,9 +89,16 @@ export async function startCapture(
       }
       const timestamp = origin + event.data.timestamp
       const pcm = new Float32Array(event.data.pcm)
-      options.onPcm(pcm, timestamp, event.data.generation)
+      const sampleStart = Math.round(origin * 16000) + event.data.sampleStart
+      options.onPcm(pcm, sampleStart, timestamp, event.data.generation)
       options.onPacket(
-        packetBytes(1, event.data.generation, timestamp, event.data.pcm)
+        packetBytes(
+          1,
+          event.data.generation,
+          sampleStart,
+          timestamp,
+          event.data.pcm
+        )
       )
     }
     source.connect(node)
@@ -163,29 +146,26 @@ export async function startCapture(
       )
       const capturedGeneration = generation
       const timestamp = frame.timestamp / 1000
-      void createImageBitmap(canvas)
-        .then((image) => {
-          if (stopped || capturedGeneration !== options.generation()) {
-            image.close()
-            return
-          }
-          options.onFrame(image, timestamp, capturedGeneration)
-        })
-        .catch(() => {
-          options.onError("Live preview failed")
-        })
       canvas.toBlob(
         (blob) => {
           encoding = false
           if (!blob || stopped || capturedGeneration !== options.generation()) {
             return
           }
+          const sampleStart = Math.round(timestamp * 16000)
+          options.onFrame(blob, sampleStart, capturedGeneration)
           void blob
             .arrayBuffer()
             .then((bytes) => {
               if (!stopped && capturedGeneration === options.generation()) {
                 options.onPacket(
-                  packetBytes(2, capturedGeneration, timestamp, bytes)
+                  packetBytes(
+                    2,
+                    capturedGeneration,
+                    sampleStart,
+                    timestamp,
+                    bytes
+                  )
                 )
               }
             })

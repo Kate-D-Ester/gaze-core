@@ -2,7 +2,9 @@ import { verifiedGazePoint } from "./gaze-evidence"
 import { SpeakerClient } from "./client"
 import { startCapture, startMicrophone } from "./capture"
 import { LivePlayer } from "./live-player"
-import { liveReplySchema } from "./live-schema"
+import { decodeAudio } from "./live-schema"
+import { StreamConnection } from "./stream-connection"
+import { PreviewBuffer } from "./preview-buffer"
 import { SceneSelectionAdapter } from "./scene-adapter"
 import type {
   DisplayedGaze,
@@ -25,13 +27,16 @@ export class LiveController {
     inferenceSeconds: null,
     arrivalDelay: null,
     error: "",
+    timing: null,
   }
   private listeners = new Set<() => void>()
   private evidence: LiveEvidence | null = null
   private displayedGaze: DisplayedGaze | null = null
   private sourceIdentity = ""
   private abort: AbortController | null = null
-  private socket: WebSocket | null = null
+  private connection: StreamConnection | null = null
+  private preview = new PreviewBuffer()
+  private acceptedEnd: number | null = null
   private player: LivePlayer | null = null
   private captureStop: (() => void) | null = null
   private epoch = 0
@@ -54,7 +59,18 @@ export class LiveController {
   }
   mount(): void {
     this.disposed = false
-    this.timer = setInterval(() => this.observe(), 100)
+    this.timer = setInterval(() => {
+      const timing = this.player?.getTiming() ?? null
+      this.update({ timing })
+      if (this.snapshot.status === "draining" && timing?.state === "ended") {
+        this.update({
+          status: "paused",
+          error:
+            "This device cannot keep up with continuous capture. Resume to listen again.",
+        })
+      }
+      this.observe()
+    }, 100)
   }
   setEvidence(evidence: LiveEvidence): void {
     const identity = JSON.stringify([
@@ -104,6 +120,8 @@ export class LiveController {
     if (next.generation !== previous.generation) {
       this.generation++
       this.player?.reset(this.generation)
+      this.preview.reset(this.generation)
+      this.acceptedEnd = null
       this.send({
         type: "target",
         generation: this.generation,
@@ -121,10 +139,28 @@ export class LiveController {
     this.selectionChanged(previous, next)
   }
   private send(value: object): void {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(value))
+    this.connection?.control(value)
+  }
+  private drainCapture(): void {
+    if (this.snapshot.status !== "live") {
+      return
+    }
+    this.captureStop?.()
+    this.captureStop = null
+    if (this.acceptedEnd !== null) {
+      this.connection?.control({
+        type: "end",
+        source_end_sample: this.acceptedEnd,
+      })
+      this.update({ status: "draining", error: "" })
+    } else {
+      this.update({
+        status: "paused",
+        error: "This device cannot keep up. Resume listening.",
+      })
     }
   }
+
   async start(syncVerified: boolean, offsetMs: number): Promise<void> {
     this.stop()
     const evidence = this.evidence
@@ -189,101 +225,83 @@ export class LiveController {
       this.captureStop = () =>
         stream.getTracks().forEach((track) => track.stop())
       abort.signal.throwIfAborted()
-      const socket = new WebSocket(
-        this.client.baseUrl.replace("http:", "ws:") + "/live"
-      )
-      this.socket = socket
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error("Local live connection timed out")),
-          5000
-        )
-        const cancelled = () => {
-          clearTimeout(timer)
-          reject(abort.signal.reason)
-        }
-        abort.signal.addEventListener("abort", cancelled, { once: true })
-        const settled = () => {
-          clearTimeout(timer)
-          abort.signal.removeEventListener("abort", cancelled)
-        }
-        socket.onopen = () =>
-          this.send({
-            type: "configure",
-            sample_rate: 16000,
-            audio: true,
-            source: evidence.source!.kind,
-            sync_verified: true,
-            video_offset_ms: offsetMs,
-            client_time: performance.now() / 1000,
-          })
-        socket.onmessage = (event) => {
-          if (epoch !== this.epoch || abort.signal.aborted) {
-            return
+      const connection = new StreamConnection({
+        baseUrl: this.client.baseUrl,
+        onReply: (reply) => {
+          if (epoch === this.epoch && !abort.signal.aborted) {
+            this.reply(reply)
           }
-          try {
-            if (typeof event.data !== "string" || event.data.length > 100000) {
-              throw new Error("Invalid live service response")
-            }
-            const reply = liveReplySchema.parse(JSON.parse(event.data))
-            if (reply.type === "ready") {
-              settled()
-              this.update({ device: reply.device })
-              resolve()
-            } else if (
-              reply.type === "error" &&
-              this.snapshot.status === "starting"
-            ) {
-              settled()
-              reject(new Error(reply.message))
-            } else {
-              this.reply(reply)
-            }
-          } catch {
-            settled()
-            reject(new Error("Local service returned invalid live data"))
-            this.stop("Local service returned invalid live data")
-          }
-        }
-        socket.onerror = () => {
-          settled()
-          reject(new Error("Local live connection failed"))
-          this.stop("Local live connection failed")
-        }
-        socket.onclose = () => {
-          settled()
-          reject(new Error("Local live connection closed"))
+        },
+        onError: (message) => {
           if (epoch === this.epoch) {
-            this.stop("Local live connection closed; start again to reconnect")
+            if (message.includes("transport cannot keep up")) {
+              this.drainCapture()
+            } else {
+              this.stop(message)
+            }
           }
-        }
+        },
       })
+      this.connection = connection
+      const ready = await connection.open(
+        {
+          source: "camera",
+          video_offset_ms: offsetMs,
+          client_time: performance.now() / 1000,
+        },
+        abort.signal
+      )
+      abort.signal.throwIfAborted()
+      this.player.setWarmTimings(ready.warm_timings)
+      this.preview.reset(0)
+      this.update({ device: ready.device })
       this.captureStop = await startCapture(stream, {
         camera: evidence.camera,
         context,
         signal: abort.signal,
         generation: () => this.generation,
         onPacket: (packet) => {
-          if (
-            socket.readyState !== WebSocket.OPEN ||
-            socket.bufferedAmount > 256000
-          ) {
-            this.stop("Live network overload; stop and retry")
-            return
+          if (connection.packet(packet)) {
+            const view = new DataView(packet)
+            if (
+              view.getUint8(4) === 1 &&
+              this.snapshot.mode === "focused" &&
+              this.snapshot.selection.selectedId &&
+              !this.snapshot.selection.paused
+            ) {
+              this.acceptedEnd =
+                Number(view.getBigUint64(12, true)) +
+                (packet.byteLength - 32) / 4
+            }
           }
-          socket.send(packet)
         },
-        onPcm: (pcm, timestamp, generation) => {
+        onPcm: (pcm, startSample, captureTime, generation) => {
           if (this.snapshot.mode === "original") {
-            this.player?.audio(pcm, timestamp, generation)
+            this.player?.audio({
+              pcm,
+              startSample,
+              generation,
+              captures: [
+                {
+                  startSample,
+                  endSample: startSample + pcm.length,
+                  captureTime,
+                },
+              ],
+            })
           }
         },
-        onFrame: (image, timestamp, generation) =>
-          this.player?.frame({
-            image,
-            timestamp: timestamp + this.offset,
-            generation,
-          }),
+        onFrame: (jpeg, sampleStart, generation) => {
+          try {
+            this.preview.add(
+              sampleStart + Math.round(this.offset * 16000),
+              jpeg,
+              generation
+            )
+          } catch (error) {
+            this.stop(error instanceof Error ? error.message : "Preview failed")
+          }
+        },
         onError: (message) => this.stop(message),
       })
       if (abort.signal.aborted || epoch !== this.epoch) {
@@ -306,6 +324,8 @@ export class LiveController {
       }
       this.generation = Math.max(this.generation, reply.generation) + 1
       this.player?.reset(this.generation)
+      this.preview.reset(this.generation)
+      this.acceptedEnd = null
       this.send({
         type: "target",
         generation: this.generation,
@@ -317,25 +337,29 @@ export class LiveController {
     if (reply.generation !== this.generation) {
       return
     }
+    if (reply.type === "flow" && reply.action === "pause") {
+      this.drainCapture()
+    }
+    if (reply.type === "drained") {
+      this.player?.flushEnd(reply.source_end_sample)
+    }
     if (reply.type === "faces") {
       this.update({ tracks: reply.tracks })
       this.observe()
     }
     if (reply.type === "audio" && this.snapshot.mode === "focused") {
-      const bytes = Uint8Array.from(atob(reply.pcm), (character) =>
-        character.charCodeAt(0)
-      )
-      const pcm = new Float32Array(bytes.buffer)
-      this.player?.audio(pcm, reply.start, reply.generation)
+      this.player?.audio(decodeAudio(reply))
       this.update({
-        inferenceSeconds: reply.processing_seconds,
-        arrivalDelay: reply.delay_seconds,
+        inferenceSeconds: reply.timings.processing_seconds ?? null,
+        arrivalDelay: this.player?.getTiming().delaySeconds ?? null,
       })
     }
   }
   listen(mode: ListeningMode): void {
     this.generation++
     this.player?.reset(this.generation)
+    this.preview.reset(this.generation)
+    this.acceptedEnd = null
     this.update({ mode, error: "" })
     this.send({
       type: "target",
@@ -346,12 +370,19 @@ export class LiveController {
   correct(box: readonly [number, number, number, number] | null): void {
     this.generation++
     this.player?.reset(this.generation)
+    this.preview.reset(this.generation)
+    this.acceptedEnd = null
     this.update({ selection: this.adapter.clear(), tracks: [] })
     this.send({ type: "target", generation: this.generation, target_id: null })
     this.send({ type: "region", box })
   }
   draw(canvas: HTMLCanvasElement): void {
-    this.player?.draw(canvas)
+    const sample = this.player?.sourceSample()
+    if (sample !== null && sample !== undefined) {
+      void this.preview
+        .drawAt(canvas, sample, this.generation)
+        .catch(() => this.stop("Preview decoding failed"))
+    }
   }
   stop(error = ""): void {
     this.epoch++
@@ -359,15 +390,10 @@ export class LiveController {
     this.abort = null
     this.captureStop?.()
     this.captureStop = null
-    const socket = this.socket
-    this.socket = null
-    if (socket) {
-      socket.onopen = null
-      socket.onmessage = null
-      socket.onerror = null
-      socket.onclose = null
-      socket.close()
-    }
+    this.connection?.close()
+    this.connection = null
+    this.preview.reset(this.generation + 1)
+    this.acceptedEnd = null
     this.player?.dispose()
     this.player = null
     this.update({
@@ -377,6 +403,7 @@ export class LiveController {
       error,
       inferenceSeconds: null,
       arrivalDelay: null,
+      timing: null,
     })
   }
   dispose(): void {

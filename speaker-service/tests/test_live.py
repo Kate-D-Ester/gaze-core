@@ -213,3 +213,26 @@ def test_stream_warmup_excludes_cold_call_and_preserves_file_capability_on_failu
     assert store.separator is not None
     assert "device unavailable" in store.streaming_error
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_face_discovery_without_target_does_not_accumulate_full_scene_frames(
+    tmp_path, monkeypatch
+):
+    owner = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(owner, LiveConfig.model_validate(config()))
+    monkeypatch.setattr(
+        "gaze_speaker.live_session.decode_frame", lambda _: np.zeros((480, 640, 3), np.uint8)
+    )
+    monkeypatch.setattr(session.faces, "detect", lambda *_: None)
+    monkeypatch.setattr(session.faces, "view", lambda: [])
+    try:
+        now = monotonic()
+        for index in range(160):
+            await session.packet(encode_packet(2, 0, index * 1600, now, b"jpeg"))
+            while not session.replies.empty():
+                session.replies.get_nowait()
+        assert len(session.buffer.frames) <= 1
+    finally:
+        await session.close()
+        owner.close()

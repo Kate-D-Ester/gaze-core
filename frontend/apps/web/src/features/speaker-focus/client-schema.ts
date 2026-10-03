@@ -89,6 +89,8 @@ export const healthSchema = z
     error,
     clip: z.boolean(),
     live: z.boolean(),
+    streaming_ready: z.boolean().optional(),
+    streaming_error: z.string().nullable().optional(),
     max_upload_bytes: number.int().positive(),
     max_duration: number.positive(),
     queued: number.int(),

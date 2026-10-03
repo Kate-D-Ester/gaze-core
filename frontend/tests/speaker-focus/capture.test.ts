@@ -59,12 +59,12 @@ test("stopping while the microphone permission is pending releases a late stream
   expect(stopped).toBe(1)
 })
 test("binary live packets carry exact generation and timestamps", () => {
-  const bytes = packetBytes(1, 7, 12.5, new Float32Array(1600).buffer)
+  const bytes = packetBytes(1, 7, 200000, 12.5, new Float32Array(1600).buffer)
   const view = new DataView(bytes)
   expect(view.getUint32(8, true)).toBe(7)
-  expect(view.getFloat64(12, true)).toBe(12.5)
-  expect(bytes.byteLength).toBe(6424)
-  expect(() => packetBytes(1, 0, NaN, new ArrayBuffer(4))).toThrow()
+  expect(view.getFloat64(20, true)).toBe(12.5)
+  expect(bytes.byteLength).toBe(6432)
+  expect(() => packetBytes(1, 0, 0, NaN, new ArrayBuffer(4))).toThrow()
 })
 
 test("live setup reports an unavailable audio device without leaking a rejected start", async () => {

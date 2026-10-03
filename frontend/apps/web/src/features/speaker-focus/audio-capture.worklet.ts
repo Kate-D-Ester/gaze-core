@@ -6,12 +6,14 @@ class SpeakerPcm extends AudioWorkletProcessor {
   private filled = 0
   private timestamp: number | null = null
   private generation = 0
+  private sampleStart: number | null = null
   constructor() {
     super()
     this.port.onmessage = (event: MessageEvent<CaptureControl>) => {
       this.generation = event.data.generation
       this.filled = 0
       this.timestamp = null
+      this.sampleStart = null
       this.resampler = new PcmResampler(sampleRate)
     }
   }
@@ -22,6 +24,7 @@ class SpeakerPcm extends AudioWorkletProcessor {
       return true
     }
     this.timestamp ??= currentFrame / sampleRate
+    this.sampleStart ??= Math.round((currentFrame / sampleRate) * 16000)
     const pcm = this.resampler.push(input)
     for (const value of pcm) {
       this.chunk[this.filled++] = value
@@ -31,11 +34,13 @@ class SpeakerPcm extends AudioWorkletProcessor {
           {
             pcm: buffer,
             timestamp: this.timestamp,
+            sampleStart: this.sampleStart,
             generation: this.generation,
           },
           [buffer]
         )
         this.timestamp += 0.1
+        this.sampleStart += 1600
         this.chunk = new Float32Array(1600)
         this.filled = 0
       }

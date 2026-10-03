@@ -122,6 +122,8 @@ class LiveSession:
 
             image, tracks = await self.loop.run_in_executor(self.executor, observe)
             # Camera observations use its capture clock; replay uses source seconds.
+            if not self.target:
+                self.buffer.reset()
             self.buffer.frame(index, image)
             if timestamp - self.last_feed >= 0.18:
                 self.put_reply({"type": "faces", "generation": self.generation, "tracks": tracks})

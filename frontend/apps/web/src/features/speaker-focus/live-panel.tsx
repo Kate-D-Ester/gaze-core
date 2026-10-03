@@ -49,7 +49,10 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     offset,
   ])
   const verified = verifiedIdentity === syncIdentity
-  const busy = state.status === "starting" || state.status === "live"
+  const busy =
+    state.status === "starting" ||
+    state.status === "live" ||
+    state.status === "draining"
   const arrivalOnly = props.source?.kind === "network"
   const time = (props.frame?.timestamp ?? 0) / 1000
   const frameFresh =
@@ -73,7 +76,13 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
       status = "Click a face. Check gaze accuracy to use gaze selection."
     }
     if (selected >= 0) {
-      status = `Speaker ${selected + 1} locked · 4 s listening delay`
+      status = `Speaker ${selected + 1} locked · ${state.timing?.state === "playing" ? "Listening" : "Buffering"}`
+      if (
+        state.timing?.delaySeconds !== null &&
+        state.timing?.delaySeconds !== undefined
+      ) {
+        status += ` · ${state.timing.delaySeconds.toFixed(1)} s delay`
+      }
     }
     if (state.selection.paused) {
       status = "Face lost · select it again"
@@ -286,7 +295,9 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
                 void controller.start(verified, offset)
               }}
             >
-              Start listening
+              {state.status === "paused"
+                ? "Resume listening"
+                : "Start listening"}
             </Button>
           )}
         </div>
@@ -306,10 +317,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
         <summary className="cursor-pointer py-2">
           Camera &amp; microphone alignment
         </summary>
-        <p>
-          Clap once and check the picture matches the sound. Sessions last up to
-          120 seconds.
-        </p>
+        <p>Clap once and check the picture matches the sound.</p>
         <label className="block">
           Video timing offset · ms
           <input
@@ -342,7 +350,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             Listening preview &amp; tracking
           </summary>
           <p>
-            Preview matches the audio · 4 s delayed. Select faces in the current
+            Preview follows the audio being played. Select faces in the current
             scene above.
           </p>
           <canvas

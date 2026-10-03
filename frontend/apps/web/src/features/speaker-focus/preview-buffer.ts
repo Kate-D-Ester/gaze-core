@@ -9,7 +9,7 @@ export class PreviewBuffer {
   private decoding = false
   private readonly decode: (jpeg: Blob) => Promise<ImageBitmap>
   constructor(private readonly options: PreviewBufferOptions = {}) {
-    this.decode = options.decode ?? createImageBitmap
+    this.decode = options.decode ?? ((jpeg) => createImageBitmap(jpeg))
   }
   reset(generation = 0): void {
     this.epoch++

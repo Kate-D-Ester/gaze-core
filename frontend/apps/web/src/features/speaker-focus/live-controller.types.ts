@@ -1,3 +1,4 @@
+import type { PlaybackTiming } from "./live-player.types"
 import type { GazeMeasurement } from "../scene-eye-tracking/scene.types"
 import type { SelectionBubble } from "./bubble-selection.types"
 import type { z } from "zod"
@@ -8,7 +9,7 @@ import type { SelectionState } from "./selection.types"
 import type { liveReplySchema } from "./live-schema"
 export type LiveReply = z.infer<typeof liveReplySchema>
 export type LiveState = {
-  status: "idle" | "starting" | "live" | "failed"
+  status: "idle" | "starting" | "live" | "draining" | "paused" | "failed"
   mode: ListeningMode
   tracks: FaceTrack[]
   selection: SelectionState
@@ -16,6 +17,7 @@ export type LiveState = {
   inferenceSeconds: number | null
   arrivalDelay: number | null
   error: string
+  timing: PlaybackTiming | null
 }
 export type LiveEvidence = SceneSpeakerPanelProps
 

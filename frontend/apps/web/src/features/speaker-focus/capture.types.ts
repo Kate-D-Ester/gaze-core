@@ -11,12 +11,18 @@ export type CaptureOptions = {
   signal: AbortSignal
   generation: () => number
   onPacket: (packet: ArrayBuffer) => void
-  onPcm: (pcm: Float32Array, timestamp: number, generation: number) => void
-  onFrame: (image: ImageBitmap, timestamp: number, generation: number) => void
+  onPcm: (
+    pcm: Float32Array,
+    sampleStart: number,
+    captureTime: number,
+    generation: number
+  ) => void
+  onFrame: (jpeg: Blob, sampleStart: number, generation: number) => void
   onError: (message: string) => void
 }
 export type CaptureMessage = {
   pcm: ArrayBuffer
   timestamp: number
+  sampleStart: number
   generation: number
 }
