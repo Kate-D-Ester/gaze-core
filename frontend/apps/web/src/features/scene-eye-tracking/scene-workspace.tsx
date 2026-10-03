@@ -45,6 +45,7 @@ export function SceneWorkspace({
   step,
   onStepChange,
   onStatus,
+  onSession,
   eyeRevision,
 }: SceneWorkspaceProps) {
   const [recording, setRecording] = useState(false)
@@ -73,6 +74,9 @@ export function SceneWorkspace({
     scene.frame?.height,
   ])
   const state = useSceneSession(tracker, scene.camera, identity)
+  useEffect(() => {
+    onSession?.(state.session)
+  }, [onSession, state.session])
   const profiles = useCalibrationProfiles({
     session: state.session,
     state,

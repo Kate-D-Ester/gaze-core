@@ -16,6 +16,8 @@ const COMMANDS: Readonly<Record<string, ViewerCommand>> = {
   "stop voice": { kind: "voice-stop" },
 }
 
+export const viewerCommandPhrases = Object.keys(COMMANDS)
+
 export function parseViewerCommand(text: string): ViewerCommand | null {
   const phrase = text
     .trim()

@@ -4,17 +4,19 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run prepare:vision && bun scripts/dev.ts",
-    "build": "bun run prepare:vision && next build --webpack",
+    "dev": "bun run prepare:vision && bun run prepare:voice && bun scripts/dev.ts",
+    "build": "bun run prepare:vision && bun run prepare:voice && next build --webpack",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "next typegen && tsc --noEmit",
     "preview": "next start --port 4001",
     "camera-relay": "bun scripts/camera-relay.ts",
     "prepare:vision": "bun scripts/prepare-vision.ts",
-    "start": "next start --port 4001"
+    "start": "next start --port 4001",
+    "prepare:voice": "bun scripts/prepare-voice.ts"
   },
   "dependencies": {
+    "@lichess-org/vosk-browser": "0.0.3",
     "@mediapipe/tasks-vision": "0.10.32",
     "@mediapipe/tasks-vision-remote": "npm:@mediapipe/tasks-vision@1.0.1",
     "@techstark/opencv-js": "4.12.0-release.1",
@@ -23,9 +25,9 @@
     "@workspace/ui": "workspace:*",
     "better-auth": "1.6.33",
     "lucide-react": "^0.577.0",
+    "next": "16.3.8",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "next": "16.3.8"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

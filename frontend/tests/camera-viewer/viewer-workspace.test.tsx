@@ -1,7 +1,5 @@
-import type {
-  LocalRecognition,
-  SpeechWindow,
-} from "../../apps/web/src/features/camera-viewer/local-voice.types"
+import { spyOn } from "bun:test"
+import { LocalVoiceController } from "../../apps/web/src/features/camera-viewer/local-voice"
 import { afterEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import type { Root } from "../../apps/web/node_modules/react-dom/client"
@@ -94,47 +92,25 @@ test("typed commands switch the active camera and reject disconnected selection 
   )
 })
 
-test("multiple final voice results execute in order before a React render", async () => {
-  const original = Object.getOwnPropertyDescriptor(window, "SpeechRecognition")
-  let recognition!: LocalRecognition
-  class Recognition implements LocalRecognition {
-    static available = async () => "available" as const
-    processLocally = false
-    lang = ""
-    continuous = false
-    interimResults = false
-    onstart: LocalRecognition["onstart"] = null
-    onend: LocalRecognition["onend"] = null
-    onerror: LocalRecognition["onerror"] = null
-    onresult: LocalRecognition["onresult"] = null
-    constructor() {
-      recognition = this
-    }
-    start() {
-      this.onstart?.()
-    }
-    abort() {}
-  }
-  Object.defineProperty(window, "SpeechRecognition", {
-    configurable: true,
-    value: Recognition,
+test("multiple voice commands execute in order before a React render", async () => {
+  let deliver!: (text: string) => void
+  // Replace only the slow microphone/model boundary, retaining viewer command dispatch.
+  const microphone = spyOn(
+    LocalVoiceController.prototype,
+    "start"
+  ).mockImplementation(async (handler) => {
+    deliver = handler
   })
   try {
     await render()
-    const enable = host.querySelector<HTMLButtonElement>(
-      "[aria-label='Enable local voice']"
-    )!
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>("[aria-label='Enable local voice']")!
+        .click()
+    )
     await act(async () => {
-      enable.click()
-    })
-    await act(async () => {
-      recognition.onresult?.({
-        resultIndex: 0,
-        results: [
-          { isFinal: true, 0: { transcript: "eye camera" } },
-          { isFinal: true, 0: { transcript: "switch camera" } },
-        ],
-      })
+      deliver("eye camera")
+      deliver("switch camera")
     })
     expect(
       host
@@ -147,11 +123,7 @@ test("multiple final voice results execute in order before a React render", asyn
         ?.getAttribute("aria-pressed")
     ).toBe("false")
   } finally {
-    if (original) {
-      Object.defineProperty(window, "SpeechRecognition", original)
-    } else {
-      delete (window as SpeechWindow).SpeechRecognition
-    }
+    microphone.mockRestore()
   }
 })
 

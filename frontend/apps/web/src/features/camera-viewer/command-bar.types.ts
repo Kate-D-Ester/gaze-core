@@ -7,5 +7,4 @@ export type CommandBarProps = {
   onCommand: (text: string) => void
   onVoiceStart: () => void
   onVoiceStop: () => void
-  onVoiceInstall: () => void
 }

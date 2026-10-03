@@ -1,3 +1,4 @@
+import type { SceneSession } from "../scene-eye-tracking/scene-session"
 import type { ViewerCamera } from "./viewer-camera.types"
 import type { CameraRole } from "./commands.types"
 import type { VisualSelections } from "./selection.types"
@@ -10,6 +11,7 @@ export type ConnectionGuard = {
 }
 
 export type ViewerWorkspaceProps = {
+  gazeSession?: SceneSession
   eyeCamera?: ViewerCamera
   sceneCamera?: ViewerCamera
   auxiliaryCamera?: ViewerCamera

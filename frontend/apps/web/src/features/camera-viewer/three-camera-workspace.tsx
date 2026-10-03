@@ -1,3 +1,4 @@
+import type { SceneSession } from "../scene-eye-tracking/scene-session"
 import { useLayoutEffect, useState, useSyncExternalStore } from "react"
 import { EyeTrackingWorkspace } from "../../screens/eye-tracking-workspace"
 import { useTracker } from "../eye-tracking/use-tracker"
@@ -40,6 +41,7 @@ export function ViewerSession({
   const excludedDevices = auxiliary.source?.deviceId
     ? [auxiliary.source.deviceId]
     : []
+  const [gazeSession, setGazeSession] = useState<SceneSession>()
   const [setupOpen, setSetupOpen] = useState(false)
   const [eyeCamera] = useState(() => new ViewerEyeCamera(tracker))
   const [status, setStatus] = useState<SceneStatus>({
@@ -72,6 +74,7 @@ export function ViewerSession({
           sceneCamera={sceneCamera}
           auxiliaryCamera={auxiliaryCamera}
           setupStatus={setupStatus}
+          gazeSession={gazeSession}
           onSetup={() => setSetupOpen(true)}
           visible={!setupOpen}
         />
@@ -84,6 +87,7 @@ export function ViewerSession({
           excludedDeviceIds={excludedDevices}
           visible={setupOpen}
           onSceneStatus={setStatus}
+          onSceneSession={setGazeSession}
           onReturnToViewer={() => setSetupOpen(false)}
           returnDisabled={
             status.recording || status.capturing || tracker.busy || scene.busy

@@ -122,6 +122,7 @@ function EyeTrackingWorkspaceContent({
   tracker,
   sceneCamera,
   onSceneStatus,
+  onSceneSession,
   excludedDeviceIds,
   visible = true,
   onReturnToViewer,
@@ -606,6 +607,7 @@ function EyeTrackingWorkspaceContent({
           step={visible ? step - 3 : -1}
           onStepChange={(next) => setStep(next + 3)}
           onStatus={setSceneStatus}
+          onSession={onSceneSession}
           eyeRevision={eyeRevision}
         />
       )}

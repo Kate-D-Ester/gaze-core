@@ -1,5 +1,5 @@
 import { Camera, Mic, MicOff } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { EyeButtonStyles, EyeFieldStyles } from "../tracking-ui/control-styles"
 import type { CommandBarProps } from "./command-bar.types"
 
@@ -11,19 +11,35 @@ export function CommandBar({
   onCommand,
   onVoiceStart,
   onVoiceStop,
-  onVoiceInstall,
 }: CommandBarProps) {
+  const container = useRef<HTMLElement>(null)
   const [command, setCommand] = useState("")
-  const voiceActive = [
-    "checking",
-    "starting",
-    "listening",
-    "downloading",
-  ].includes(voice.status)
+  useEffect(() => {
+    const element = container.current
+    const scrollArea = element?.closest("main")
+    if (!element || !scrollArea) {
+      return
+    }
+    const measure = () =>
+      scrollArea.style.setProperty(
+        "--viewer-command-height",
+        element.getBoundingClientRect().height + "px"
+      )
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      scrollArea.style.removeProperty("--viewer-command-height")
+    }
+  }, [])
+  const voiceActive =
+    voice.status === "starting" || voice.status === "listening"
   return (
     <section
+      ref={container}
       aria-labelledby="viewer-command-title"
-      className="rounded-lg border bg-card p-3"
+      className="sticky top-0 z-30 max-h-[calc(100svh-5.25rem)] overflow-y-auto rounded-lg border bg-card p-3"
     >
       <div className="flex flex-wrap items-center gap-3">
         <h2
@@ -100,7 +116,7 @@ export function CommandBar({
           <summary className="cursor-pointer rounded px-2 py-2">
             Commands &amp; voice help
           </summary>
-          <div className="mt-2 space-y-2 pb-1">
+          <div className="mt-2 max-h-24 space-y-2 overflow-y-auto pb-1">
             <p>
               Select keeps your point, or uses the center. Clear removes it.
             </p>
@@ -109,7 +125,7 @@ export function CommandBar({
               clear, switch camera, take photo, stop cameras, stop voice.
             </p>
             <p>
-              Optional offline English voice may need a one-time model download.
+              Tap Voice and allow the microphone. Say one command at a time.
               Audio stays on this device.
             </p>
           </div>
@@ -123,17 +139,6 @@ export function CommandBar({
         >
           {voice.message}
         </p>
-      )}
-      {voice.canInstall && (
-        <button
-          type="button"
-          className={`secondary mt-2 ${EyeButtonStyles}`}
-          onClick={onVoiceInstall}
-        >
-          {voice.status === "error"
-            ? "Retry voice download"
-            : "Download English voice model"}
-        </button>
       )}
     </section>
   )

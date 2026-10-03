@@ -1,3 +1,4 @@
+import type { SceneSession } from "../features/scene-eye-tracking/scene-session"
 import type { TrackerController } from "../features/eye-tracking/use-tracker.types"
 import type { SceneCamera } from "../features/scene-eye-tracking/scene-camera"
 import type { SceneStatus } from "../features/scene-eye-tracking/scene-workspace.types"
@@ -6,6 +7,7 @@ export type EyeTrackingWorkspaceProps = {
   tracker?: TrackerController
   sceneCamera?: SceneCamera
   excludedDeviceIds?: readonly string[]
+  onSceneSession?: (session: SceneSession) => void
   onSceneStatus?: (status: SceneStatus) => void
   visible?: boolean
   onReturnToViewer?: () => void

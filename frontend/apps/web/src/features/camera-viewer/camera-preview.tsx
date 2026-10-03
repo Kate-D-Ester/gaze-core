@@ -1,3 +1,4 @@
+import { ViewerGazePreview } from "./viewer-gaze-preview"
 import { Camera } from "lucide-react"
 import { useEffect, useRef } from "react"
 import type { CameraPreviewProps } from "./camera-preview.types"
@@ -7,6 +8,8 @@ export function CameraPreview({
   camera,
   state,
   selection,
+  gazeSession,
+  now = 0,
   onPoint,
 }: CameraPreviewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -55,6 +58,9 @@ export function CameraPreview({
           <Camera size={28} aria-hidden="true" />
           {state.busy ? "Connecting camera…" : "Connect a camera to preview"}
         </span>
+      )}
+      {gazeSession && live && (
+        <ViewerGazePreview session={gazeSession} camera={state} now={now} />
       )}
       {selection && live && (
         <span

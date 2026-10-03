@@ -21,6 +21,8 @@ export function CameraPanel({
   connectionPending,
   excludedDevices,
   selection,
+  gazeSession,
+  now = 0,
   onActivate,
   onConnect,
   onDisconnect,
@@ -74,6 +76,8 @@ export function CameraPanel({
         camera={camera}
         state={state}
         selection={selection}
+        gazeSession={gazeSession}
+        now={now}
         onPoint={onPoint}
       />
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-y px-4 text-xs text-muted-foreground">

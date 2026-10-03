@@ -1,3 +1,4 @@
+import type { SceneSession } from "./scene-session"
 import type { SceneCamera } from "./scene-camera"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
 
@@ -18,6 +19,7 @@ export type SceneWorkspaceProps = {
   tracker: TrackerController
   step: number
   onStepChange: (step: number) => void
+  onSession?: (session: SceneSession) => void
   onStatus: (status: SceneStatus) => void
   eyeRevision: number
 }

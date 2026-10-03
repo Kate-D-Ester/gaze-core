@@ -46,6 +46,7 @@ export function ViewerWorkspace({
   auxiliaryCamera,
   onSetup,
   setupStatus,
+  gazeSession,
   visible = true,
 }: ViewerWorkspaceProps = {}) {
   const eye = useViewerCamera({
@@ -287,7 +288,7 @@ export function ViewerWorkspace({
   const activeState = snapshots[active]
   const displayTime = Math.max(clock, activeState.frame?.timestamp ?? 0)
   return (
-    <div className={EyeAppStyles}>
+    <div className={`fixed inset-0 ${EyeAppStyles}`} style={{ overflow: "clip" }}>
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-4 md:px-8">
         <TrackingBrand version="VIEWER" />
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -295,7 +296,7 @@ export function ViewerWorkspace({
           Local camera viewer
         </span>
       </header>
-      <main className="min-h-0 flex-1 overflow-auto">
+      <main className="min-h-0 flex-1 [scroll-padding-top:calc(var(--viewer-command-height,0px)+16px)] overflow-auto">
         <div className="mx-auto max-w-400 space-y-4 p-4 md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-semibold tracking-tight">
@@ -323,9 +324,6 @@ export function ViewerWorkspace({
               })
             }}
             onVoiceStop={() => voice.stop()}
-            onVoiceInstall={() => {
-              void voice.install()
-            }}
           />
           {(error || notice) && (
             <p
@@ -354,6 +352,7 @@ export function ViewerWorkspace({
               return (
                 <CameraPanel
                   key={role}
+                  now={clock}
                   role={role}
                   label={LABELS[role]}
                   camera={cameras[role]}
@@ -362,6 +361,7 @@ export function ViewerWorkspace({
                   connectionPending={connectionPending}
                   excludedDevices={excluded}
                   selection={valid ? selection : null}
+                  gazeSession={role === "scene" ? gazeSession : undefined}
                   onActivate={() => selectCamera(role)}
                   onConnect={(kind, value) => {
                     void connect(role, kind, value)

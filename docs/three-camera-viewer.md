@@ -21,13 +21,15 @@ Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset e
 
 ## Setup and calibration
 
-The default view shows the camera panels and a compact command bar. Help contains three short setup steps and links to the camera panels. Orientation expands each feed’s rotate/mirror controls. A single connected feed is enough for static selection and photos.
+The default view shows the camera panels and a compact command bar that stays visible while the feeds scroll. Help contains three short setup steps and links to the camera panels. Orientation expands each feed’s rotate/mirror controls. A single connected feed is enough for static selection and photos.
 
 Choose **Gaze setup**, configure Eye camera → Eye region → Eye model → Scene camera → Calibration, then choose **Use in viewer**. Setup runs inside this page. Both views share one eye worker, the same camera connections and the live scene calibration session; switching views does not refit or discard the model. Viewer speech stops while setup is open. Finish or cancel capture/recording before returning.
 
 A compact status distinguishes eye setup needed, a ready eye model, a loaded saved mapping, an estimated mapping and a current accuracy check. The existing v3 readiness, saved-profile compatibility and accuracy checks still apply. Camera allocation prevents reuse of the Auxiliary USB device during setup and blocks view/step changes while a connection is pending.
 
 On a fresh page load, saved source fields, orientation, eye-region/model settings and scene profiles load from this browser origin. Connect explicitly, rebuild and lock the live eye model, then load the compatible saved scene profile or calibrate again. The fitted automatic model is held by the worker and cannot survive a full page reload. A previous setup page that has already unmounted cannot supply its old worker/model. Browser ports/origins have separate local preferences.
+
+After calibration, the Scene preview shows a red gaze bubble. It uses the same live mapping, offset and accuracy check as setup. Saved/one-point mappings are marked estimated; stale pupil evidence, disconnected feeds, calibration capture and incompatible setup hide the bubble. This mapping is relative to the scene image, so it is displayed there rather than projected onto unrelated page coordinates.
 
 Static viewer points remain manual; calibration does not turn them into tracked targets or eye-driven selection.
 
@@ -49,9 +51,9 @@ Phrases must match a whole command. Unknown input does nothing and displays help
 
 ## Local voice and privacy
 
-Enable local voice explicitly. This uses English (`en-US`) browser [on-device speech recognition](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition/processLocally), requires an installed local language pack, and sets `processLocally = true`. Voice is experimental and browser-dependent. If unavailable, use the same commands in the text field. The app never falls back to remote speech recognition.
+Tap **Voice** and allow microphone access. English commands run in the app's local Vosk WASM worker. No browser language-pack installation is required, and there is no remote speech fallback. The same Voice button retries a failed start. Speak one complete command at a time; partial, unsupported or low-confidence results are ignored.
 
-When offered, Download English voice model asks the browser to download its English language model; this does not start the microphone. The requirement is explained before the download control. Enable voice afterward. An installation can fail even after the browser reports that the model is downloadable. The viewer now explains that browser failure and keeps Retry voice download available. A policy rejection is shown separately; repeatedly downloading cannot bypass it. A model already downloading can be completed through the setup control. Cameras, buttons and typed commands work regardless of voice setup. Microphone permission is still required. Voice stops on errors, page hiding, browser recognition ending, stop cameras, and leaving the viewer. A browser ending recognition after silence requires Enable local voice again.
+Development and production builds prepare the pinned WASM assets and a checksum-verified English model (about 40 MB) from the official Vosk model host. The model is cached in this worktree and served from the app's own origin. Preparation requires standard unzip/tar tools. Runtime audio stays on this device; loading the model does not upload audio. Voice stops on microphone/worker errors, page hiding, stop cameras, opening setup and leaving the viewer. Stop also cancels model startup and releases any late microphone stream.
 
 Frames, photos, transcripts, commands, and the supplied reference video are not uploaded by this feature. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. The viewer does not contain object acquisition/tracking, cross-camera matching, hardware-control output, or firing commands.
 
@@ -74,3 +76,11 @@ Setup instructions, command examples and optional voice details use expandable h
 Merged local v3 commit `4458a3c` at `8b95543`, including the model stability and annotated-session fixes. The shared setup implementation passed 719 frontend tests, lint, typecheck and the production build. The final compact setup header also passed its 14 focused workspace tests and repeated lint/typecheck/build checks. Independent code review found no remaining Critical/Important issues.
 
 Browser checks confirmed the saved ESP URL, on-page setup/return controls and narrow/wide layout. The real ESP eye feed became live at 640×480 and remained connected across viewer → setup → viewer, checked through connection status without capturing live images. Complete physical calibration and three simultaneous physical camera feeds still require the user's devices; automated regression tests cover model/calibration continuity, invalidation, pending USB requests, worker failure, device exclusion and source preferences.
+
+### Voice, gaze preview and pinned commands
+
+The viewer now serves its own English recognizer instead of relying on the failing browser pack installer. Real WASM recognition was tested with generated English speech through the production AudioWorklet; no personal audio was captured. Synthetic feeds were used to inspect gaze motion/expiry, selection, camera switching and command-bar scrolling.
+
+To repeat the browser simulation on macOS, build and start this worktree's preview at port 4014, then from frontend run `bun tests/camera-viewer/browser-smoke-server.ts` and open `http://127.0.0.1:4030`. The loopback-only fixture generates a "scene camera" WAV with macOS speech tools, renders synthetic feeds, and offers generated-speech and gaze-pause checks. Other platforms can supply a synthetic WAV at `.local-reference/voice/scene.wav`. The fixture is separate from the production viewer.
+
+This follow-up passed 726 full-suite tests and 36 focused viewer tests after the final viewport correction, plus lint, typecheck, production build and dependency audit. Independent review has no remaining Critical/Important findings. Actual WASM recognized generated speech at 44100 Hz. Browser checks covered 1280×900, 390×844 and 390×449, command switching, independent static selection, gaze motion/expiry, pinned scrolling, bounded help and visible keyboard focus. Physical microphone quality and complete physical calibration remain device checks.

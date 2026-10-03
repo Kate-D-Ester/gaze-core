@@ -70,3 +70,6 @@ frontend/apps/web/next-env.d.ts
 
 # Local camera-viewer reference frames and verification artifacts
 .local-reference/
+
+# Generated local speech assets (prepared for dev/build)
+frontend/apps/web/public/voice-runtime/
