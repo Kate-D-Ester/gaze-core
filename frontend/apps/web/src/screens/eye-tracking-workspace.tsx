@@ -795,6 +795,10 @@ export function EyeTrackingWorkspace({
       {focus && (
         <LiveGazeOverlay
           point={screenPoint}
+          timestamp={gazeReading.timestamp ?? null}
+          validationErrorPixels={validation}
+          resetKey={calibration}
+          offset={offset}
           title={focusTitle}
           simulated={source?.kind === "sample"}
           head={head}

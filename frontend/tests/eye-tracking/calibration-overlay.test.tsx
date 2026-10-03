@@ -90,6 +90,8 @@ test("calibration waits for Start, preserves modal focus, and supports Escape ca
     root.render(
       createElement(LiveGazeOverlay, {
         point: [0.5, 0.5],
+        timestamp: performance.now(),
+        validationErrorPixels: null,
         title: "Look around.",
         head,
         simulated: false,
@@ -119,6 +121,8 @@ test.each(
       root.render(
         createElement(LiveGazeOverlay, {
           point,
+          timestamp: performance.now(),
+          validationErrorPixels: null,
           title: "Look around.",
           head,
           simulated: false,
@@ -129,7 +133,10 @@ test.each(
     const dot = host.querySelector<HTMLElement>(".eye-live-dot")!
     expect(Number.parseFloat(dot.style.left)).toBeCloseTo(point[0] * 100)
     expect(Number.parseFloat(dot.style.top)).toBeCloseTo(point[1] * 100)
-    expect(dot.parentElement?.classList.contains("eye-focus-view")).toBe(true)
+    expect(dot.closest(".eye-focus-view")).not.toBeNull()
+    expect(
+      dot.closest<HTMLElement>(".gaze-bubble-overlay")?.style.position
+    ).toBe("fixed")
   }
 )
 

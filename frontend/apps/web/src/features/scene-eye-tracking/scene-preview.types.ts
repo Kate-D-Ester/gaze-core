@@ -1,4 +1,5 @@
 import type { SceneCamera } from "./scene-camera"
+import type { GazeBubbleOverlayProps } from "../gaze-bubble/gaze-bubble-overlay.types"
 
 import type { Point } from "../eye-tracking/eye-tracking.types"
 
@@ -23,6 +24,10 @@ export type ScenePreviewProps = {
   hideMarkerPattern?: boolean
   method?: CalibrationMethod
   gaze: GazeMeasurement | null
+  gazeDisplay?: Pick<
+    GazeBubbleOverlayProps,
+    "errorRadiusPx" | "verified" | "resetKey" | "offset" | "maxAgeMs"
+  >
   trace: GazeMeasurement[]
   holds: CalibrationHold[]
   capturing: boolean

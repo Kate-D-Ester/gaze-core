@@ -96,6 +96,8 @@ One transferred bitmap is in flight at a time and is closed by the worker.
 
 ## Research decisions and limits
 
+The live marker uses the [shared gaze bubble](eye-tracking-v2.md#compact-live-gaze-bubble), with a maximum diameter of 300 CSS pixels or half of the shorter viewport dimension, whichever is smaller. This applies to mobile, webcam and IR modes. Current validation's P95 pixel error informs its radius; an X/Y offset change makes the previous check inapplicable until validation is repeated. Error beyond the size limit produces an amber warning. Stabilization is display-only: raw synchronized samples, validation and exported model data are unchanged.
+
 [MobilePoG (Zhao et al., 2025)](https://arxiv.org/html/2508.10268v1) reports that
 diverse calibration poses improve generalization across poses. This informs the
 second head-movement pass and per-frame pose features; our implementation has not

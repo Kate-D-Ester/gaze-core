@@ -251,9 +251,3 @@ export const RemoteCalibrationTopStyles = `
   flex justify-between items-center [font-size:12px]
   [color:#a3a6a3]
 `
-
-export const RemoteLiveDotStyles = `
-  fixed [z-index:95] [width:18px] [height:18px]
-  [transform:translate(-50%,_-50%)] [border:2px_solid_#a7d7c5] [background:#a7d7c555] [border-radius:50%]
-  [box-shadow:0_0_0_6px_#a7d7c511] pointer-events-none
-`
