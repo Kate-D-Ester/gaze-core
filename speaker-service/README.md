@@ -144,3 +144,33 @@ uv run python -m gaze_speaker.live_benchmark --origin http://localhost:4001
 Generated report/chunks are in `data/benchmarks/live/`. This replay verifies the
 local transport/model pipeline; it does not certify ESP32 microphone clocks or
 gaze hardware. Model quality and measured throughput remain separate results.
+
+## Stateful environmental-noise suppression
+
+Streaming uses pyrnnoise **0.4.5**, pinned in uv.lock, wrapping RNNoise v0.2.
+The wrapper is Apache-2.0; the native RNNoise license is retained in
+third_party/rnnoise/COPYING (BSD-style redistribution terms). RNNoise embeds
+its weights in the native library; starting a stream never downloads a model.
+The macOS wheel requires macOS 26 or newer. Unsupported native platforms fail
+explicitly rather than returning mixed audio as focused audio.
+
+The locked universal2 wheel SHA-256 is
+8289b32664ac05d3246c1d8e95522f2bec7fd99b29f238a58745e9c2fad47dae.
+The tested installed dylib SHA-256 is
+b0b0f3c038b8106f04c638596bd8d6594bddaeeaef5db39c5b401de80334efee.
+The wrapper repository references RNNoise revision 70f1d25; the wheel's native
+binary is tested directly, without claiming a reproducible upstream build.
+
+Continuous 61-tap FIR conversion surrounds 480-sample native frames at 48 kHz.
+RNNoise's two-hop 960-sample delay plus the filters' 60-sample delay equals
+340 samples at 16 kHz (21.25 ms), compensated in output indices and flushed
+at end of input. Irregular chunks preserve duration and phase. A smooth limiter
+keeps peaks below 0.98 without normalizing each chunk.
+
+Native validation on the installed clean GRID female fixture with seeded
+0.025-RMS white noise measured zero residual sample lag and 0.942 correlation
+in the >1.8 kHz consonant band relative to denoised clean speech. Noise-only
+suffix RMS was 5.38e-8. This controlled fixture does not establish equivalent
+performance for arbitrary noise or physical ESP32 recordings.
+
+Run: uv run pytest tests/test_noise.py tests/test_noise_native.py.

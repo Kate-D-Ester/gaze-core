@@ -25,6 +25,7 @@ dependencies = [
   "psutil>=7.0",
   "websockets>=15,<17",
   "pillow>=11",
+  "pyrnnoise==0.4.5",
 ]
 
 [dependency-groups]
