@@ -81,6 +81,8 @@ class HealthView(DTO):
     error: ErrorView | None = None
     clip: bool = True
     live: bool = False
+    streaming_ready: bool = False
+    streaming_error: str | None = None
     max_upload_bytes: int
     max_duration: float
     queued: int

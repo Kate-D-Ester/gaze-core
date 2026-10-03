@@ -104,6 +104,10 @@ class Store:
         self.jobs: dict[str, Job] = {}
         self.separator: TargetSeparator | None = None
         self.model_state = "loading" if load_model and start_worker else "unready"
+        self.streaming_ready = False
+        self.streaming_error = None
+        self.warm_timings = []
+        self.worker_busy = False
         self.model_error: ErrorView | None = None
         self.stopping = threading.Event()
         self.thread = threading.Thread(target=self._worker, args=(load_model,), daemon=True)
@@ -124,6 +128,7 @@ class Store:
                     self.settings.asset_dir, self.settings.device, self.settings.engine
                 )
                 self.model_state = "ready"
+                self._warm_streaming()
             except Exception as exc:
                 logger.exception("Model setup failed")
                 self.model_state = "unready"
@@ -135,12 +140,37 @@ class Store:
                 self.cleanup()
                 continue
             try:
+                self.worker_busy = True
                 task()
             except Exception:
                 logger.exception("Worker task failed unexpectedly")
             finally:
+                self.worker_busy = False
                 self.queue.task_done()
                 self.cleanup()
+
+    def _warm_streaming(self):
+        from time import perf_counter
+
+        from .noise import NoiseSuppressor
+        from .stream_profile import profile_for
+
+        try:
+            noise = NoiseSuppressor()
+            noise.close()
+            profile = profile_for(self.settings.engine)
+            width = 112 if self.settings.engine == "av-mossformer2" else 88
+            audio = (0.02 * np.sin(np.arange(profile.window_samples) * 0.13)).astype(np.float32)
+            frames = np.full((round(profile.duration * 25), width, width), 0.1, np.float32)
+            for iteration in range(4):
+                begin = perf_counter()
+                self.separator.extract(audio, frames)
+                if iteration:
+                    self.warm_timings.append(perf_counter() - begin)
+            self.streaming_ready = True
+        except Exception as exc:
+            self.streaming_error = str(exc)
+            logger.exception("Streaming warm-up failed; file extraction remains available")
 
     def close(self):
         self.stopping.set()
@@ -164,7 +194,9 @@ class Store:
                 fcntl.flock(self.lease, fcntl.LOCK_UN)
                 self.lease.close()
 
-    def submit(self, task: Callable[[], None]):
+    def submit(self, task: Callable[[], None], *, live=False):
+        if not live and self.live_lock.locked():
+            raise ServiceError("live_busy", "The live listener owns the processing worker", 409)
         if self.stopping.is_set():
             raise ServiceError("service_stopped", "The local service is stopping", 503)
         try:
@@ -266,7 +298,9 @@ class Store:
         return HealthView(
             ready=self.separator is not None,
             model_state=self.model_state,
-            live=True,
+            live=self.streaming_ready,
+            streaming_ready=self.streaming_ready,
+            streaming_error=self.streaming_error,
             engine=(
                 self.separator.engine
                 if self.separator and hasattr(self.separator, "engine")

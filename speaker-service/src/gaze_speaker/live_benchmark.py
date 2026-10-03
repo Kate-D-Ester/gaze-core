@@ -14,7 +14,7 @@ import psutil
 import soundfile as sf
 from websockets.asyncio.client import connect
 
-from .live_protocol import encode_packet
+from .stream_protocol import encode_packet
 from .media import decode_media
 
 REFERENCE = (

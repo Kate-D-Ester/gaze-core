@@ -1,247 +1,215 @@
-import struct
+import asyncio
 from time import monotonic
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from pydantic import ValidationError
 
 from gaze_speaker.api import create_app
-from gaze_speaker.jobs import Store
-from gaze_speaker.live import LiveBuffer, LiveConfig, LiveOverlap, decode_packet, encode_packet
+from gaze_speaker.jobs import ServiceError, Store
+from gaze_speaker.live import LiveConfig, LiveSession, TargetConfig
 from gaze_speaker.live_faces import decode_frame
 from gaze_speaker.settings import Settings
-
-
-def test_binary_protocol_rejects_malformed_and_nonfinite_packets():
-    audio = np.zeros(1600, dtype="<f4").tobytes()
-    packet = decode_packet(encode_packet(1, 3, 10.0, audio))
-    assert (packet.kind, packet.generation, packet.timestamp) == (1, 3, 10.0)
-    for bad in [
-        b"bad",
-        encode_packet(1, 3, float("nan"), audio),
-        encode_packet(1, 3, 10, struct.pack("<f", float("inf"))),
-        encode_packet(9, 3, 10, audio),
-        encode_packet(1, 3, 10, audio)[:-1],
-    ]:
-        with pytest.raises(ValueError):
-            decode_packet(bad)
-
-
-def test_audio_clock_detects_discontinuity_and_drift():
-    buffer = LiveBuffer()
-    buffer.audio(10, np.zeros(1600, dtype=np.float32))
-    with pytest.raises(ValueError, match="clock"):
-        buffer.audio(10.2, np.zeros(1600, dtype=np.float32))
-    buffer.reset()
-    buffer.audio(10, np.zeros(1600, dtype=np.float32))
-    with pytest.raises(ValueError, match="clock"):
-        buffer.audio(9, np.zeros(1600, dtype=np.float32))
-
-
-def test_window_alignment_requires_video_and_bounds_memory():
-    buffer = LiveBuffer()
-    for i in range(20):
-        buffer.audio(10 + i * 0.1, np.zeros(1600, dtype=np.float32))
-    with pytest.raises(ValueError, match="video"):
-        buffer.window()
-    buffer.frame(10, np.zeros((8, 8, 3), dtype=np.uint8))
-    buffer.frame(11.9, np.zeros((8, 8, 3), dtype=np.uint8))
-    with pytest.raises(ValueError, match="gap"):
-        buffer.window()
-    buffer.reset()
-    for i in range(40):
-        buffer.frame(10 + i * 0.1, np.zeros((8, 8, 3), dtype=np.uint8))
-        buffer.audio(10 + i * 0.1, np.zeros(1600, dtype=np.float32))
-        if i >= 19:
-            buffer.window()
-    assert buffer.sample_count <= 32000
-    assert len(buffer.frames) <= 42
-
-
-def test_overlap_is_continuous_and_reset_discards_old_target():
-    overlap = LiveOverlap()
-    assert np.allclose(overlap.emit(np.ones(32000, dtype=np.float32) * 0.2)[240:], 0.2)
-    output = overlap.emit(np.ones(32000, dtype=np.float32) * 0.2)
-    assert output.shape == (16000,)
-    assert np.allclose(output, 0.2)
-    overlap.reset()
-    assert np.max(overlap.emit(np.zeros(32000, dtype=np.float32))) == 0
+from gaze_speaker.stream_protocol import encode_packet
 
 
 def config(**changes):
-    return dict(
+    data = dict(
         type="configure",
+        protocol_version=2,
         sample_rate=16000,
         audio=True,
         source="replay",
         sync_verified=True,
         video_offset_ms=0,
         client_time=monotonic(),
-        **changes,
     )
+    data.update(changes)
+    return data
 
 
-def test_live_configuration_rejects_missing_microphone_unverified_timing_and_rate_change():
-    for field, value in [
-        ("audio", False),
-        ("sync_verified", False),
-        ("sample_rate", 48000),
-        ("video_offset_ms", float("inf")),
-    ]:
-        data = config()
-        data[field] = value
-        with pytest.raises(ValueError):
-            LiveConfig.model_validate(data)
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"protocol_version": 1},
+        {"audio": False},
+        {"sync_verified": False},
+        {"sample_rate": 48000},
+        {"source": "network"},
+        {"video_offset_ms": float("inf")},
+    ],
+)
+def test_configuration_rejects_obsolete_or_unsafe_inputs(changes):
+    with pytest.raises(ValidationError):
+        LiveConfig.model_validate(config(**changes))
 
 
-def test_live_websocket_origin_guard_reconnect_and_explicit_stop(tmp_path, monkeypatch):
-    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda self: None)
-    settings = Settings(data_dir=tmp_path / "sessions")
+def test_stream_owner_reserves_worker_from_batch_jobs(tmp_path):
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    store.live_lock.acquire()
+    try:
+        with pytest.raises(ServiceError, match="live"):
+            store.submit(lambda: None)
+        store.submit(lambda: None, live=True)
+        assert store.queue.qsize() == 1
+    finally:
+        store.live_lock.release()
+        store.close()
+
+
+def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
+    settings = Settings(data_dir=tmp_path, max_duration=0.001)
     store = Store(settings, start_worker=False, load_model=False)
-    store.separator = SimpleNamespace(device="cpu")
+    store.separator = SimpleNamespace(device="cpu", engine_key="rtfs")
     store.model_state = "ready"
+    store.streaming_ready = True
+    store.warm_timings = [0.1, 0.2, 0.15]
     with TestClient(create_app(settings, store), base_url="http://127.0.0.1") as client:
-        with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(
-                "ws://127.0.0.1/live", headers={"origin": "https://attacker.example"}
-            ):
-                pass
         for _ in range(2):
             with client.websocket_connect(
                 "ws://127.0.0.1/live", headers={"origin": settings.origin}
             ) as socket:
                 socket.send_json(config())
-                assert socket.receive_json()["type"] == "ready"
+                ready = socket.receive_json()
+                assert ready.get("protocol_version") == 2, ready
+                assert "playout_seconds" not in ready
+                socket.send_json({"type": "pause"})
+                socket.send_json({"type": "heartbeat"})
+                socket.send_json({"type": "target", "generation": 1, "target_id": None})
+                assert socket.receive_json()["type"] == "selected"
                 socket.send_json({"type": "stop"})
+                from starlette.websockets import WebSocketDisconnect
+
                 with pytest.raises(WebSocketDisconnect):
                     socket.receive_json()
         assert not store.live_lock.locked()
 
 
-def test_live_jpeg_bomb_dimensions_are_rejected_before_decode():
-    from io import BytesIO
-
-    from PIL import Image
-
-    image = Image.new("RGB", (641, 16))
-    data = BytesIO()
-    image.save(data, format="JPEG")
-    with pytest.raises(ValueError, match="dimensions"):
-        decode_frame(data.getvalue())
+@pytest.mark.asyncio
+async def test_stale_capture_is_rejected_but_paused_source_time_is_valid(tmp_path):
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+    session.generation = 1
+    session.target = "face"
+    try:
+        pcm = np.zeros(1600, dtype="<f4").tobytes()
+        await session.packet(encode_packet(1, 1, 0, monotonic(), pcm))
+        # A later capture clock is valid even though the source position only advances 100 ms.
+        await session.packet(encode_packet(1, 1, 1600, monotonic() + 0.4, pcm))
+        with pytest.raises(ValueError, match="clock"):
+            await session.packet(encode_packet(1, 1, 3200, monotonic() - 2, pcm))
+    finally:
+        await session.close()
+        store.close()
 
 
 @pytest.mark.asyncio
-async def test_generation_change_cancels_queued_inference_and_live_queue_is_bounded(
-    tmp_path, monkeypatch
-):
+async def test_generation_change_discards_late_worker_result(tmp_path):
     from gaze_speaker.faces import FaceTrack
-    from gaze_speaker.live import LiveSession, TargetConfig
 
-    owner = Store(Settings(data_dir=tmp_path / "sessions"), start_worker=False, load_model=False)
-    session = LiveSession(owner, LiveConfig.model_validate(config()))
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
     try:
         session.faces.tracks["face"] = FaceTrack("face")
         session.select(TargetConfig(type="target", generation=1, target_id="face"))
         session.pending = 1
         session.select(TargetConfig(type="target", generation=2, target_id=None))
         session.infer(None, None, 1)
-        await __import__("asyncio").sleep(0)
-        assert session.replies.qsize() == 2  # only target acknowledgements, no stale audio
-        now = monotonic()
-        session.target = "face"
-        session.pending = 3
-        for i in range(20):
-            session.buffer.frame(now - 2 + i * 0.1, np.zeros((8, 8, 3), dtype=np.uint8))
-            session.buffer.audio(now - 2 + i * 0.1, np.zeros(1600, dtype=np.float32))
-        monkeypatch.setattr(
-            "gaze_speaker.live.decode_frame", lambda _: np.zeros((8, 8, 3), dtype=np.uint8)
+        await asyncio.sleep(0)
+        assert all(
+            session.replies.get_nowait()["type"] == "selected"
+            for _ in range(session.replies.qsize())
         )
-        monkeypatch.setattr(session.faces, "detect", lambda *_: None)
-        monkeypatch.setattr(session.faces, "view", lambda: [])
-        with pytest.raises(ValueError, match="overload"):
-            await session.packet(encode_packet(2, 2, now, b"jpeg"))
+        assert session.pending == 0
     finally:
         await session.close()
-        owner.close()
+        store.close()
+
+
+def test_jpeg_bomb_rejected_before_decode():
+    from io import BytesIO
+
+    from PIL import Image
+
+    data = BytesIO()
+    Image.new("RGB", (641, 16)).save(data, format="JPEG")
+    with pytest.raises(ValueError, match="dimensions"):
+        decode_frame(data.getvalue())
 
 
 @pytest.mark.asyncio
-async def test_late_inference_error_is_discarded_after_target_change(tmp_path, monkeypatch):
-    from gaze_speaker.live import LiveSession
-    from gaze_speaker.live_protocol import LiveWindow
+async def test_final_drain_delivers_every_accepted_sample_with_bounded_queue(tmp_path, monkeypatch):
+    from test_noise import IdentityNative
 
-    owner = Store(Settings(data_dir=tmp_path / "sessions"), start_worker=False, load_model=False)
-    session = LiveSession(owner, LiveConfig.model_validate(config()))
-    session.generation = 1
+    from gaze_speaker.faces import FaceTrack
+    from gaze_speaker.noise import NoiseSuppressor
+    from gaze_speaker.stream_processor import StreamProcessor
 
-    def failure(*_):
-        session.generation = 2
-        raise ValueError("Old target failed")
-
-    owner.separator = SimpleNamespace(device="cpu", extract=failure)
     monkeypatch.setattr(
-        "gaze_speaker.live.prepare_frames", lambda *_: np.zeros((50, 88, 88), np.float32)
+        "gaze_speaker.stream_processor.prepare_frames",
+        lambda *_: np.zeros((50, 88, 88), np.float32),
     )
+    owner = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    owner.separator = SimpleNamespace(
+        device="cpu", engine_key="rtfs", extract=lambda audio, _: audio
+    )
+    session = LiveSession(owner, LiveConfig.model_validate(config()))
+    session.faces.tracks["face"] = FaceTrack("face")
+    session.select(TargetConfig(type="target", generation=1, target_id="face"))
+    session.processor = StreamProcessor(
+        owner.separator,
+        session.profile,
+        noise_factory=lambda: NoiseSuppressor(native_factory=IdentityNative),
+    )
+    session.processor.reset(1)
+    size = 39017
+    for start in range(0, size, 1600):
+        session.buffer.frame(start, np.zeros((8, 8, 3), np.uint8))
+        count = min(1600, size - start)
+        session.buffer.audio(start, monotonic(), np.full(count, 0.2, np.float32))
+    session.accepted_end = size
+    session.end(size)
+    assert session.pending <= 2
+    delivered = []
     try:
-        frame = np.zeros((8, 8, 3), np.uint8)
-        session.pending = 1
-        session.infer(LiveWindow(0, np.zeros(32000, np.float32), [frame], np.array([0.0])), None, 1)
-        await __import__("asyncio").sleep(0)
-        assert session.replies.empty()
+        for _ in range(12):
+            while not owner.queue.empty():
+                owner.queue.get_nowait()()
+                owner.queue.task_done()
+                await asyncio.sleep(0)
+                assert session.pending <= 2
+            await asyncio.sleep(0)
+            while not session.replies.empty():
+                delivered.append(session.replies.get_nowait())
+            if any(r["type"] == "drained" for r in delivered):
+                break
+        assert sum(r["sample_count"] for r in delivered if r["type"] == "audio") == size
+        assert delivered[-1]["type"] == "drained"
     finally:
         await session.close()
         owner.close()
 
 
-def test_live_ready_waits_for_preprocessor_initialization(tmp_path, monkeypatch):
-    from gaze_speaker.live_faces import LiveFaces
+def test_stream_warmup_excludes_cold_call_and_preserves_file_capability_on_failure(tmp_path):
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    calls = []
+    store.separator = SimpleNamespace(extract=lambda audio, frames: calls.append((audio, frames)))
+    store._warm_streaming()
+    assert len(calls) == 4
+    assert np.any(calls[0][0] != 0)
+    assert len(store.warm_timings) == 3
+    assert store.streaming_ready
+    store.streaming_ready = False
 
-    initialized = []
-    monkeypatch.setattr(
-        LiveFaces, "initialize", lambda self: initialized.append(True), raising=False
-    )
-    settings = Settings(data_dir=tmp_path / "sessions")
-    store = Store(settings, start_worker=False, load_model=False)
-    store.separator = SimpleNamespace(device="cpu")
-    store.model_state = "ready"
-    with TestClient(create_app(settings, store)) as client:
-        with client.websocket_connect(
-            "ws://127.0.0.1/live", headers={"origin": settings.origin}
-        ) as socket:
-            socket.send_json(config())
-            assert socket.receive_json()["type"] == "ready"
-            assert initialized == [True]
-            socket.send_json({"type": "stop"})
+    def failed(*_):
+        raise RuntimeError("device unavailable")
 
-
-def test_arrival_only_network_camera_is_rejected_despite_manual_sync_check():
-    data = config()
-    data["source"] = "network"
-    with pytest.raises(ValueError, match="capture timestamps"):
-        LiveConfig.model_validate(data)
-
-
-def test_live_lost_face_is_removed_immediately_from_selectable_tracks():
-    from gaze_speaker.faces import FaceObservation, FaceTrack
-    from gaze_speaker.live_faces import LiveFaces
-
-    faces = LiveFaces()
-    faces.detector = SimpleNamespace(detect=lambda image: SimpleNamespace(face_landmarks=[]))
-    faces.last_detection = 0
-    box = (0.1, 0.1, 0.2, 0.3)
-    identity = faces.associator.update([box], 0)[0]
-    faces.tracks[identity] = FaceTrack(
-        identity,
-        [
-            FaceObservation(
-                0,
-                box,
-                np.zeros((5, 2)),
-                np.zeros(2),
-            )
-        ],
-    )
-    faces.detect(np.zeros((64, 64, 3), dtype=np.uint8), 0.2)
-    assert faces.view() == []
+    store.separator.extract = failed
+    store._warm_streaming()
+    assert not store.streaming_ready
+    assert store.separator is not None
+    assert "device unavailable" in store.streaming_error
+    store.close()

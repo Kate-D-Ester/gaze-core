@@ -101,7 +101,7 @@ def test_av_preparation_preserves_internal_face_loss_and_eof_padding():
     output = prepare(media, track, 0, 2, "av-mossformer2")
     assert output.shape == (50, 112, 112)
     np.testing.assert_array_equal(output[-1], output[9])
-    media, track = sample_media(2)
+    media, track = sample_media(3)
     track.observations = track.observations[:5] + track.observations[-5:]
     with pytest.raises(ValueError, match="lost"):
         prepare(media, track, 0, 2, "av-mossformer2")
@@ -185,7 +185,7 @@ def test_official_opt_in_av_engine_smoke():
     if os.environ.get("GAZE_AV_MODEL_TESTS") != "1":
         pytest.skip("Explicit official AV-MossFormer2 checkpoint smoke check")
     separator = model.load_separator(Path("data/av-assets"), "auto", "av-mossformer2")
-    media, track = sample_media(2)
+    media, track = sample_media(3)
     frames = faces.prepare_frames(media, track, 0, 2, "av-mossformer2")
     actual = separator.extract(media.audio, frames)
     assert actual.shape == media.audio.shape and actual.dtype == np.float32
@@ -255,7 +255,11 @@ async def test_live_av_uses_112_face_frames_and_discards_changed_generation(tmp_
 
     from gaze_speaker.jobs import Store
     from gaze_speaker.live import LiveConfig, LiveSession
-    from gaze_speaker.live_protocol import LiveWindow
+    from gaze_speaker.stream_protocol import LiveWindow
+    from gaze_speaker.stream_profile import CaptureSpan
+    from gaze_speaker.stream_processor import StreamProcessor
+    from gaze_speaker.noise import NoiseSuppressor
+    from test_noise import IdentityNative
 
     owner = Store(
         Settings(data_dir=tmp_path / "sessions", engine="av-mossformer2"),
@@ -268,6 +272,7 @@ async def test_live_av_uses_112_face_frames_and_discards_changed_generation(tmp_
         LiveConfig.model_validate(
             {
                 "type": "configure",
+                "protocol_version": 2,
                 "sample_rate": 16000,
                 "audio": True,
                 "source": "replay",
@@ -277,17 +282,34 @@ async def test_live_av_uses_112_face_frames_and_discards_changed_generation(tmp_
             }
         ),
     )
-    media, track = sample_media(2)
+    media, track = sample_media(3)
     try:
         session.generation = 1
+        session.processor = StreamProcessor(
+            owner.separator,
+            session.profile,
+            noise_factory=lambda: NoiseSuppressor(native_factory=IdentityNative),
+        )
+        session.processor.reset(1)
         session.pending = 1
-        session.infer(LiveWindow(0, media.audio, media.frames, media.timestamps), track, 1)
+        session.infer(
+            LiveWindow(
+                0,
+                media.audio,
+                media.frames,
+                media.timestamps,
+                [CaptureSpan(0, 48000, monotonic())],
+                48000,
+            ),
+            track,
+            1,
+        )
         await asyncio.sleep(0)
         result = session.replies.get_nowait()
         assert result["type"] == "audio"
-        assert (result["start"], result["end"], result["sample_rate"]) == (0, 1, 16000)
+        assert (result["start_sample"], result["sample_rate"]) == (0, 16000)
         output = np.frombuffer(base64.b64decode(result["pcm"]), dtype="<f4")
-        assert len(output) == 16000
+        assert len(output) == 28800 - 20
         np.testing.assert_allclose(output[240:], 0.2, atol=1e-6)
         session.generation = 2
         session.pending = 1
