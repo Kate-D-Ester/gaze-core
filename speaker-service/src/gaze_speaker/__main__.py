@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--data-dir", type=Path, default=Path("data/sessions"))
     parser.add_argument("--assets", type=Path, default=Path("data/assets"))
     parser.add_argument("--device", choices=["auto", "cpu", "mps"], default="auto")
+    parser.add_argument("--engine", choices=["rtfs", "av-mossformer2"], default="rtfs")
     args = parser.parse_args()
     settings = Settings(
         port=args.port,
@@ -23,6 +24,7 @@ def main():
         data_dir=args.data_dir,
         asset_dir=args.assets,
         device=args.device,
+        engine=args.engine,
     )
     uvicorn.run(
         create_app(settings),

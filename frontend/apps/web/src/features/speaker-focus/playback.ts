@@ -10,6 +10,7 @@ export class PlaybackController {
   private gain: GainNode | null = null
   private fetchAbort: AbortController | null = null
   private epoch = 0
+  private listeningRevision = 0
   private disposed = false
   private frame = 0
   private anchorVideo = 0
@@ -44,26 +45,35 @@ export class PlaybackController {
     this.context ??= this.options.contextFactory?.() ?? new AudioContext()
     return this.context
   }
-  async listen(mode: ListeningMode): Promise<void> {
+  /** Call during a user gesture so later extraction completion can play audio. */
+  async prepare(): Promise<void> {
     if (this.disposed) {
-      return
-    }
-    this.mode = mode
-    this.video.muted = mode === "focused"
-    if (mode === "original") {
-      this.stopSound()
       return
     }
     try {
       await this.getContext().resume()
-      if (!this.disposed && this.mode === "focused") {
-        this.sync()
-      }
     } catch {
-      this.options.onError?.(
-        "Allow audio playback, then select focused audio again"
-      )
+      throw new Error("Allow audio playback, then select focused audio again")
     }
+  }
+  async listen(mode: ListeningMode): Promise<void> {
+    const revision = ++this.listeningRevision
+    if (this.disposed) {
+      return
+    }
+    if (mode === "original") {
+      this.mode = mode
+      this.video.muted = false
+      this.stopSound()
+      return
+    }
+    await this.prepare()
+    if (this.disposed || revision !== this.listeningRevision) {
+      return
+    }
+    this.mode = mode
+    this.video.muted = true
+    this.sync()
   }
   async load(
     url: string,
@@ -172,6 +182,7 @@ export class PlaybackController {
   }
   clear(): void {
     this.epoch++
+    this.listeningRevision++
     this.fetchAbort?.abort()
     this.fetchAbort = null
     this.stopSound()

@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import torch
@@ -14,19 +15,39 @@ VIDEO_FPS = 25
 MOUTH_SIZE = 88
 
 
-def validate_inputs(audio: np.ndarray, frames: np.ndarray) -> None:
+def validate_inputs(audio: np.ndarray, frames: np.ndarray, *, frame_size: int = MOUTH_SIZE) -> None:
     if audio.ndim != 1 or not 1600 <= audio.size <= SAMPLE_RATE * 8:
         raise ValueError("audio must be a mono 0.1–8 second PCM vector")
     if not np.isfinite(audio).all():
         raise ValueError("audio contains nonfinite samples")
     expected_frames = round(audio.size / SAMPLE_RATE * VIDEO_FPS)
-    if frames.shape != (expected_frames, MOUTH_SIZE, MOUTH_SIZE):
+    if frames.shape != (expected_frames, frame_size, frame_size):
         raise ValueError("video frame dimensions or timestamps do not match audio")
     if not np.isfinite(frames).all():
         raise ValueError("video frames contain nonfinite samples")
+    if (
+        np.max(np.abs(audio)) > np.finfo(np.float32).max
+        or np.max(np.abs(frames)) > np.finfo(np.float32).max
+    ):
+        raise ValueError("Model inputs must be representable as finite float32 samples")
+
+
+class TargetSeparator(Protocol):
+    engine: str
+    engine_key: str
+    device: str
+    parameter_count: int
+    clip_window_duration: float
+    clip_stride: float
+
+    def extract(self, mixed_pcm: np.ndarray, prepared_frames: np.ndarray) -> np.ndarray: ...
 
 
 class Separator:
+    engine_key = "rtfs"
+    clip_window_duration = 2.0
+    clip_stride = 1.0
+
     def __init__(
         self, audio_model: torch.nn.Module, video_model: torch.nn.Module, visual_device: str
     ):
@@ -93,3 +114,14 @@ class Separator:
         if output.shape != mixed_pcm.shape or not np.isfinite(output).all():
             raise RuntimeError("Model returned invalid audio; focused playback is unavailable")
         return output
+
+
+def load_separator(asset_dir: Path, device: str = "cpu", engine: str = "rtfs") -> TargetSeparator:
+    """Select only explicit supported local engines; loading never downloads weights."""
+    if engine == "rtfs":
+        return Separator.load(asset_dir, device)
+    if engine == "av-mossformer2":
+        from .av_model import AvMossFormerSeparator
+
+        return AvMossFormerSeparator.load(asset_dir, device)
+    raise ValueError("Unsupported separation engine")

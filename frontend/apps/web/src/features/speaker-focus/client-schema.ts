@@ -84,7 +84,7 @@ export const healthSchema = z
   .object({
     ready: z.boolean(),
     model_state: z.enum(["loading", "ready", "unready"]),
-    engine: z.literal("RTFS-Net-4-LRS2"),
+    engine: z.enum(["RTFS-Net-4-LRS2", "AV-MossFormer2-TSE-16K"]),
     device: z.string().nullable(),
     error,
     clip: z.boolean(),

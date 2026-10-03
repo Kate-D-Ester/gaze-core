@@ -1,3 +1,5 @@
+import type { GazeMeasurement } from "../scene-eye-tracking/scene.types"
+import type { SelectionBubble } from "./bubble-selection.types"
 import type { z } from "zod"
 import type { SceneSpeakerPanelProps } from "./scene-panel.types"
 import type { FaceTrack } from "./client.types"
@@ -16,3 +18,8 @@ export type LiveState = {
   error: string
 }
 export type LiveEvidence = SceneSpeakerPanelProps
+
+export type DisplayedGaze = {
+  measurement: GazeMeasurement
+  bubble: SelectionBubble
+}

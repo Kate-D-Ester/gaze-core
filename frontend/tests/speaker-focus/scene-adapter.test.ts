@@ -36,6 +36,7 @@ test("scene adapter requires the existing current accuracy check before gaze dwe
       identity: "source",
       frame: frame(t),
       measurement: gaze(t),
+      bubble: { center: [0.2, 0.2], radius: [0.02, 0.03], timestamp: t },
       verified: false,
       tracks: tracks(t),
       now: t,
@@ -47,6 +48,7 @@ test("scene adapter requires the existing current accuracy check before gaze dwe
       identity: "source",
       frame: frame(t),
       measurement: gaze(t),
+      bubble: { center: [0.2, 0.2], radius: [0.02, 0.03], timestamp: t },
       verified: true,
       tracks: tracks(t),
       now: t,
@@ -77,3 +79,53 @@ test("source or orientation identity changes clear the selected speaker", () => 
   expect(adapter.state.selectedId).toBeNull()
   expect(adapter.click([0.2, 0.2], 1500).selectedId).toBeNull()
 })
+
+test.each(["missing gaze", "unverified gaze", "stale scene"])(
+  "%s interrupts switching dwell without dropping the current person",
+  (interruption) => {
+    const adapter = new SceneSelectionAdapter()
+    const people = (time: number): FaceTrack[] => [
+      ...tracks(time),
+      {
+        id: "other",
+        manual: false,
+        observations: [{ timestamp: time / 1000, box: [0.6, 0.1, 0.2, 0.3] }],
+      },
+    ]
+    const input = (time: number) => ({
+      identity: "source",
+      frame: frame(time),
+      measurement: { ...gaze(time), position: [0.7, 0.2] as [number, number] },
+      bubble: {
+        center: [0.7, 0.2] as [number, number],
+        radius: [0.02, 0.03] as [number, number],
+        timestamp: time,
+      },
+      verified: true,
+      tracks: people(time),
+      now: time,
+    })
+    adapter.observe(input(100))
+    adapter.click([0.2, 0.2], 100)
+    for (const time of [100, 200, 300]) {
+      adapter.observe(input(time))
+    }
+    const dropped = input(350)
+    adapter.observe({
+      ...dropped,
+      measurement: interruption === "missing gaze" ? null : dropped.measurement,
+      verified: interruption !== "unverified gaze",
+      frame: interruption === "stale scene" ? frame(100) : dropped.frame,
+    })
+    expect(adapter.state.selectedId).toBe("face")
+    expect(adapter.state.pending).toBeNull()
+    for (const time of [400, 500, 600]) {
+      adapter.observe(input(time))
+    }
+    expect(adapter.state.selectedId).toBe("face")
+    for (const time of [700, 800, 900]) {
+      adapter.observe(input(time))
+    }
+    expect(adapter.state.selectedId).toBe("other")
+  }
+)

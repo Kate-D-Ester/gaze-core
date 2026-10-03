@@ -8,7 +8,7 @@ export function useSpeakerFocus() {
     const video = document.createElement("video")
     video.controls = true
     video.playsInline = true
-    video.preload = "metadata"
+    video.preload = "auto"
     video.className = "block h-full w-full object-contain"
     video.setAttribute("aria-label", "Conversation reference video")
     const playback = new PlaybackController(video, {

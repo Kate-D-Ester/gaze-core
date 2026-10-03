@@ -49,10 +49,12 @@ export function GazeBubbleOverlay({
   offset,
   fixed = true,
   stabilize = true,
+  animate = true,
   imageSize,
   markerClassName = "",
   maxAgeMs,
   snapshotRef,
+  onSnapshot,
 }: GazeBubbleOverlayProps) {
   const container = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<GazeView | null>(null)
@@ -106,14 +108,22 @@ export function GazeBubbleOverlay({
     maxAgeMs,
   })
   useLayoutEffect(() => {
-    if (!snapshotRef) {
-      return
+    const snapshot = bubble && view ? { bubble, view } : null
+    if (snapshotRef) {
+      snapshotRef.current = snapshot
     }
-    snapshotRef.current = bubble && view ? { bubble, view } : null
-    return () => {
-      snapshotRef.current = null
-    }
-  }, [bubble, view, snapshotRef])
+    onSnapshot?.(snapshot)
+  }, [bubble, view, snapshotRef, onSnapshot])
+  // Clear only on unmount/ref replacement, never between consecutive samples.
+  useLayoutEffect(
+    () => () => {
+      if (snapshotRef) {
+        snapshotRef.current = null
+      }
+      onSnapshot?.(null)
+    },
+    [snapshotRef, onSnapshot]
+  )
   const maxDiameter = view
     ? getGazeBubbleMaxDiameter(view.width, view.height)
     : 0
@@ -128,6 +138,9 @@ export function GazeBubbleOverlay({
   const rawY =
     bubble && view ? (bubble.rawPoint[1] - bubble.center[1]) * view.height : 0
   const rawInside = bubble && Math.hypot(rawX, rawY) + 1.5 <= bubble.radiusPx
+  const animationClassName = animate
+    ? `motion-safe:transition-[left,top,width,height] motion-safe:ease-out ${stabilize ? "motion-safe:duration-100" : "motion-safe:duration-50"}`
+    : ""
   return (
     <div
       ref={container}
@@ -153,7 +166,7 @@ export function GazeBubbleOverlay({
           }}
         >
           <div
-            className={`gaze-bubble motion-safe:transition-[left,top,width,height] motion-safe:ease-out ${stabilize ? "motion-safe:duration-100" : "motion-safe:duration-50"} ${markerClassName}`}
+            className={`gaze-bubble ${animationClassName} ${markerClassName}`}
             aria-hidden="true"
             data-limited={bubble.limited}
             data-motion={bubble.motion}

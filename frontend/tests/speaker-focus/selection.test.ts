@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   imagePoint,
+  verifiedGazePoint,
   selectByPoint,
   SelectionController,
 } from "../../apps/web/src/features/speaker-focus/selection"
@@ -22,6 +23,7 @@ const tracks: FaceTrack[] = [
 function gaze(now: number, x = 0.2, generation = 1): GazeEvidence {
   return {
     sourceGeneration: generation,
+    bubble: { center: [x, 0.3], radius: [0.015, 0.025], timestamp: now },
     mediaTime: 1,
     measurement: {
       timestamp: now,
@@ -159,4 +161,71 @@ test("checking a video frame pauses a lost target without requiring gaze input",
   controller.click(tracks, [0.2, 0.3], 1)
   expect(controller.checkTracks(tracks, 2).paused).toBe(true)
   expect(controller.state.selectedId).toBe("left")
+})
+
+test("displayed speaker gaze accepts only fresh measured coordinates", () => {
+  const measurement = gaze(100).measurement
+  expect(verifiedGazePoint(measurement, 100)).toEqual([0.2, 0.3])
+  for (const now of [99, 251, NaN]) {
+    expect(verifiedGazePoint(measurement, now)).toBeNull()
+  }
+  for (const flag of ["estimated", "preview", "extrapolated"] as const) {
+    expect(verifiedGazePoint({ ...measurement, [flag]: true }, 100)).toBeNull()
+  }
+  expect(
+    verifiedGazePoint({ ...measurement, eyeTimestamp: null }, 100)
+  ).toBeNull()
+  expect(verifiedGazePoint({ ...measurement, confidence: 0.4 }, 100)).toBeNull()
+  expect(
+    verifiedGazePoint({ ...measurement, position: [Infinity, 0.3] }, 100)
+  ).toBeNull()
+})
+
+test("a selected person stays locked while gaze moves to objects or eye tracking drops", () => {
+  const controller = new SelectionController()
+  controller.click(tracks, [0.2, 0.3], 1)
+  const generation = controller.state.generation
+  for (let now = 100; now <= 2000; now += 100) {
+    const evidence = gaze(now, 0.5)
+    controller.observeGaze(evidence, tracks, now)
+  }
+  const missing = gaze(2100, 0.5)
+  missing.measurement.valid = false
+  missing.measurement.position = null
+  controller.observeGaze(missing, tracks, 2100)
+  expect(controller.state.selectedId).toBe("left")
+  expect(controller.state.paused).toBe(false)
+  expect(controller.state.generation).toBe(generation)
+})
+
+test("only a continuous dwell on a different visible person switches the lock", () => {
+  const controller = new SelectionController()
+  controller.click(tracks, [0.2, 0.3], 1)
+  for (const now of [100, 200, 300]) {
+    controller.observeGaze(gaze(now, 0.8), tracks, now)
+  }
+  controller.observeGaze(gaze(400, 0.5), tracks, 400)
+  for (const now of [500, 600, 700, 800, 900, 999]) {
+    expect(controller.observeGaze(gaze(now, 0.8), tracks, now).selectedId).toBe(
+      "left"
+    )
+  }
+  expect(controller.observeGaze(gaze(1000, 0.8), tracks, 1000).selectedId).toBe(
+    "right"
+  )
+})
+
+test("the locked person leaving pauses audio instead of selecting another visible person", () => {
+  const controller = new SelectionController()
+  controller.click(tracks, [0.2, 0.3], 1)
+  const generation = controller.state.generation
+  const state = controller.observeGaze(gaze(100, 0.5), [tracks[1]!], 100)
+  expect(state.paused).toBe(true)
+  expect(state.generation).toBeGreaterThan(generation)
+  expect(state.reason).toContain("Selected face was lost")
+  for (let now = 200; now <= 1000; now += 100) {
+    controller.observeGaze(gaze(now, 0.5), [tracks[1]!], now)
+  }
+  expect(controller.state.selectedId).not.toBe("right")
+  expect(controller.state.paused).toBe(true)
 })

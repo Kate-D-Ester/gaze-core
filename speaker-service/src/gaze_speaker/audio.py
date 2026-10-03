@@ -6,9 +6,9 @@ from time import perf_counter
 
 import numpy as np
 
-from .faces import FaceTrack, mouth_sequence
+from .faces import FaceTrack, prepare_frames
 from .media import DecodedMedia
-from .model import SAMPLE_RATE, Separator
+from .model import SAMPLE_RATE, TargetSeparator
 
 
 class ExtractionCancelled(Exception):
@@ -54,12 +54,18 @@ def assemble_windows(windows: list[AudioWindow], sample_count: int) -> np.ndarra
 def extract_track(
     media: DecodedMedia,
     track: FaceTrack,
-    separator: Separator,
+    separator: TargetSeparator,
     cancel: Callable[[], bool],
     progress: Callable[[float], None],
-    window_duration: float = 2.0,
-    stride: float = 1.0,
+    window_duration: float | None = None,
+    stride: float | None = None,
 ) -> ExtractionResult:
+    window_duration = (
+        getattr(separator, "clip_window_duration", 2.0)
+        if window_duration is None
+        else window_duration
+    )
+    stride = getattr(separator, "clip_stride", 1.0) if stride is None else stride
     if not 0.1 <= stride <= window_duration <= 8:
         raise ValueError("Invalid extraction window or stride")
     size = round(window_duration * SAMPLE_RATE)
@@ -76,8 +82,14 @@ def extract_track(
         pcm = np.zeros(size, dtype=np.float32)
         available = media.audio[start : start + size]
         pcm[: available.size] = available
-        mouths = mouth_sequence(media, track, start / SAMPLE_RATE, window_duration)
-        focused = separator.extract(pcm, mouths)
+        frames = prepare_frames(
+            media,
+            track,
+            start / SAMPLE_RATE,
+            window_duration,
+            getattr(separator, "engine_key", "rtfs"),
+        )
+        focused = separator.extract(pcm, frames)
         if cancel():
             raise ExtractionCancelled()
         if focused.shape != pcm.shape or not np.isfinite(focused).all():

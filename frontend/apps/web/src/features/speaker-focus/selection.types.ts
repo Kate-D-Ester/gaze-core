@@ -1,7 +1,9 @@
+import type { SelectionBubble } from "./bubble-selection.types"
 import type { GazeMeasurement } from "../scene-eye-tracking/scene.types"
 export type ImagePoint = readonly [number, number]
 export type ImageBounds = Pick<DOMRect, "left" | "top" | "width" | "height">
 export type GazeEvidence = {
+  bubble?: SelectionBubble | null
   measurement: GazeMeasurement
   sourceGeneration: number
   mediaTime: number

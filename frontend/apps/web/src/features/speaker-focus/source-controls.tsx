@@ -11,7 +11,7 @@ export function SourceControls({ session, state }: SourceControlsProps) {
     >
       <div className="flex items-center gap-2">
         <FileVideo size={18} aria-hidden="true" />
-        <h2 className="font-semibold">Conversation source</h2>
+        <h2 className="font-semibold">Video</h2>
       </div>
       <Button
         className="w-full"
@@ -20,7 +20,7 @@ export function SourceControls({ session, state }: SourceControlsProps) {
           void session.loadReference()
         }}
       >
-        Use degraded debate reference
+        Use debate reference
       </Button>
       <label className="block space-y-2 text-sm">
         <span>Or choose a local video</span>
@@ -61,7 +61,9 @@ export function SourceControls({ session, state }: SourceControlsProps) {
           </Button>
         </div>
         {state.health?.device && (
-          <p className="text-muted-foreground">{state.health.device}</p>
+          <p className="text-muted-foreground">
+            {state.health.engine} · {state.health.device}
+          </p>
         )}
         {state.serviceError && (
           <p role="status" className="mt-2 text-amber-200">
@@ -70,7 +72,7 @@ export function SourceControls({ session, state }: SourceControlsProps) {
         )}
         {!state.health?.ready && (
           <p className="mt-2 text-muted-foreground">
-            Start the local service with <code>uv run gaze-speaker</code>, then
+            Start <code>bun run dev:speaker-focus</code> from the frontend, then
             reconnect.
           </p>
         )}

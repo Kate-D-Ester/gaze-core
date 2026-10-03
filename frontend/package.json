@@ -10,7 +10,8 @@
     "format": "bun run --cwd packages/ui format && bun run --cwd apps/web format",
     "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck",
     "test": "bun test",
-    "prepare:speaker-reference": "bun run --cwd apps/web prepare:speaker-reference"
+    "prepare:speaker-reference": "bun run --cwd apps/web prepare:speaker-reference",
+    "dev:speaker-focus": "bun run --cwd apps/web dev:speaker-focus"
   },
   "devDependencies": {
     "prettier": "^3.9.9",

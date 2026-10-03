@@ -1,3 +1,8 @@
+import { verifiedGazePoint } from "./gaze-evidence"
+import { selectByBubble } from "./bubble-selection"
+export { verifiedGazePoint } from "./gaze-evidence"
+import { boxAtTime } from "./face-geometry"
+export { boxAtTime } from "./face-geometry"
 import type { Box, FaceTrack } from "./client.types"
 import type {
   GazeEvidence,
@@ -39,18 +44,6 @@ export function imagePoint(
   return [x, y]
 }
 
-export function boxAtTime(track: FaceTrack, timestamp: number): Box | null {
-  let closest = null
-  let distance = 0.35
-  for (const observation of track.observations) {
-    const delta = Math.abs(observation.timestamp - timestamp)
-    if (delta <= distance) {
-      closest = observation.box
-      distance = delta
-    }
-  }
-  return closest
-}
 function contains(box: Box, point: ImagePoint, margin = 0): boolean {
   return (
     point[0] >= box[0] - margin &&
@@ -100,6 +93,10 @@ export class SelectionController {
     this.sourceGeneration = sourceGeneration
     this.lastEvidence = -Infinity
     return this.clear()
+  }
+  resetDwell(): void {
+    this.current.pending = null
+    this.lastEvidence = -Infinity
   }
   clear(): SelectionState {
     this.current = {
@@ -158,52 +155,28 @@ export class SelectionController {
     if (evidence.sourceGeneration !== this.sourceGeneration) {
       this.reset(evidence.sourceGeneration)
     }
-    const selected = tracks.find(
-      (track) => track.id === this.current.selectedId
-    )
-    const selectedBox = selected
-      ? boxAtTime(selected, evidence.mediaTime)
-      : null
     this.checkTracks(tracks, evidence.mediaTime)
-    const gaze = evidence.measurement
-    const times = [gaze.timestamp, gaze.eyeTimestamp, gaze.sceneTimestamp]
-    const verified =
-      gaze.valid &&
-      !gaze.estimated &&
-      !gaze.preview &&
-      !gaze.extrapolated &&
-      Number.isFinite(gaze.confidence) &&
-      gaze.confidence >= 0.5 &&
-      gaze.position &&
-      times.every(
-        (time) =>
-          time !== null &&
-          Number.isFinite(time) &&
-          now - time >= 0 &&
-          now - time <= 150
-      ) &&
-      Number.isFinite(now)
+    const point = verifiedGazePoint(evidence.measurement, now)
+    const bubble = evidence.bubble
     if (
-      !verified ||
-      !gaze.position ||
-      gaze.position.some(
-        (value) => !Number.isFinite(value) || value < 0 || value > 1
-      )
+      !point ||
+      !bubble ||
+      bubble.timestamp !== evidence.measurement.timestamp
     ) {
-      this.current.pending = null
-      this.lastEvidence = -Infinity
+      this.resetDwell()
       return this.state
     }
     if (now - this.lastEvidence > 150) {
       this.current.pending = null
     }
     this.lastEvidence = now
-    const target = selectByPoint(tracks, gaze.position, evidence.mediaTime)
-    if (
-      selectedBox &&
-      !this.current.paused &&
-      contains(selectedBox, gaze.position, 0.025)
-    ) {
+    const target = selectByBubble(
+      tracks,
+      bubble,
+      evidence.mediaTime,
+      this.current.selectedId
+    )
+    if (target === this.current.selectedId && !this.current.paused) {
       this.current.pending = null
       return this.state
     }

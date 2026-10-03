@@ -34,12 +34,12 @@ def safe_extract(archive: Path, destination: Path, max_bytes: int = 512_000_000)
         contents.extractall(destination)
 
 
-def load_checkpoint(path: Path) -> dict:
+def load_checkpoint(path: Path, *, mmap: bool = False) -> dict:
     import torch
     from torch.torch_version import TorchVersion
 
     with torch.serialization.safe_globals([TorchVersion]):
-        result = torch.load(path, map_location="cpu", weights_only=True)
+        result = torch.load(path, map_location="cpu", weights_only=True, mmap=mmap)
     if not isinstance(result, dict):
         raise ValueError("Checkpoint must contain a tensor dictionary")
     return result
@@ -83,7 +83,57 @@ def download_file(
             client.close()
 
 
-def setup_assets(asset_dir: Path) -> dict:
+AV_SOURCE_COMMIT = "6b3774dc79c46ae8bed2a4fa5f706f0ac8c75c61"
+AV_WEIGHT_REVISION = "f168d2502161cf7ef5d55872d5f01f89e88e4c2e"
+AV_ASSET_HASHES = {
+    "last_best_checkpoint.pt": "0e60209aab0b31c38deea4ab116100acbbf3a07db8bc559f796f118da1a767d5"
+}
+AV_WEIGHT_URL = (
+    "https://huggingface.co/alibabasglab/AV_MossFormer2_TSE_16K/resolve/"
+    + AV_WEIGHT_REVISION
+    + "/last_best_checkpoint.pt"
+)
+
+
+def setup_av_assets(asset_dir: Path, checkpoint: Path | None = None) -> dict:
+    import json
+    import shutil
+
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    destination = asset_dir / "last_best_checkpoint.pt"
+    checksum = AV_ASSET_HASHES[destination.name]
+    if not destination.is_file() or sha256_file(destination) != checksum:
+        if checkpoint is None:
+            download_file(AV_WEIGHT_URL, destination, checksum, max_bytes=800_000_000)
+        else:
+            partial = destination.with_suffix(".partial")
+            try:
+                shutil.copyfile(checkpoint, partial)
+                verify_file(partial, checksum)
+                partial.replace(destination)
+            finally:
+                partial.unlink(missing_ok=True)
+    manifest = {
+        "engine": "AV-MossFormer2-TSE-16K",
+        "source_commit": AV_SOURCE_COMMIT,
+        "weight_revision": AV_WEIGHT_REVISION,
+        "files": AV_ASSET_HASHES,
+        "sources": {"checkpoint": AV_WEIGHT_URL},
+    }
+    temporary = asset_dir / "manifest.partial"
+    temporary.write_text(json.dumps(manifest, indent=2) + "\n")
+    temporary.replace(asset_dir / "manifest.json")
+    return manifest
+
+
+def setup_assets(asset_dir: Path, engine: str = "rtfs", checkpoint: Path | None = None) -> dict:
+    if engine == "av-mossformer2":
+        return setup_av_assets(asset_dir, checkpoint)
+    if engine != "rtfs":
+        raise ValueError("Unsupported separation engine")
+    if checkpoint is not None:
+        raise ValueError("Local checkpoint setup is available only for AV-MossFormer2")
+
     import json
     import shutil
 
@@ -124,6 +174,8 @@ if __name__ == "__main__":
         description="Download and verify the official local model assets"
     )
     parser.add_argument("--dir", type=Path, default=Path("data/assets"))
+    parser.add_argument("--engine", choices=["rtfs", "av-mossformer2"], default="rtfs")
+    parser.add_argument("--checkpoint", type=Path, help="Reuse a locally downloaded AV checkpoint")
     arguments = parser.parse_args()
-    setup_assets(arguments.dir)
+    setup_assets(arguments.dir, arguments.engine, arguments.checkpoint)
     print(f"Verified model assets ready at {arguments.dir.resolve()}")

@@ -124,3 +124,45 @@ test("late audio from a previous target cannot replace the active buffer", async
   expect(playback.ready).toBe(false)
   playback.dispose()
 })
+
+test("rejected focused autoplay leaves original video audible", async () => {
+  const f = fixture()
+  f.context.resume = async () => {
+    throw new Error("NotAllowedError")
+  }
+  const playback = new PlaybackController(f.video, {
+    contextFactory: () => f.context,
+    requestFrame: () => 1,
+    cancelFrame: () => {},
+  })
+  try {
+    await expect(playback.listen("focused")).rejects.toThrow(
+      "Allow audio playback"
+    )
+    expect(f.video.muted).toBe(false)
+    expect(playback.mode).toBe("original")
+  } finally {
+    playback.dispose()
+  }
+})
+
+test("an original choice supersedes a pending focused audio resume", async () => {
+  const f = fixture()
+  let resume: () => void = () => {}
+  f.context.resume = () =>
+    new Promise((resolve) => {
+      resume = resolve
+    })
+  const playback = new PlaybackController(f.video, {
+    contextFactory: () => f.context,
+    requestFrame: () => 1,
+    cancelFrame: () => {},
+  })
+  const pending = playback.listen("focused")
+  await playback.listen("original")
+  resume()
+  await pending
+  expect(f.video.muted).toBe(false)
+  expect(playback.mode).toBe("original")
+  playback.dispose()
+})

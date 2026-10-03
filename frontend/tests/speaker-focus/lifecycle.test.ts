@@ -100,6 +100,7 @@ function fixture() {
     session,
     video,
     client,
+    playback,
     removed,
     revoked,
     cancelled,
@@ -257,5 +258,110 @@ test("a late extraction cannot replace audio after a rapid speaker switch", asyn
   await old
   expect(f.loaded()).toBe(1)
   expect(f.session.getSnapshot().job?.target_id).toBe("other")
+  f.session.dispose()
+})
+
+test("selecting a face keeps original audio until its real waveform is ready", async () => {
+  const f = fixture()
+  let complete: (value: Job) => void = () => {}
+  f.client.waitForJob = () =>
+    new Promise((resolve) => {
+      complete = resolve
+    })
+  await f.session.loadFile(
+    new File(["video"], "source.mp4", { type: "video/mp4" })
+  )
+  const pending = f.session.selectPoint([0.2, 0.3])
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(f.session.getSnapshot().status).toBe("processing")
+  expect(f.session.getSnapshot().mode).toBe("original")
+  complete({ ...job, generation: f.session.getSnapshot().selection.generation })
+  await pending
+  expect(f.loaded()).toBe(1)
+  expect(f.session.getSnapshot().mode).toBe("focused")
+  f.session.dispose()
+})
+
+test("choosing original during extraction stays original after completion", async () => {
+  const f = fixture()
+  let complete: (value: Job) => void = () => {}
+  f.client.waitForJob = () =>
+    new Promise((resolve) => {
+      complete = resolve
+    })
+  await f.session.loadFile(
+    new File(["video"], "source.mp4", { type: "video/mp4" })
+  )
+  const pending = f.session.selectPoint([0.2, 0.3])
+  await Promise.resolve()
+  await Promise.resolve()
+  await f.session.listen("original")
+  complete({ ...job, generation: f.session.getSnapshot().selection.generation })
+  await pending
+  expect(f.session.getSnapshot().mode).toBe("original")
+  f.session.dispose()
+})
+
+test("ending a reference rewinds the preview for another comparison", async () => {
+  const f = fixture()
+  await f.session.loadFile(
+    new File(["video"], "source.mp4", { type: "video/mp4" })
+  )
+  f.video.currentTime = 32
+  f.video.dispatchEvent(new Event("ended"))
+  expect(f.video.currentTime).toBe(0)
+  f.session.dispose()
+})
+
+test("blocked focused autoplay preserves the computed job for explicit retry", async () => {
+  const f = fixture()
+  f.client.waitForJob = async () => ({
+    ...job,
+    generation: f.session.getSnapshot().selection.generation,
+  })
+  f.playback.listen = async (mode?: string) => {
+    if (mode === "focused") {
+      throw new Error("Allow audio playback, then select focused audio again")
+    }
+  }
+  await f.session.loadFile(
+    new File(["video"], "source.mp4", { type: "video/mp4" })
+  )
+  await f.session.selectPoint([0.2, 0.3])
+  expect(f.session.getSnapshot().mode).toBe("original")
+  expect(f.session.getSnapshot().job?.status).toBe("done")
+  expect(f.session.getSnapshot().error).toContain("Allow audio playback")
+  f.playback.listen = async () => {}
+  await f.session.listen("focused")
+  expect(f.session.getSnapshot().mode).toBe("focused")
+  expect(f.session.getSnapshot().error).toBe("")
+  f.session.dispose()
+})
+
+test("automatic EOF rewind keeps pending extraction; a later manual seek still cancels", async () => {
+  const f = fixture()
+  let complete: (value: Job) => void = () => {}
+  f.client.waitForJob = () =>
+    new Promise((resolve) => {
+      complete = resolve
+    })
+  await f.session.loadFile(
+    new File(["video"], "source.mp4", { type: "video/mp4" })
+  )
+  const pending = f.session.selectPoint([0.2, 0.3])
+  await Promise.resolve()
+  await Promise.resolve()
+  f.video.currentTime = 32
+  f.video.dispatchEvent(new Event("ended"))
+  f.video.dispatchEvent(new Event("seeking"))
+  expect(f.cancelled).toHaveLength(0)
+  expect(f.session.getSnapshot().status).toBe("processing")
+  expect(f.session.getSnapshot().selection.selectedId).toBe("person")
+  f.video.currentTime = 5
+  f.video.dispatchEvent(new Event("seeking"))
+  expect(f.cancelled).toHaveLength(1)
+  complete(job)
+  await pending
   f.session.dispose()
 })

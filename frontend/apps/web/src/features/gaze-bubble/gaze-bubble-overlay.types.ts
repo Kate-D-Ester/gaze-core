@@ -20,9 +20,12 @@ export type GazeBubbleOverlayProps = {
   offset?: Point
   fixed?: boolean
   stabilize?: boolean
+  /** Disable motion when consumers select targets using the rendered geometry. */
+  animate?: boolean
   maxAgeMs?: number
   /** Native image dimensions; errorRadiusPx is then in native image pixels. */
   imageSize?: GazeImageSize
   markerClassName?: string
   snapshotRef?: MutableRefObject<GazeBubbleOverlaySnapshot | null>
+  onSnapshot?: (snapshot: GazeBubbleOverlaySnapshot | null) => void
 }

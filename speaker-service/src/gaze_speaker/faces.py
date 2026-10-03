@@ -76,8 +76,7 @@ class FaceAssociator:
         # Box overlap alone cannot establish who returned after an occlusion.
         # Only people observed in consecutive detection passes keep continuity.
         self.last_seen = {
-            identity: (box, timestamp)
-            for identity, box in zip(identities, boxes, strict=True)
+            identity: (box, timestamp) for identity, box in zip(identities, boxes, strict=True)
         }
         return identities
 
@@ -208,9 +207,9 @@ def mouth_patch(
     return normalize_mouth(crop)
 
 
-def mouth_sequence(
+def _matched_sequence(
     media: DecodedMedia, track: FaceTrack, start: float, duration: float
-) -> np.ndarray:
+) -> list[tuple[int, int]]:
     if not track.observations:
         raise ValueError("Selected face has no usable observations")
     desired = start + np.arange(round(duration * VIDEO_FPS)) / VIDEO_FPS
@@ -220,17 +219,67 @@ def mouth_sequence(
     observations = track.observations
     observed_times = np.array([observation.timestamp for observation in observations])
     observation_indices = nearest_frame_indices(observed_times, desired)
-    patches = []
+    matches = []
     for timestamp, frame_index, observation_index in zip(
         desired, frame_indices, observation_indices, strict=True
     ):
-        observation = observations[int(observation_index)]
-        if abs(timestamp - observation.timestamp) > 0.35:
+        if abs(timestamp - observations[int(observation_index)].timestamp) > 0.35:
             raise ValueError("Selected face was lost; extraction paused")
-        first = max(0, int(observation_index) - 3)
-        last = min(len(observations), int(observation_index) + 4)
+        matches.append((int(frame_index), int(observation_index)))
+    return matches
+
+
+def mouth_sequence(
+    media: DecodedMedia, track: FaceTrack, start: float, duration: float
+) -> np.ndarray:
+    patches = []
+    observations = track.observations
+    for frame_index, observation_index in _matched_sequence(media, track, start, duration):
+        observation = observations[observation_index]
+        first = max(0, observation_index - 3)
+        last = min(len(observations), observation_index + 4)
         anchors = np.mean([item.anchors for item in observations[first:last]], axis=0)
-        patches.append(mouth_patch(media.frames[int(frame_index)], observation, anchors))
+        patches.append(mouth_patch(media.frames[frame_index], observation, anchors))
+    return np.stack(patches).astype(np.float32)
+
+
+def prepare_frames(
+    media: DecodedMedia, track: FaceTrack, start: float, duration: float, engine: str = "rtfs"
+) -> np.ndarray:
+    """Shared clip/live boundary; each engine receives its own trained visual geometry."""
+    if engine == "rtfs":
+        return mouth_sequence(media, track, start, duration)
+    if engine != "av-mossformer2":
+        raise ValueError("Unsupported separation engine")
+
+    from scipy.signal import medfilt
+
+    matches = _matched_sequence(media, track, start, duration)
+    boxes = np.array([track.observations[index].box for _, index in matches])
+    for box in boxes:
+        validate_region(box)
+    size = np.maximum(boxes[:, 2] * media.width, boxes[:, 3] * media.height) / 2
+    center_x = (boxes[:, 0] + boxes[:, 2] / 2) * media.width
+    center_y = (boxes[:, 1] + boxes[:, 3] / 2) * media.height
+    kernel = min(13, 2 * ((len(matches) - 1) // 2) + 1)
+    size, center_x, center_y = (medfilt(values, kernel) for values in (size, center_x, center_y))
+    patches = []
+    for (frame_index, _), radius, x, y in zip(matches, size, center_x, center_y, strict=True):
+        padding = int(radius * 1.8)
+        frame = np.pad(
+            media.frames[frame_index],
+            ((padding, padding), (padding, padding), (0, 0)),
+            constant_values=110,
+        )
+        x, y = x + padding, y + padding
+        face = frame[
+            int(y - radius) : int(y + radius * 1.8),
+            int(x - radius * 1.4) : int(x + radius * 1.4),
+        ]
+        if not face.size:
+            raise ValueError("Selected face region is too small")
+        gray = cv2.cvtColor(cv2.resize(face, (224, 224)), cv2.COLOR_RGB2GRAY)[56:168, 56:168]
+        patches.append((gray.astype(np.float32) / 255.0 - 0.4161) / 0.1688)
     return np.stack(patches).astype(np.float32)
 
 

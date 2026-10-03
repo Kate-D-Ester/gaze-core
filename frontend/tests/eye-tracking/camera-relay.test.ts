@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { cameraRelayStreamUrl } from "../../apps/web/src/features/eye-tracking/camera-relay"
 import { createCameraRelayHandler } from "../../apps/web/src/features/eye-tracking/camera-relay-server"
 
 const appOrigin = "http://127.0.0.1:4014"
@@ -120,4 +121,40 @@ test("requires an allowlisted app origin", async () => {
   const response = await handler(request)
 
   expect(response.status).toBe(403)
+})
+
+test("isolated worktrees can use a separate loopback camera relay port", () => {
+  const previous = process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT
+  process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT = "4023"
+  try {
+    const url = new URL(
+      cameraRelayStreamUrl(new URL("http://esp32.local/stream"))
+    )
+    expect(url.origin).toBe("http://127.0.0.1:4023")
+    expect(url.searchParams.get("url")).toBe("http://esp32.local/stream")
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT
+    } else {
+      process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT = previous
+    }
+  }
+})
+
+test("invalid relay configuration fails before attempting a camera request", () => {
+  const previous = process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT
+  try {
+    for (const port of ["NaN", "1023", "65536", "4023.5"]) {
+      process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT = port
+      expect(() =>
+        cameraRelayStreamUrl(new URL("http://esp32.local/stream"))
+      ).toThrow("Invalid local camera relay port")
+    }
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT
+    } else {
+      process.env.NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT = previous
+    }
+  }
 })

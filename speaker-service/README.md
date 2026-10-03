@@ -23,6 +23,48 @@ separately from software licensing. The published weights are approximately
 parameters. Actual inference memory and throughput are measured, not inferred
 from checkpoint size.
 
+## Optional AV-MossFormer2 engine
+
+RTFS remains the default for the service and existing benchmark commands. Select
+`av-mossformer2` explicitly to try the larger pretrained visual target model.
+Its weights are obtained only by the setup command, verified against a pinned
+SHA-256, and loaded with PyTorch's weights-only loader. The vendored architecture
+and its device portability patch are documented in
+`third_party/av_mossformer2/NOTICE.md`.
+
+```sh
+uv sync --frozen
+uv run python -m gaze_speaker.assets --engine av-mossformer2 --dir data/av-assets
+# Reuse the already verified local research download instead of downloading again:
+uv run python -m gaze_speaker.assets --engine av-mossformer2 --dir data/av-assets \
+  --checkpoint data/research/clearvoice/last_best_checkpoint.pt
+uv run gaze-speaker --engine av-mossformer2 --assets data/av-assets --device auto \
+  --origin http://127.0.0.1:4010
+GAZE_AV_MODEL_TESTS=1 uv run pytest tests/test_av_model.py
+```
+
+On Apple Silicon this engine runs its complete network on MPS with `auto`/`mps`;
+`cpu` is supported but measured at about 9 seconds per 2 seconds of input. It has
+68,516,407 parameters. Both clip and live input paths use its official 25 fps,
+112x112 grayscale face-box crop and 0.4161/0.1688 normalization. RTFS retains its
+aligned 88x88 mouth input. The two prepared formats cannot be interchanged.
+
+AV clip extraction defaults to 3-second windows and 1.8-second stride, using the
+service's existing normalized overlap-add and cancellation checks. Live timing
+stays at 2-second windows, 1-second stride and 4-second playout delay. Warmed
+research inference ranged from 0.97 to 1.26 seconds per live-sized window, with a
+4.57-second cold pass; this does **not** establish sustainable realtime operation.
+Overload, face loss and stale target generations retain their existing failure
+behavior. One model worker is shared by clip and live tasks.
+
+The complete degraded debate clip and synchronized listening comparisons are
+available under `data/research/clearvoice/results-mps-full/`. Research uses the
+official segment trimming schedule; service clip export uses normalized Hann
+overlap-add and EOF padding. The research outputs are comparison artifacts, not
+new cached service results. Quality remains experimental: shared speech persists
+in some overlap intervals. See `../docs/speaker-separation-research.md` for primary
+sources, exact timing/memory measurements and the qualified ASR diagnostics.
+
 The root README contains a complete two-terminal startup flow for the integrated trial.
 
 Start the local service from this directory:
@@ -33,7 +75,7 @@ uv run gaze-speaker --device auto
 
 It binds only to `127.0.0.1:4033`. The default allowed browser origin is exactly
 `http://localhost:4001`; use `--origin` to match a different local frontend port.
-`GET /health` reports actual model readiness and the hybrid device. Missing assets
+`GET /health` reports actual model readiness, selected engine and its device. Missing assets
 produce an unready service, never imitation or mixed-audio passthrough output.
 
 Clip uploads accept MP4, MOV, WebM, MKV and AVI, at most 120 MiB and 120 decoded

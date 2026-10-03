@@ -108,8 +108,31 @@ const SCENE_STEP_HELP = [
 ] as const
 export function EyeTrackingWorkspace({
   sceneMode = false,
+  speakerMode = false,
+  active = true,
+  onReference,
 }: EyeTrackingWorkspaceProps) {
-  const steps = sceneMode ? SCENE_STEPS : STEPS
+  let steps: readonly string[] = STEPS
+  let title = "Screen eye tracking"
+  let version = "SCREEN"
+  if (sceneMode) {
+    steps = SCENE_STEPS
+    title = "Scene camera eye tracking"
+    version = "SCENE"
+  }
+  if (speakerMode) {
+    steps = [
+      "Eye camera",
+      "Eye region",
+      "Eye model",
+      "Scene camera",
+      "Calibrate",
+      "Check accuracy",
+      "Focus",
+    ]
+    title = "Speaker focus"
+    version = "speaker focus"
+  }
   const stepHelp = sceneMode ? SCENE_STEP_HELP : STEP_HELP
   const [sceneStatus, setSceneStatus] = useState<SceneStatus>({
     connected: false,
@@ -264,6 +287,28 @@ export function EyeTrackingWorkspace({
         sceneStatus.calibrated,
     ]
   }
+  if (speakerMode) {
+    allowed.push(
+      settings.locked &&
+        !!source &&
+        sceneStatus.connected &&
+        !!sceneStatus.accuracyChecked
+    )
+  }
+  const handleSceneStatus = useCallback(
+    (next: SceneStatus) => {
+      setSceneStatus(next)
+      if (speakerMode) {
+        setStep((current) => {
+          if (current === 6 && !next.accuracyChecked) {
+            return next.calibrated ? 5 : 4
+          }
+          return current
+        })
+      }
+    },
+    [speakerMode]
+  )
   let eyeDeviceId = ""
   if (source?.kind === "camera") {
     const activeCamera = tracker.devices.find(
@@ -488,25 +533,35 @@ export function EyeTrackingWorkspace({
     >
       <EyeTooltipLayer />
       <header className={`eye-header ${EyeHeaderStyles}`}>
-        <TrackingBrand version={sceneMode ? "SCENE" : "SCREEN"} />
+        <TrackingBrand version={version} />
         <div className={`eye-header-right ${EyeHeaderRightStyles}`}>
-          <Link
-            href="/trial/remote-eye-tracking"
-            className={`remote-trial-link ${RemoteTrialLinkStyles}`}
-          >
-            Remote eye tracking
-          </Link>
-          <span className={`eye-local ${EyeLocalStyles}`}>
-            <span className={`status-light ${StatusLightStyles} on`} />
-            On-device processing
-          </span>
+          {speakerMode && (
+            <button
+              onClick={onReference}
+              className="min-h-11 text-xs text-muted-foreground"
+            >
+              Test a video
+            </button>
+          )}
+          {!speakerMode && (
+            <>
+              <Link
+                href="/trial/remote-eye-tracking"
+                className={`remote-trial-link ${RemoteTrialLinkStyles}`}
+              >
+                Remote eye tracking
+              </Link>
+              <span className={`eye-local ${EyeLocalStyles}`}>
+                <span className={`status-light ${StatusLightStyles} on`} />
+                On-device processing
+              </span>
+            </>
+          )}
         </div>
       </header>
       <div className={`eye-title-row ${EyeTitleRowStyles}`}>
         <div>
-          <h1>
-            {sceneMode ? "Scene camera eye tracking" : "Screen eye tracking"}
-          </h1>
+          <h1>{title}</h1>
         </div>
         <div
           className={`eye-formats ${EyeFormatsStyles}`}
@@ -561,8 +616,10 @@ export function EyeTrackingWorkspace({
           tracker={tracker}
           step={step - 3}
           onStepChange={(next) => setStep(next + 3)}
-          onStatus={setSceneStatus}
+          onStatus={handleSceneStatus}
           eyeRevision={eyeRevision}
+          speakerMode={speakerMode}
+          enabled={active}
         />
       )}
       <div

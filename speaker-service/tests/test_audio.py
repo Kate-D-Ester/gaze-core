@@ -54,7 +54,7 @@ def test_uncovered_output_is_rejected_instead_of_returned_as_fake_silence():
 
 def test_exact_tail_length_and_progress(monkeypatch):
     module = api()
-    monkeypatch.setattr(module, "mouth_sequence", lambda *args: np.zeros((50, 88, 88), np.float32))
+    monkeypatch.setattr(module, "prepare_frames", lambda *args: np.zeros((50, 88, 88), np.float32))
 
     class Model:
         def extract(self, audio, mouth):
@@ -71,7 +71,7 @@ def test_exact_tail_length_and_progress(monkeypatch):
 
 def test_cancel_during_inference_does_not_publish_partial_audio(monkeypatch):
     module = api()
-    monkeypatch.setattr(module, "mouth_sequence", lambda *args: np.zeros((50, 88, 88), np.float32))
+    monkeypatch.setattr(module, "prepare_frames", lambda *args: np.zeros((50, 88, 88), np.float32))
     cancelled = False
 
     class Model:
@@ -86,7 +86,7 @@ def test_cancel_during_inference_does_not_publish_partial_audio(monkeypatch):
 
 def test_invalid_model_output_is_not_published(monkeypatch):
     module = api()
-    monkeypatch.setattr(module, "mouth_sequence", lambda *args: np.zeros((50, 88, 88), np.float32))
+    monkeypatch.setattr(module, "prepare_frames", lambda *args: np.zeros((50, 88, 88), np.float32))
 
     class Model:
         def extract(self, audio, mouth):
@@ -98,7 +98,7 @@ def test_invalid_model_output_is_not_published(monkeypatch):
 
 def test_output_peak_is_limited_without_sample_clipping(monkeypatch):
     module = api()
-    monkeypatch.setattr(module, "mouth_sequence", lambda *args: np.zeros((50, 88, 88), np.float32))
+    monkeypatch.setattr(module, "prepare_frames", lambda *args: np.zeros((50, 88, 88), np.float32))
 
     class Model:
         def extract(self, audio, mouth):

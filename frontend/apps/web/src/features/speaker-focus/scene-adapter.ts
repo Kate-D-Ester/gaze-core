@@ -22,9 +22,11 @@ export class SceneSelectionAdapter {
       input.now - input.frame.timestamp > 150 ||
       input.now < input.frame.timestamp
     ) {
+      this.selection.resetDwell()
       return this.selection.checkTracks([], input.now / 1000)
     }
     if (!input.verified || !input.measurement) {
+      this.selection.resetDwell()
       return this.selection.checkTracks(
         input.tracks,
         input.frame.timestamp / 1000
@@ -33,6 +35,7 @@ export class SceneSelectionAdapter {
     return this.selection.observeGaze(
       {
         measurement: input.measurement,
+        bubble: input.bubble,
         sourceGeneration: this.generation,
         mediaTime: input.frame.timestamp / 1000,
       },

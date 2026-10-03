@@ -30,6 +30,9 @@ export class ClipSession {
   private sourceGeneration = 0
   private disposed = false
   private cached = new Map<string, Job>()
+  private requestedMode: ListeningMode = "original"
+  private listeningRevision = 0
+  private rewinding = false
   constructor(
     readonly video: HTMLVideoElement,
     private readonly options: ClipSessionOptions
@@ -55,6 +58,7 @@ export class ClipSession {
     this.options.playback.mount?.()
     this.video.addEventListener("seeking", this.seek)
     this.video.addEventListener("timeupdate", this.checkFrame)
+    this.video.addEventListener("ended", this.replay)
   }
   getSnapshot = () => this.snapshot
   subscribe = (listener: () => void) => {
@@ -89,6 +93,11 @@ export class ClipSession {
     })
   }
   private seek = () => {
+    const automaticRewind = this.rewinding && this.video.currentTime === 0
+    this.rewinding = false
+    if (automaticRewind) {
+      return
+    }
     if (
       this.activeJob ||
       this.snapshot.status === "processing" ||
@@ -96,6 +105,10 @@ export class ClipSession {
     ) {
       this.stop()
     }
+  }
+  private replay = () => {
+    this.rewinding = true
+    this.video.currentTime = 0
   }
   reportError(error: string): void {
     this.cancelTask()
@@ -127,12 +140,6 @@ export class ClipSession {
     this.healthAbort = abort
     try {
       const health = await this.options.client.health(abort.signal)
-      console.info(
-        "speaker health",
-        health.ready,
-        this.disposed,
-        abort.signal.aborted
-      )
       if (this.disposed || abort.signal.aborted) {
         return
       }
@@ -162,11 +169,14 @@ export class ClipSession {
     }
   }
   private resetSource(): number {
+    this.rewinding = false
     this.sourceAbort?.abort()
     this.sourceAbort = new AbortController()
     this.cancelTask()
     this.options.playback.clear()
     this.video.pause()
+    this.requestedMode = "original"
+    void this.options.playback.listen("original")
     this.cached.clear()
     const previous = this.snapshot.clip
     if (previous) {
@@ -179,6 +189,7 @@ export class ClipSession {
     this.sourceGeneration++
     this.update({
       status: "loading",
+      mode: "original",
       clip: null,
       job: null,
       sourceUrl: null,
@@ -283,8 +294,32 @@ export class ClipSession {
     }
   }
   async listen(mode: ListeningMode): Promise<void> {
-    await this.options.playback.listen(mode)
-    this.update({ mode })
+    const revision = ++this.listeningRevision
+    const source = this.sourceGeneration
+    const selection = this.selection.state.generation
+    this.requestedMode = mode
+    if (mode === "focused" && this.snapshot.job?.status !== "done") {
+      return
+    }
+    const current = () =>
+      !this.disposed &&
+      revision === this.listeningRevision &&
+      source === this.sourceGeneration &&
+      selection === this.selection.state.generation
+    try {
+      await this.options.playback.listen(mode)
+      if (current()) {
+        this.update({ mode, error: "" })
+      }
+    } catch (error) {
+      if (current()) {
+        this.requestedMode = "original"
+        await this.options.playback.listen("original")
+        if (current()) {
+          this.update({ mode: "original", error: message(error) })
+        }
+      }
+    }
   }
   async selectPoint(point: ImagePoint): Promise<void> {
     const clip = this.snapshot.clip
@@ -296,13 +331,23 @@ export class ClipSession {
       point,
       this.video.currentTime
     )
+    if (
+      state.selectedId === this.snapshot.selection.selectedId &&
+      !state.paused &&
+      this.snapshot.job?.status === "done" &&
+      this.options.playback.ready
+    ) {
+      return
+    }
     this.cancelTask()
     this.options.playback.clear()
-    this.update({ selection: state, job: null, error: "" })
+    this.requestedMode = "focused"
+    void this.options.playback.prepare?.().catch(() => {})
+    void this.options.playback.listen("original")
+    this.update({ selection: state, job: null, error: "", mode: "original" })
     if (!state.selectedId) {
       return
     }
-    await this.listen("focused")
     const sourceGeneration = this.sourceGeneration
     const selectionGeneration = state.generation
     const abort = new AbortController()
@@ -368,6 +413,7 @@ export class ClipSession {
       )
       if (current()) {
         this.update({ job: result, status: "ready" })
+        await this.listen(this.requestedMode)
       }
     } catch (error) {
       if (current()) {
@@ -383,6 +429,7 @@ export class ClipSession {
     this.healthAbort?.abort()
     this.video.removeEventListener("seeking", this.seek)
     this.video.removeEventListener("timeupdate", this.checkFrame)
+    this.video.removeEventListener("ended", this.replay)
     const clip = this.snapshot.clip
     if (clip) {
       void this.options.client.remove(clip.id).catch(() => {})

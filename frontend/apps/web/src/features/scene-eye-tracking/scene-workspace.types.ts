@@ -5,6 +5,7 @@ export type SceneStatus = {
   calibrated: boolean
   deviceId?: string
   recording?: boolean
+  accuracyChecked?: boolean
 }
 
 export type SceneWorkspaceProps = {
@@ -13,4 +14,6 @@ export type SceneWorkspaceProps = {
   onStepChange: (step: number) => void
   onStatus: (status: SceneStatus) => void
   eyeRevision: number
+  speakerMode?: boolean
+  enabled?: boolean
 }

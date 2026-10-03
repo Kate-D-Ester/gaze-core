@@ -20,7 +20,7 @@ export type ClipSessionPlayback = Pick<
   PlaybackController,
   "clear" | "dispose" | "listen" | "load" | "mode" | "ready" | "generation"
 > &
-  Partial<Pick<PlaybackController, "mount">>
+  Partial<Pick<PlaybackController, "mount" | "prepare">>
 export type ClipSessionOptions = {
   client: ClipSessionClient
   playback: ClipSessionPlayback

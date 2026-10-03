@@ -62,42 +62,67 @@ not imported, bundled, deleted or changed by this application migration.
 
 ## Local speaker focus
 
-The new public trial extracts a selected visible person's speech with a local
-pretrained RTFS-Net/CTCNet service. Click selection works without gaze hardware;
-the scene camera live stage reuses its existing calibration and camera. Outputs
-are experimental: other voices and artifacts remain, especially in poor video.
-Live playback deliberately includes **4 seconds of delay**. Measured replay
-throughput does not certify ESP32 optics, infrared behavior or physical clocks.
+`/trial/speaker-focus` starts with eye camera setup, eye region/model, scene camera,
+calibration and a fresh accuracy check. Focus then shows the current gaze and the
+selected face. Looking at objects keeps that person locked; a fresh 0.5-second
+dwell on another face switches the lock, while losing the person pauses focused
+audio. When several faces overlap the displayed gaze bubble, the face covering
+the largest area of that bubble wins; equal coverage keeps the current lock.
+**Test a video** opens the separate click-based reference test.
+Returning to setup preserves its calibration. Recalibrate clears the old mapping.
 
-Use two terminals in this isolated worktree. The following uses port 4010 so the
-original v3 checkout's port 4001 can stay running.
+The local service extracts the selected face's voice from the original mixed audio
+and synchronized face video. Original audio stays available during extraction.
+The computed voice becomes available when its waveform is ready; you can compare
+Original and Focused without processing the same target again. Outputs remain
+experimental: overlapping voices and artifacts can remain.
+
+Prepare dependencies and the approved mixed reference once:
 
 ```sh
 cd ~/Desktop/Codex-projects/gaze-speaker-focus/speaker-service
 uv sync --frozen
 uv run python -m gaze_speaker.assets --dir data/assets
-uv run gaze-speaker --device auto --origin http://127.0.0.1:4010
+cd ../frontend
+bun install --frozen-lockfile
+bun run prepare:speaker-reference ~/Desktop/Codex-projects/scene-speech-reference/cnn-debate-low-quality-320x180-15fps.mp4
+bun run dev:speaker-focus
 ```
+
+Open `http://127.0.0.1:4010/trial/speaker-focus`. The single development command
+starts the frontend, local model service on 4033 and a dedicated camera relay on
+4023 with this exact allowed origin. It leaves the original v3 frontend and relay
+on 4001/4022 alone. Stop the command before restarting it. The reference setup
+verifies SHA-256 and keeps the video out of Git; local uploads are also supported.
+
+To try the optional AV-MossFormer2 engine, explicitly prepare its official weights,
+then launch the same workspace with that engine:
 
 ```sh
-cd ~/Desktop/Codex-projects/gaze-speaker-focus/frontend
-bun install --frozen-lockfile
-bun run prepare:speaker-reference
-bun run build
-cd apps/web
-bun x next start --hostname 127.0.0.1 --port 4010
+cd ~/Desktop/Codex-projects/gaze-speaker-focus/speaker-service
+uv run python -m gaze_speaker.assets --engine av-mossformer2 --dir data/av-assets
+cd ../frontend
+GAZE_SPEAKER_ENGINE=av-mossformer2 bun run dev:speaker-focus
 ```
 
-Open `http://127.0.0.1:4010/trial/speaker-focus`. Reference preparation expects
-only the approved mixed degraded clip in the sibling `scene-speech-reference`
-folder; it verifies its SHA-256 and keeps it out of Git. A local file upload is
-also supported. For ESP32 network video in a built preview, start the existing
-relay with `bun run camera-relay` from `frontend/apps/web`; the scene viewer remains available, but live speaker focus rejects arrival-only
-network video because changing camera latency cannot be measured. Use a USB camera
-or synchronized recording for speech separation. USB live mode requests a separate
-microphone explicitly and requires an audiovisual alignment check. Model downloads are explicit and checksum pinned.
+RTFS remains the default. The service engine and actual inference device are shown
+in the reference test. AV-MossFormer2 is a promising comparison candidate; our local
+ASR/signal diagnostics are not a human listening test or proof of clean isolation.
+See [reusable model research](docs/speaker-separation-research.md) for primary sources,
+measured Mac performance and limitations.
 
-See [speaker service setup](speaker-service/README.md) for configuration and
-limits, and [measurements and quality limits](docs/gaze-speaker-focus-results.md)
-for reproducible tests. No cloud inference, auth server, merge or publication is
-required for this local trial.
+Live listening requests a microphone explicitly and requires a camera/microphone
+alignment check. It has **4 seconds of playback delay** and one selected target.
+An arrival-only network scene stream, including ordinary ESP32 MJPEG, cannot supply
+capture-clock evidence for synchronized extraction; use a USB scene camera or a
+synchronized video. An ESP32 eye stream can still supply gaze through the relay.
+Physical gaze accuracy and sustained live performance require a hardware trial.
+
+For a built frontend, compile with `NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT=4023` and run
+Next on `127.0.0.1:4010`. Start the service with that exact origin, and the relay with
+`GAZE_CAMERA_RELAY_PORT=4023 GAZE_CAMERA_RELAY_ALLOWED_ORIGINS=http://127.0.0.1:4010`.
+Model downloads are explicit and checksum pinned.
+
+See [speaker service setup](speaker-service/README.md) for configuration/limits and
+[original measurements](docs/gaze-speaker-focus-results.md) for reproducible RTFS
+checks. Local inference needs no cloud account or auth server.

@@ -15,7 +15,7 @@ from fastapi import WebSocket
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketDisconnect
 
-from .faces import FaceTrack, mouth_sequence
+from .faces import FaceTrack, prepare_frames
 from .jobs import ServiceError, Store
 from .live_faces import LiveFaces, decode_frame
 from .live_protocol import LiveBuffer, LiveOverlap, decode_packet, encode_packet
@@ -33,7 +33,6 @@ class LiveConfig(BaseModel):
     sync_verified: Literal[True]
     video_offset_ms: float = Field(ge=-500, le=500)
     client_time: float = Field(ge=0)
-
 
     @field_validator("source")
     @classmethod
@@ -171,11 +170,13 @@ class LiveSession:
                 window.frames[0].shape[0],
                 2,
             )
-            mouths = mouth_sequence(media, track, window.start, 2)
             separator = self.owner.separator
             if separator is None:
                 raise ValueError("The separation model is unavailable")
-            focused = separator.extract(window.audio, mouths)
+            frames = prepare_frames(
+                media, track, window.start, 2, getattr(separator, "engine_key", "rtfs")
+            )
+            focused = separator.extract(window.audio, frames)
             if self.cancel.is_set() or generation != self.generation:
                 return
             if self.overlap_generation != generation:

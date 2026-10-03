@@ -277,6 +277,7 @@ dependencies = [
     { name = "psutil" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "rotary-embedding-torch" },
     { name = "scipy" },
     { name = "soundfile" },
     { name = "sru" },
@@ -308,6 +309,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=7.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rotary-embedding-torch", specifier = "==0.8.3" },
     { name = "scipy", specifier = ">=1.15" },
     { name = "soundfile", specifier = ">=0.13" },
     { name = "sru", specifier = ">=2.6" },
@@ -998,6 +1000,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/74/93/7baea19427dcfbe1e5a372d81473250b379f04b1bd3c4c5ff825e2327202/pyyaml-6.0.3-cp312-cp312-win32.whl", hash = "sha256:96b533f0e99f6579b3d4d4995707cf36df9100d67e0c8303a0c55b27b5f99bc5", size = 137658, upload-time = "2025-09-25T21:32:20.209Z" },
     { url = "https://files.pythonhosted.org/packages/86/bf/899e81e4cce32febab4fb42bb97dcdf66bc135272882d1987881a4b519e9/pyyaml-6.0.3-cp312-cp312-win_amd64.whl", hash = "sha256:5fcd34e47f6e0b794d17de1b4ff496c00986e1c83f7ab2fb8fcfe9616ff7477b", size = 154003, upload-time = "2025-09-25T21:32:21.167Z" },
     { url = "https://files.pythonhosted.org/packages/1a/08/67bd04656199bbb51dbed1439b7f27601dfb576fb864099c7ef0c3e55531/pyyaml-6.0.3-cp312-cp312-win_arm64.whl", hash = "sha256:64386e5e707d03a7e172c0701abfb7e10f0fb753ee1d773128192742712a98fd", size = 140344, upload-time = "2025-09-25T21:32:22.617Z" },
+]
+
+[[package]]
+name = "rotary-embedding-torch"
+version = "0.8.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/1b/a48e340986fc7bc208b89ebe532036db68c0b22c8d944584b80301a63a81/rotary_embedding_torch-0.8.3.tar.gz", hash = "sha256:6ecad1e830616a99380deb466383fc5a8c225ab53ead1b1d3fecd71978e1f63a", size = 7158, upload-time = "2024-09-07T12:19:31.389Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/64/c0062faf35184b8d3cbe7863589cd69dbca4bde0115ac5eea1aa480d1194/rotary_embedding_torch-0.8.3-py3-none-any.whl", hash = "sha256:971c963e9d37a1d82577014a7feda62d1b785562cfba22ffa4ab2ea0eebd910f", size = 5502, upload-time = "2024-09-07T12:19:30.506Z" },
 ]
 
 [[package]]

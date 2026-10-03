@@ -182,7 +182,7 @@ async def test_late_inference_error_is_discarded_after_target_change(tmp_path, m
 
     owner.separator = SimpleNamespace(device="cpu", extract=failure)
     monkeypatch.setattr(
-        "gaze_speaker.live.mouth_sequence", lambda *_: np.zeros((50, 88, 88), np.float32)
+        "gaze_speaker.live.prepare_frames", lambda *_: np.zeros((50, 88, 88), np.float32)
     )
     try:
         frame = np.zeros((8, 8, 3), np.uint8)

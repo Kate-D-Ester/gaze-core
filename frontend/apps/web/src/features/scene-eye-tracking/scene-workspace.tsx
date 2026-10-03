@@ -4,7 +4,7 @@ import type { GazeBubbleOverlaySnapshot } from "../gaze-bubble/gaze-bubble-overl
 import { CameraTransformControls } from "../eye-tracking/components/camera-transform-controls"
 import { SetupStepPanel } from "../eye-tracking/components/setup-step-panel"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
-import { EyeFieldStyles } from "../tracking-ui/control-styles"
+import { EyeButtonStyles, EyeFieldStyles } from "../tracking-ui/control-styles"
 import {
   SceneDelaySettingsStyles,
   SceneMainPreviewStyles,
@@ -45,6 +45,8 @@ export function SceneWorkspace({
   onStepChange,
   onStatus,
   eyeRevision,
+  speakerMode = false,
+  enabled = true,
 }: SceneWorkspaceProps) {
   const [recording, setRecording] = useState(false)
   const scenePreview = useRef<HTMLCanvasElement | null>(null)
@@ -90,11 +92,11 @@ export function SceneWorkspace({
   const isMarker = state.method === "marker"
   const hands = useHandTracker(
     scene.camera,
-    step >= 0 && !!scene.source && !isMarker
+    enabled && step >= 0 && step < 3 && !!scene.source && !isMarker
   )
   const markers = useMarkerTracker(
     scene.camera,
-    step >= 0 && !!scene.source && isMarker
+    enabled && step >= 0 && step < 3 && !!scene.source && isMarker
   )
   const referenceTracker = isMarker ? markers : hands
   useEffect(() => {
@@ -108,14 +110,16 @@ export function SceneWorkspace({
     }
   }, [hands.hand, isMarker, markers.marker, state.session])
   const calibrated = canUseSceneCalibration(state)
+  const accuracyChecked = hasCurrentAccuracyCheck(state)
   useEffect(() => {
     onStatus({
       connected: !!scene.source,
       calibrated,
       deviceId: scene.source?.deviceId,
       recording,
+      accuracyChecked,
     })
-  }, [onStatus, recording, scene.source, calibrated])
+  }, [onStatus, recording, scene.source, calibrated, accuracyChecked])
   const canCapture =
     !!scene.source &&
     scene.connection === "live" &&
@@ -123,7 +127,9 @@ export function SceneWorkspace({
     referenceTracker.status === "ready" &&
     !!tracker.frame?.gaze
   const active = Math.max(0, step)
-  const showEye = step >= 0 && (active === 1 || !!state.capture)
+  const showEye =
+    step >= 0 &&
+    (active === 1 || (speakerMode && active === 2) || !!state.capture)
   const eyeEvidence = sceneEyeEvidence(
     tracker.frame,
     tracker.settings.locked,
@@ -183,6 +189,37 @@ export function SceneWorkspace({
   const targetReady = isMarker
     ? !!markers.marker?.position
     : displayHand?.landmarks.length === 1
+  if (speakerMode && active === 3 && !state.capture) {
+    return (
+      <section
+        aria-label="Calibrated speaker focus"
+        className="mx-auto w-full max-w-6xl flex-1 overflow-auto px-4 pb-5"
+      >
+        <SceneSpeakerPanel
+          camera={scene.camera}
+          frame={scene.frame}
+          measurement={state.measurement}
+          verified={hasCurrentAccuracyCheck(state)}
+          errorRadiusPx={state.validation?.pixelRms ?? null}
+          identity={identity}
+          source={scene.source}
+          guided
+          active={enabled && step >= 0}
+        />
+        <button
+          className="min-h-11 text-xs text-muted-foreground"
+          onClick={() => {
+            state.session.invalidate(
+              "Collect a new mapping after recalibration."
+            )
+            onStepChange(1)
+          }}
+        >
+          Recalibrate
+        </button>
+      </section>
+    )
+  }
   return (
     <section
       className={[
@@ -290,8 +327,14 @@ export function SceneWorkspace({
         <CalibrationEyePreview tracker={tracker} evidence={eyeEvidence} />
       )}
       <SetupStepPanel
-        stepName={NAMES[active]}
-        description={description}
+        stepName={
+          speakerMode && active === 2 ? "Check accuracy" : NAMES[active]
+        }
+        description={
+          speakerMode && active === 2
+            ? "Check the gaze against fresh reference points."
+            : description
+        }
         error={scene.error || referenceTracker.error}
         message={
           state.validation && !state.validation.passed ? "" : state.notice
@@ -322,7 +365,49 @@ export function SceneWorkspace({
             onLive={() => onStepChange(2)}
           />
         )}
-        {active === 2 && !state.capture && (
+        {active === 2 && speakerMode && !state.capture && (
+          <>
+            <p className="text-xs" role="status">
+              {hasCurrentAccuracyCheck(state)
+                ? "Accuracy checked"
+                : "Check accuracy before gaze selection"}
+            </p>
+            <button
+              className={`eye-button ${EyeButtonStyles} primary`}
+              disabled={!canCapture}
+              onClick={() => state.session.startCapture("validation")}
+            >
+              Check accuracy
+            </button>
+            <button
+              className={`eye-button ${EyeButtonStyles} primary`}
+              disabled={!hasCurrentAccuracyCheck(state)}
+              onClick={() => onStepChange(3)}
+            >
+              Continue to focus
+            </button>
+            <details className="mt-3 text-xs">
+              <summary>Adjust gaze</summary>
+              <SceneLiveControls
+                session={state.session}
+                state={state}
+                sceneDimensions={scene.frame ?? undefined}
+                canValidate={canCapture}
+                onMethodChange={(method) => {
+                  state.session.setMethod(method)
+                  onStepChange(1)
+                }}
+                onCalibrate={() => {
+                  state.session.invalidate(
+                    "Collect a new mapping after recalibration."
+                  )
+                  onStepChange(1)
+                }}
+              />
+            </details>
+          </>
+        )}
+        {active === 2 && !speakerMode && !state.capture && (
           <>
             <SceneLiveControls
               session={state.session}
@@ -346,6 +431,7 @@ export function SceneWorkspace({
               frame={scene.frame}
               measurement={state.measurement}
               verified={hasCurrentAccuracyCheck(state)}
+              errorRadiusPx={state.validation?.pixelRms ?? null}
               identity={identity}
               source={scene.source}
             />
@@ -374,7 +460,7 @@ export function SceneWorkspace({
             </label>
           </details>
         )}
-        <div hidden={active !== 2}>
+        <div hidden={active !== 2 || speakerMode}>
           <RecordingControls
             preview={{ scene: scenePreview, gaze: gazePreview }}
             camera={scene.camera}

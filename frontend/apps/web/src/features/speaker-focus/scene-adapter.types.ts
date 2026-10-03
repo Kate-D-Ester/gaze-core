@@ -1,3 +1,4 @@
+import type { SelectionBubble } from "./bubble-selection.types"
 import type {
   GazeMeasurement,
   SceneObservation,
@@ -7,6 +8,7 @@ export type SceneSelectionInput = {
   identity: string
   frame: SceneObservation | null
   measurement: GazeMeasurement | null
+  bubble?: SelectionBubble | null
   verified: boolean
   tracks: readonly FaceTrack[]
   now: number

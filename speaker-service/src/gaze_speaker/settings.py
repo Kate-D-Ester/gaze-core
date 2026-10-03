@@ -9,6 +9,7 @@ class Settings:
     data_dir: Path = Path("data/sessions")
     asset_dir: Path = Path("data/assets")
     device: str = "auto"
+    engine: str = "rtfs"
     origin: str = "http://localhost:4001"
     port: int = 4033
     max_upload_bytes: int = 120 * 1024 * 1024
@@ -20,6 +21,8 @@ class Settings:
     max_duration: float = 120
 
     def __post_init__(self):
+        if self.engine not in {"rtfs", "av-mossformer2"}:
+            raise ValueError("Unsupported separation engine")
         if self.device not in {"cpu", "mps", "auto"}:
             raise ValueError("Unsupported inference device")
         if (

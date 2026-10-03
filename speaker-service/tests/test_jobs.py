@@ -137,7 +137,7 @@ def test_cancel_during_model_execution_discards_completed_window(tmp_path, monke
     )
     monkeypatch.setattr(module, "decode_media", lambda *args: media)
     audio = importlib.import_module("gaze_speaker.audio")
-    monkeypatch.setattr(audio, "mouth_sequence", lambda *args: np.zeros((50, 88, 88), np.float32))
+    monkeypatch.setattr(audio, "prepare_frames", lambda *args: np.zeros((50, 88, 88), np.float32))
     entered, release = threading.Event(), threading.Event()
 
     class Model:

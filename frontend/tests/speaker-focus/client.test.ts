@@ -160,3 +160,20 @@ test("native browser fetch is called with the global receiver", async () => {
     globalThis.fetch = original
   }
 })
+
+test("accepts both supported local engines and rejects an unknown engine", async () => {
+  const av = new SpeakerClient({
+    fetcher: respond({
+      ...health,
+      engine: "AV-MossFormer2-TSE-16K",
+      device: "mps",
+    }),
+  })
+  expect((await av.health()).engine).toBe("AV-MossFormer2-TSE-16K")
+  const unknown = new SpeakerClient({
+    fetcher: respond({ ...health, engine: "unknown" }),
+  })
+  await expect(unknown.health()).rejects.toMatchObject({
+    code: "invalid_response",
+  })
+})

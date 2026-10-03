@@ -5,7 +5,7 @@ export function listeningStatus(
   progress: number
 ): string {
   if (state.status === "processing") {
-    return `Extracting selected voice · ${progress}%`
+    return `Preparing voice · ${progress}% · original audio stays available`
   }
   if (state.status === "analysing") {
     return "Analysing visible faces…"

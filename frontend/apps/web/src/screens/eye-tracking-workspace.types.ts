@@ -1,5 +1,8 @@
 export type EyeTrackingWorkspaceProps = {
   sceneMode?: boolean
+  speakerMode?: boolean
+  active?: boolean
+  onReference?: () => void
 }
 
 export type SetupStepName =

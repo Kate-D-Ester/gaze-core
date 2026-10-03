@@ -1,20 +1,46 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import type { GazeBubbleOverlaySnapshot } from "../gaze-bubble/gaze-bubble-overlay.types"
+import { visibleSelectionBubble } from "./bubble-selection"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import { Button } from "@workspace/ui/components/button"
+import { GazeBubbleOverlay } from "../gaze-bubble/gaze-bubble-overlay"
 import { LiveController } from "./live-controller"
-import { boxAtTime, imagePoint } from "./selection"
+import { boxAtTime, imagePoint, verifiedGazePoint } from "./selection"
 import type { ImagePoint } from "./selection.types"
 import type { SceneSpeakerPanelProps } from "./scene-panel.types"
+
 export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   const [controller] = useState(() => new LiveController())
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot
   )
+  const evidence = useRef(props)
+  useLayoutEffect(() => {
+    evidence.current = props
+  }, [props])
   const current = useRef<HTMLCanvasElement>(null)
   const delayed = useRef<HTMLCanvasElement>(null)
   const surface = useRef<HTMLDivElement>(null)
   const [verifiedIdentity, setVerifiedIdentity] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
+  const [clock, setNow] = useState(0)
+  // New source samples may arrive between timer ticks. Their own timestamps
+  // keep rendering current; the overlay/controller verify real age in effects.
+  const now = Math.max(
+    clock,
+    props.frame?.timestamp ?? 0,
+    props.measurement?.timestamp ?? 0
+  )
+  const [marking, setMarking] = useState(false)
+  const [anchor, setAnchor] = useState<ImagePoint | null>(null)
+  const active = props.active !== false
   const syncIdentity = JSON.stringify([
     props.identity,
     props.frame?.generation,
@@ -23,196 +49,268 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     offset,
   ])
   const verified = verifiedIdentity === syncIdentity
-  const [marking, setMarking] = useState(false)
-  const [anchor, setAnchor] = useState<ImagePoint | null>(null)
+  const busy = state.status === "starting" || state.status === "live"
+  const arrivalOnly = props.source?.kind === "network"
+  const time = (props.frame?.timestamp ?? 0) / 1000
+  const frameFresh =
+    !!props.frame &&
+    now >= props.frame.timestamp &&
+    now - props.frame.timestamp <= 150
+  const point =
+    props.verified && frameFresh
+      ? verifiedGazePoint(props.measurement, now)
+      : null
+  const selected = state.tracks.findIndex(
+    (track) => track.id === state.selection.selectedId
+  )
+  let status = "Check camera/microphone alignment below, then start listening."
+  if (verified) {
+    status = "Start listening, then look at or click a face."
+  }
+  if (busy) {
+    status = "Look at a face for 0.5 s, or click to select."
+    if (!props.verified) {
+      status = "Click a face. Check gaze accuracy to use gaze selection."
+    }
+    if (selected >= 0) {
+      status = `Speaker ${selected + 1} locked · 4 s listening delay`
+    }
+    if (state.selection.paused) {
+      status = "Face lost · select it again"
+    }
+  }
   useEffect(() => {
     controller.mount()
     return () => controller.dispose()
   }, [controller])
+  const handleBubbleSnapshot = useCallback(
+    (snapshot: GazeBubbleOverlaySnapshot | null) => {
+      const measurement = evidence.current.measurement
+      const bubble = visibleSelectionBubble(
+        snapshot,
+        measurement,
+        evidence.current.verified,
+        performance.now()
+      )
+      controller.setDisplayedGaze(
+        measurement && bubble ? { measurement, bubble } : null
+      )
+    },
+    [controller]
+  )
   useEffect(() => {
     controller.setEvidence(props)
   }, [controller, props])
   useEffect(() => {
+    if (!active) {
+      controller.stop()
+    }
+  }, [active, controller])
+  useEffect(() => {
+    if (!active) {
+      return
+    }
     const timer = setInterval(() => {
-      if (current.current && props.camera.latest) {
-        current.current.width = props.camera.rawCanvas.width
-        current.current.height = props.camera.rawCanvas.height
-        current.current
-          .getContext("2d")
-          ?.drawImage(props.camera.rawCanvas, 0, 0)
+      setNow(performance.now())
+      const canvas = current.current
+      if (canvas && props.camera.latest) {
+        const source = props.camera.rawCanvas
+        if (canvas.width !== source.width || canvas.height !== source.height) {
+          canvas.width = source.width
+          canvas.height = source.height
+        }
+        canvas.getContext("2d")?.drawImage(source, 0, 0)
       }
       if (delayed.current) {
         controller.draw(delayed.current)
       }
     }, 50)
     return () => clearInterval(timer)
-  }, [controller, props.camera])
-  const arrivalOnly = props.source?.kind === "network"
-  const busy = state.status === "starting" || state.status === "live"
-  const time = (props.frame?.timestamp ?? 0) / 1000
+  }, [active, controller, props.camera])
   return (
-    <section
-      aria-label="Live speaker focus"
-      className="mt-4 space-y-4 rounded-xl border p-4 text-sm"
-    >
-      <div>
-        <h3 className="font-semibold">Live speaker focus</h3>
-        <p className="text-xs text-muted-foreground">
-          Camera plus a separate mixed-audio microphone. Only explicit Start
-          requests microphone access.
-        </p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="mb-2 text-xs">Current scene · select a face</p>
-          <div
-            ref={surface}
-            className="relative overflow-hidden rounded border bg-black"
-            style={{
-              aspectRatio: props.frame
-                ? `${props.frame.width}/${props.frame.height}`
-                : "4/3",
-            }}
-          >
-            <canvas
-              ref={current}
-              className="block w-full"
-              aria-label="Current scene for speaker selection"
-            />
-            {!marking &&
-              state.tracks.map((track, index) => {
-                const box = boxAtTime(track, time)
-                if (!box) {
-                  return null
-                }
-                return (
-                  <button
-                    key={track.id}
-                    aria-label={`Select live speaker ${index + 1}`}
-                    aria-pressed={state.selection.selectedId === track.id}
-                    className={`absolute border-2 ${state.selection.selectedId === track.id ? "border-primary" : "border-white/70"}`}
-                    style={{
-                      left: `${box[0] * 100}%`,
-                      top: `${box[1] * 100}%`,
-                      width: `${box[2] * 100}%`,
-                      height: `${box[3] * 100}%`,
-                    }}
-                    onClick={() =>
-                      controller.select([
-                        box[0] + box[2] / 2,
-                        box[1] + box[3] / 2,
-                      ])
-                    }
-                  >
-                    <span className="bg-black/80 p-1 text-xs">{index + 1}</span>
-                  </button>
-                )
-              })}
-            {marking && (
-              <div
-                role="application"
-                aria-label="Draw live face correction"
-                className="absolute inset-0 cursor-crosshair touch-none"
-                onPointerDown={(event) => {
-                  const element = surface.current
-                  if (!element || !props.frame) {
-                    return
-                  }
-                  setAnchor(
-                    imagePoint(
-                      [event.clientX, event.clientY],
-                      element.getBoundingClientRect(),
-                      props.frame.width,
-                      props.frame.height
-                    )
-                  )
-                  event.currentTarget.setPointerCapture(event.pointerId)
-                }}
-                onPointerUp={(event) => {
-                  const element = surface.current
-                  if (!element || !props.frame || !anchor) {
-                    return
-                  }
-                  const point = imagePoint(
-                    [event.clientX, event.clientY],
-                    element.getBoundingClientRect(),
-                    props.frame.width,
-                    props.frame.height
-                  )
-                  if (point) {
-                    const box = [
-                      Math.min(anchor[0], point[0]),
-                      Math.min(anchor[1], point[1]),
-                      Math.abs(point[0] - anchor[0]),
-                      Math.abs(point[1] - anchor[1]),
-                    ] as const
-                    if (box[2] > 0.02 && box[3] > 0.02) {
-                      controller.correct(box)
-                    }
-                  }
-                  setMarking(false)
-                  setAnchor(null)
-                }}
-                onPointerCancel={() => {
-                  setAnchor(null)
-                  setMarking(false)
-                }}
-              />
-            )}
+    <section aria-label="Live speaker focus" className="space-y-4 py-4 text-sm">
+      {!props.guided && <h3 className="font-semibold">Speaker focus</h3>}
+      <div
+        ref={surface}
+        className="relative overflow-hidden rounded-xl border bg-black"
+        style={{
+          aspectRatio: props.frame
+            ? `${props.frame.width}/${props.frame.height}`
+            : "4/3",
+        }}
+      >
+        <canvas
+          ref={current}
+          className="block w-full"
+          aria-label="Current scene for speaker selection"
+        />
+        {!props.frame && (
+          <div className="absolute inset-0 grid place-items-center text-muted-foreground">
+            Connect a scene camera
           </div>
-        </div>
-        <div>
-          <p className="mb-2 text-xs">Listening view · 4.0 s delayed</p>
-          <canvas
-            ref={delayed}
-            className="aspect-video w-full rounded border bg-black"
-            aria-label="Video synchronized with delayed live audio"
+        )}
+        {!marking &&
+          state.tracks.map((track, index) => {
+            const box = boxAtTime(track, time)
+            if (!box || !frameFresh) {
+              return null
+            }
+            const locked =
+              state.selection.selectedId === track.id && !state.selection.paused
+            return (
+              <button
+                key={track.id}
+                aria-label={`Select live speaker ${index + 1}`}
+                aria-pressed={locked}
+                className={`absolute rounded border-2 ${locked ? "border-primary bg-primary/10" : "border-white/60"}`}
+                style={{
+                  left: `${box[0] * 100}%`,
+                  top: `${box[1] * 100}%`,
+                  width: `${box[2] * 100}%`,
+                  height: `${box[3] * 100}%`,
+                }}
+                onClick={() =>
+                  controller.select([box[0] + box[2] / 2, box[1] + box[3] / 2])
+                }
+              >
+                <span className="absolute -top-6 left-0 rounded bg-black/80 px-2 py-1 text-xs">
+                  {index + 1}
+                  {locked && " · locked"}
+                </span>
+              </button>
+            )
+          })}
+        {props.frame && (
+          <GazeBubbleOverlay
+            point={point}
+            timestamp={props.measurement?.timestamp ?? null}
+            verified={props.verified}
+            resetKey={props.identity}
+            fixed={false}
+            stabilize={false}
+            animate={false}
+            imageSize={props.frame}
+            maxAgeMs={150}
+            errorRadiusPx={props.errorRadiusPx ?? null}
+            onSnapshot={handleBubbleSnapshot}
           />
+        )}
+        {marking && (
+          <div
+            role="application"
+            aria-label="Draw live face correction"
+            className="absolute inset-0 z-10 cursor-crosshair touch-none"
+            onPointerDown={(event) => {
+              const element = surface.current
+              if (!element || !props.frame) {
+                return
+              }
+              setAnchor(
+                imagePoint(
+                  [event.clientX, event.clientY],
+                  element.getBoundingClientRect(),
+                  props.frame.width,
+                  props.frame.height
+                )
+              )
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }}
+            onPointerUp={(event) => {
+              const element = surface.current
+              if (!element || !props.frame || !anchor) {
+                return
+              }
+              const end = imagePoint(
+                [event.clientX, event.clientY],
+                element.getBoundingClientRect(),
+                props.frame.width,
+                props.frame.height
+              )
+              if (end) {
+                const box = [
+                  Math.min(anchor[0], end[0]),
+                  Math.min(anchor[1], end[1]),
+                  Math.abs(end[0] - anchor[0]),
+                  Math.abs(end[1] - anchor[1]),
+                ] as const
+                if (box[2] > 0.02 && box[3] > 0.02) {
+                  controller.correct(box)
+                }
+              }
+              setMarking(false)
+              setAnchor(null)
+            }}
+            onPointerCancel={() => {
+              setAnchor(null)
+              setMarking(false)
+            }}
+          />
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p role="status" className="text-xs">
+          {status}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {busy ? (
+            <>
+              <Button
+                size="sm"
+                aria-pressed={state.mode === "original"}
+                variant={state.mode === "original" ? "default" : "outline"}
+                onClick={() => controller.listen("original")}
+              >
+                Original
+              </Button>
+              <Button
+                size="sm"
+                aria-pressed={state.mode === "focused"}
+                variant={state.mode === "focused" ? "default" : "outline"}
+                onClick={() => controller.listen("focused")}
+              >
+                Focused
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => controller.stop()}
+              >
+                Stop
+              </Button>
+            </>
+          ) : (
+            <Button
+              aria-label="Start live microphone"
+              disabled={!active || !props.source || !verified || arrivalOnly}
+              onClick={() => {
+                void controller.start(verified, offset)
+              }}
+            >
+              Start listening
+            </Button>
+          )}
         </div>
       </div>
-      <p className="text-xs">
-        {props.verified
-          ? "Verified calibrated gaze: hold on one face for 0.5 s."
-          : "Click a face. A current scene accuracy check is required for gaze selection."}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {state.tracks.map((track, index) => {
-          const box = boxAtTime(track, time)
-          if (!box) {
-            return null
-          }
-          return (
-            <Button
-              key={track.id}
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                controller.select([box[0] + box[2] / 2, box[1] + box[3] / 2])
-              }
-            >
-              Live speaker {index + 1}
-            </Button>
-          )
-        })}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={state.status !== "live"}
-          onClick={() => setMarking(!marking)}
-        >
-          {marking ? "Cancel region" : "Correct live face region"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={state.status !== "live"}
-          onClick={() => controller.correct(null)}
-        >
-          Clear correction
-        </Button>
-      </div>
-      <div className="flex flex-wrap items-end gap-4">
-        <label className="text-xs">
+      {state.error && (
+        <p role="alert" className="text-xs text-amber-200">
+          {state.error}
+        </p>
+      )}
+      {arrivalOnly && (
+        <p role="alert" className="text-xs text-amber-200">
+          This network camera has no capture timestamps. Use a USB scene camera
+          or test a synchronized video for focused audio.
+        </p>
+      )}
+      <details className="space-y-3 text-xs" open={!verified && !busy}>
+        <summary className="cursor-pointer py-2">
+          Camera &amp; microphone alignment
+        </summary>
+        <p>
+          Clap once and check the picture matches the sound. Sessions last up to
+          120 seconds.
+        </p>
+        <label className="block">
           Video timing offset · ms
           <input
             aria-label="Live video synchronization offset (ms)"
@@ -226,80 +324,53 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             onChange={(event) => setOffset(Number(event.target.value))}
           />
         </label>
-        <label className="flex items-center gap-2 text-xs">
+        <label className="flex items-center gap-2">
           <input
             type="checkbox"
             checked={verified}
-            disabled={busy}
+            disabled={busy || arrivalOnly}
             onChange={(event) =>
               setVerifiedIdentity(event.target.checked ? syncIdentity : null)
             }
           />
           I checked camera/microphone alignment
         </label>
-        <Button
-          disabled={busy || !props.source || !verified || arrivalOnly}
-          onClick={() => {
-            void controller.start(verified, offset)
-          }}
-        >
-          {state.status === "starting" ? "Starting…" : "Start live microphone"}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!busy}
-          onClick={() => controller.stop()}
-        >
-          Stop live
-        </Button>
-      </div>
-      {arrivalOnly && (
-        <p role="alert" className="text-xs text-amber-200">
-          Network camera capture timestamps are unavailable. Live focused audio
-          is unavailable for this arrival-only stream; use a USB camera or a
-          synchronized recording. A manual offset cannot detect changing network
-          latency.
-        </p>
-      )}
-      <p className="text-xs text-muted-foreground">
-        Use a clap or visible speech to check alignment. Positive offset moves
-        video later. Network arrival timestamps alone cannot verify capture
-        timing; actual ESP32 clock validation is still required. Sessions stop
-        after 120 seconds.
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant={state.mode === "original" ? "default" : "outline"}
-          size="sm"
-          onClick={() => controller.listen("original")}
-        >
-          Original microphone
-        </Button>
-        <Button
-          variant={state.mode === "focused" ? "default" : "outline"}
-          size="sm"
-          onClick={() => controller.listen("focused")}
-        >
-          Focused live audio
-        </Button>
-      </div>
-      <p role="status" className="text-xs">
-        {state.status} · {state.device || "local service"} · 2 s context / 1 s
-        stride · 4.0 s total playout delay
-        {state.inferenceSeconds !== null
-          ? ` · last inference ${state.inferenceSeconds.toFixed(2)} s · arrived after ${state.arrivalDelay?.toFixed(2)} s`
-          : ""}
-      </p>
-      <p className="text-xs">
-        {state.selection.reason}
-        {state.mode === "focused" && !state.selection.selectedId
-          ? " · focused audio is silent until a face is selected"
-          : ""}
-      </p>
-      {state.error && (
-        <p role="alert" className="text-xs text-amber-200">
-          {state.error}
-        </p>
+      </details>
+      {busy && (
+        <details className="space-y-3 text-xs">
+          <summary className="cursor-pointer py-2">
+            Listening preview &amp; tracking
+          </summary>
+          <p>
+            Preview matches the audio · 4 s delayed. Select faces in the current
+            scene above.
+          </p>
+          <canvas
+            ref={delayed}
+            className="aspect-video w-full rounded border bg-black"
+            aria-label="Video synchronized with delayed live audio"
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMarking(!marking)}
+            >
+              {marking ? "Cancel region" : "Correct face region"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => controller.correct(null)}
+            >
+              Clear correction
+            </Button>
+          </div>
+          <p>
+            {state.device} · last extraction{" "}
+            {state.inferenceSeconds?.toFixed(2) ?? "—"} s
+          </p>
+        </details>
       )}
     </section>
   )

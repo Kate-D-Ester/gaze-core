@@ -1,9 +1,11 @@
+import { verifiedGazePoint } from "./gaze-evidence"
 import { SpeakerClient } from "./client"
 import { startCapture, startMicrophone } from "./capture"
 import { LivePlayer } from "./live-player"
 import { liveReplySchema } from "./live-schema"
 import { SceneSelectionAdapter } from "./scene-adapter"
 import type {
+  DisplayedGaze,
   LiveEvidence,
   LiveReply,
   LiveState,
@@ -26,6 +28,7 @@ export class LiveController {
   }
   private listeners = new Set<() => void>()
   private evidence: LiveEvidence | null = null
+  private displayedGaze: DisplayedGaze | null = null
   private sourceIdentity = ""
   private abort: AbortController | null = null
   private socket: WebSocket | null = null
@@ -62,10 +65,15 @@ export class LiveController {
       evidence.source?.key,
     ])
     if (this.sourceIdentity && identity !== this.sourceIdentity) {
+      this.displayedGaze = null
       this.stop("Scene source or orientation changed; restart live capture")
     }
     this.sourceIdentity = identity
     this.evidence = evidence
+    this.observe()
+  }
+  setDisplayedGaze(gaze: DisplayedGaze | null): void {
+    this.displayedGaze = gaze
     this.observe()
   }
   private observe(): void {
@@ -73,11 +81,19 @@ export class LiveController {
     if (!evidence || this.snapshot.status !== "live") {
       return
     }
+    const now = performance.now()
+    // Keep the bubble and its source sample together across React commits. A
+    // physically missing/invalid eye sample still interrupts dwell immediately.
+    const displayed = verifiedGazePoint(evidence.measurement, now)
+      ? this.displayedGaze
+      : null
     const previous = this.adapter.state
     const next = this.adapter.observe({
       ...evidence,
+      measurement: displayed?.measurement ?? null,
       tracks: this.snapshot.tracks,
-      now: performance.now(),
+      bubble: displayed?.bubble ?? null,
+      now,
     })
     this.selectionChanged(previous, next)
   }
@@ -364,6 +380,7 @@ export class LiveController {
     })
   }
   dispose(): void {
+    this.displayedGaze = null
     this.stop()
     this.disposed = true
     if (this.timer) {

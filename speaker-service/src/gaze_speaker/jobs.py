@@ -18,7 +18,7 @@ from .audio import ExtractionCancelled, extract_track
 from .benchmark import export_result
 from .faces import Box, FaceTrack, manual_track, track_faces, track_in_region
 from .media import MediaLimits, decode_media
-from .model import Separator
+from .model import TargetSeparator, load_separator
 from .schemas import (
     ClipView,
     ErrorView,
@@ -102,7 +102,7 @@ class Store:
         self.reserved_bytes = 0
         self.clips: dict[str, Clip] = {}
         self.jobs: dict[str, Job] = {}
-        self.separator: Separator | None = None
+        self.separator: TargetSeparator | None = None
         self.model_state = "loading" if load_model and start_worker else "unready"
         self.model_error: ErrorView | None = None
         self.stopping = threading.Event()
@@ -120,7 +120,9 @@ class Store:
     def _run_worker(self, load_model: bool):
         if load_model:
             try:
-                self.separator = Separator.load(self.settings.asset_dir, self.settings.device)
+                self.separator = load_separator(
+                    self.settings.asset_dir, self.settings.device, self.settings.engine
+                )
                 self.model_state = "ready"
             except Exception as exc:
                 logger.exception("Model setup failed")
@@ -265,6 +267,13 @@ class Store:
             ready=self.separator is not None,
             model_state=self.model_state,
             live=True,
+            engine=(
+                self.separator.engine
+                if self.separator and hasattr(self.separator, "engine")
+                else {"rtfs": "RTFS-Net-4-LRS2", "av-mossformer2": "AV-MossFormer2-TSE-16K"}[
+                    self.settings.engine
+                ]
+            ),
             device=self.separator.device if self.separator else None,
             error=self.model_error,
             max_upload_bytes=self.settings.max_upload_bytes,
