@@ -21,9 +21,9 @@ Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset e
 
 ## Setup and calibration
 
-The viewer starts with a three-step setup guide: connect the feeds you need, check each image orientation, then choose an active feed and use its controls. Links jump directly to the Eye, Scene and Auxiliary panels. A single connected feed is enough for static selection and photos.
+The default view shows the camera panels and a compact command bar. Help contains three short setup steps and links to the camera panels. Orientation expands each feed’s rotate/mirror controls. A single connected feed is enough for static selection and photos.
 
-For gaze tracking, choose **Open scene / eye calibration**. This opens the existing `/trial/scene-camera-eye-tracking` workflow, where you connect its eye and scene feeds and run its calibration. Calibration belongs to that trial and is not transferred to this preview viewer. Connecting an Eye preview here does not estimate gaze or enable eye-driven selection.
+For gaze tracking, choose **Gaze setup**. This opens the existing `/trial/scene-camera-eye-tracking` workflow, where you connect its eye and scene feeds and run its calibration. Calibration belongs to that trial and is not transferred to this preview viewer. Connecting an Eye preview here does not estimate gaze or enable eye-driven selection.
 
 ## Commands
 
@@ -58,3 +58,7 @@ The inherited global `brace-expansion` v5 override was removed because `minimatc
 ### Setup and speech recovery follow-up
 
 680 frontend tests, lint, typecheck and the production build passed. Browser checks verified setup shortcuts, typed camera switching after a refused speech installation, the visible retry control, the existing six-step scene/eye calibration route and a narrow layout. The browser still returns `false` for English model installation without a diagnostic reason; live speech recognition is not verified in this browser. This change improves setup and failure recovery; it does not claim to repair the browser's model installer.
+
+### Minimal interface follow-up
+
+Setup instructions, command examples and optional voice details use expandable help. Gaze setup remains visible. Idle voice messages and repeated descriptions are removed from the default view; actionable errors and speech installation recovery remain available.

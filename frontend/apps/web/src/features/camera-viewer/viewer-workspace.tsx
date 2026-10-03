@@ -70,9 +70,7 @@ export function ViewerWorkspace() {
     setSelections(next)
   }, [])
   const [selections, setSelections] = useState<ViewerSelections>({})
-  const [notice, setNotice] = useState(
-    "Connect the eye, scene, and auxiliary feeds independently."
-  )
+  const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [connectionPending, setConnectionPending] = useState(false)
   const connection = useRef<ConnectionGuard>({
@@ -280,16 +278,12 @@ export function ViewerWorkspace() {
       </header>
       <main className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto max-w-400 space-y-4 p-4 md:p-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold tracking-tight">
               Three-camera viewer
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Eye, scene, and auxiliary previews with independent orientation.
-              Visual selection stays at a fixed image position.
-            </p>
+            <ViewerSetup />
           </div>
-          <ViewerSetup />
           <CommandBar
             activeLabel={LABELS[active]}
             canCapture={hasFreshFrame(activeState, displayTime)}
@@ -308,13 +302,15 @@ export function ViewerWorkspace() {
               void voice.install()
             }}
           />
-          <p
-            role={error ? "alert" : "status"}
-            aria-live="polite"
-            className={`rounded-md border px-4 py-3 text-sm ${error ? "border-red-300/30 bg-red-300/5 text-red-200" : "border-border text-muted-foreground"}`}
-          >
-            {error || notice}
-          </p>
+          {(error || notice) && (
+            <p
+              role={error ? "alert" : "status"}
+              aria-live="polite"
+              className={`text-xs ${error ? "rounded-md border border-red-300/30 bg-red-300/5 px-3 py-2 text-red-200" : "text-muted-foreground"}`}
+            >
+              {error || notice}
+            </p>
+          )}
           <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
             {ROLES.map((role) => {
               const state = snapshots[role]

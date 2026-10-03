@@ -23,69 +23,69 @@ export function CommandBar({
   return (
     <section
       aria-labelledby="viewer-command-title"
-      className="rounded-lg border bg-card p-4"
+      className="rounded-lg border bg-card p-3"
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h2
           id="viewer-command-title"
-          className="scroll-mt-4 text-sm font-semibold"
+          className="min-w-0 flex-1 scroll-mt-4 text-xs font-semibold md:flex-none"
         >
-          Commands · {activeLabel}
+          {activeLabel}
         </h2>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            aria-label="Take photo"
-            disabled={!canCapture || capturing}
-            className={`secondary ${EyeButtonStyles}`}
-            onClick={() => onCommand("take photo")}
-          >
-            <Camera size={15} aria-hidden="true" />
-            {capturing ? "Saving…" : "Take photo"}
-          </button>
-          <button
-            type="button"
-            className={`secondary ${EyeButtonStyles}`}
-            onClick={voiceActive ? onVoiceStop : onVoiceStart}
-          >
-            {voiceActive ? (
-              <MicOff size={15} aria-hidden="true" />
-            ) : (
-              <Mic size={15} aria-hidden="true" />
-            )}
-            {voiceActive ? "Stop voice" : "Enable local voice"}
-          </button>
-        </div>
-      </div>
-      <form
-        aria-label="Camera commands"
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onCommand(command)
-          setCommand("")
-        }}
-      >
-        <label className={`${EyeFieldStyles} m-0! min-w-0 flex-1`}>
-          Type a command
-          <input
-            aria-label="Viewer command"
-            value={command}
-            onChange={(event) => setCommand(event.target.value)}
-            placeholder="select · clear · switch camera · take photo"
-            autoComplete="off"
-            maxLength={120}
-          />
-        </label>
-        <button
-          type="submit"
-          className={`primary ${EyeButtonStyles}`}
-          disabled={!command.trim()}
+        <form
+          aria-label="Camera commands"
+          className="order-last flex min-w-0 basis-full items-center gap-2 md:order-none md:min-w-52 md:flex-1 md:basis-auto"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onCommand(command)
+            setCommand("")
+          }}
         >
-          Run command
+          <label className={`${EyeFieldStyles} m-0! min-w-0 flex-1`}>
+            <span className="sr-only">Type a command</span>
+            <input
+              aria-label="Viewer command"
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              placeholder="Type a command…"
+              autoComplete="off"
+              maxLength={120}
+            />
+          </label>
+          <button
+            type="submit"
+            className={`primary ${EyeButtonStyles}`}
+            disabled={!command.trim()}
+          >
+            Run
+          </button>
+        </form>
+        <button
+          type="button"
+          aria-label="Take photo"
+          disabled={!canCapture || capturing}
+          className={`secondary ${EyeButtonStyles}`}
+          onClick={() => onCommand("take photo")}
+        >
+          <Camera size={15} aria-hidden="true" />
+          {capturing ? "Saving…" : "Photo"}
         </button>
-      </form>
-      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-label={voiceActive ? "Stop voice" : "Enable local voice"}
+          aria-pressed={voiceActive}
+          className={`secondary ${EyeButtonStyles}`}
+          onClick={voiceActive ? onVoiceStop : onVoiceStart}
+        >
+          {voiceActive ? (
+            <MicOff size={15} aria-hidden="true" />
+          ) : (
+            <Mic size={15} aria-hidden="true" />
+          )}
+          {voiceActive ? "Stop voice" : "Voice"}
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {["select", "clear", "switch camera", "stop cameras"].map((text) => (
           <button
             key={text}
@@ -96,20 +96,26 @@ export function CommandBar({
             {text === "select" ? "Select point" : text}
           </button>
         ))}
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded px-2 py-2">
+            Commands &amp; voice help
+          </summary>
+          <div className="mt-2 space-y-2 pb-1">
+            <p>
+              Select keeps your point, or uses the center. Clear removes it.
+            </p>
+            <p>
+              Commands: eye camera, scene camera, auxiliary camera, select,
+              clear, switch camera, take photo, stop cameras, stop voice.
+            </p>
+            <p>
+              Optional offline English voice may need a one-time model download.
+              Audio stays on this device.
+            </p>
+          </div>
+        </details>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        “select” keeps your marked point, or uses the center if none is marked.
-        “switch camera” cycles Eye → Scene → Auxiliary. Type a camera name to
-        choose it directly. “clear” removes its point.
-      </p>
-      <div className="mt-4 border-t pt-3">
-        <h3 className="text-xs font-medium">Optional English voice commands</h3>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Offline voice keeps microphone audio on your device. Your browser may
-          need to download its English voice model once; this is only for voice.
-          It is not required for camera setup, buttons or typing. Some browsers
-          cannot install or run offline voice.
-        </p>
+      {voice.status !== "idle" && (
         <p
           role="status"
           aria-live="polite"
@@ -117,23 +123,18 @@ export function CommandBar({
         >
           {voice.message}
         </p>
-        {voice.canInstall && (
-          <button
-            type="button"
-            className={`secondary mt-2 ${EyeButtonStyles}`}
-            onClick={onVoiceInstall}
-          >
-            {voice.status === "error"
-              ? "Retry voice download"
-              : "Download English voice model"}
-          </button>
-        )}
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          After enabling voice, say a complete command: “eye camera,” “scene
-          camera,” “auxiliary camera,” “select,” “clear,” “switch camera,” “take
-          photo,” “stop cameras,” or “stop voice.”
-        </p>
-      </div>
+      )}
+      {voice.canInstall && (
+        <button
+          type="button"
+          className={`secondary mt-2 ${EyeButtonStyles}`}
+          onClick={onVoiceInstall}
+        >
+          {voice.status === "error"
+            ? "Retry voice download"
+            : "Download English voice model"}
+        </button>
+      )}
     </section>
   )
 }

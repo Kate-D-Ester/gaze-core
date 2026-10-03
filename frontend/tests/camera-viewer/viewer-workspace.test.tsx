@@ -121,8 +121,8 @@ test("multiple final voice results execute in order before a React render", asyn
   })
   try {
     await render()
-    const enable = [...host.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Enable local voice")
+    const enable = host.querySelector<HTMLButtonElement>(
+      "[aria-label='Enable local voice']"
     )!
     await act(async () => {
       enable.click()

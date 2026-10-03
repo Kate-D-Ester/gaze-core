@@ -51,12 +51,19 @@ export function CameraPanel({
             <span className="text-[10px] font-normal text-primary">Active</span>
           )}
         </button>
-        <CameraTransformControls
-          label={label}
-          value={state.transform}
-          onChange={camera.setTransform}
-          disabled={state.busy}
-        />
+        <details className="relative text-xs">
+          <summary className="cursor-pointer rounded px-2 py-2 text-muted-foreground">
+            Orientation
+          </summary>
+          <div className="absolute top-full right-0 z-20 mt-2 rounded-md border bg-card p-2 shadow-lg">
+            <CameraTransformControls
+              label={label}
+              value={state.transform}
+              onChange={camera.setTransform}
+              disabled={state.busy}
+            />
+          </div>
+        </details>
       </header>
       <CameraPreview
         label={label}
@@ -144,9 +151,6 @@ export function CameraPanel({
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
                 />
-                <span className="text-muted-foreground">
-                  Uses the local camera relay on port 4022.
-                </span>
               </label>
             )}
             <button
