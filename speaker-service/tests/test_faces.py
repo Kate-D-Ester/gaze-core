@@ -66,11 +66,11 @@ track_faces(media)
     assert result.returncode == 0, result.stderr.decode(errors="replace")[-2000:]
 
 
-def test_brief_detector_dropout_reacquires_the_same_position():
+def test_unverified_detector_dropout_requires_reacquisition():
     tracker = face_api().FaceAssociator()
     original = tracker.update([(0.1, 0.1, 0.2, 0.3)], 0.0)[0]
     assert tracker.update([], 0.15) == []
-    assert tracker.update([(0.11, 0.1, 0.2, 0.3)], 0.3) == [original]
+    assert tracker.update([(0.11, 0.1, 0.2, 0.3)], 0.3)[0] != original
 
 
 def test_expired_face_cannot_inherit_previous_selection():
@@ -90,3 +90,24 @@ def test_retired_ambiguous_track_cannot_reappear_over_new_track():
     replacement = tracker.update([(0.14, 0.1, 0.13, 0.13)], 0.1)[0]
     assert replacement != first
     assert tracker.update([(0.1, 0.1, 0.11, 0.11)], 0.2) == [replacement]
+
+
+def test_people_exchanging_positions_during_occlusion_cannot_inherit_selection():
+    tracker = face_api().FaceAssociator()
+    left, right = (0.1, 0.1, 0.2, 0.3), (0.7, 0.1, 0.2, 0.3)
+    before_people = ["alice", "bob"]
+    before_ids = dict(zip(before_people, tracker.update([left, right], 0.0), strict=True))
+    tracker.update([], 0.15)
+    after_people = ["bob", "alice"]
+    after_ids = dict(zip(after_people, tracker.update([left, right], 0.3), strict=True))
+    assert set(before_ids.values()).isdisjoint(after_ids.values())
+
+
+def test_one_occluded_person_is_retired_without_disrupting_visible_person():
+    tracker = face_api().FaceAssociator()
+    left, right = (0.1, 0.1, 0.2, 0.3), (0.7, 0.1, 0.2, 0.3)
+    alice, bob = tracker.update([left, right], 0.0)
+    assert tracker.update([right], 0.15) == [bob]
+    returning, visible = tracker.update([left, right], 0.3)
+    assert returning != alice
+    assert visible == bob

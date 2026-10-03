@@ -135,6 +135,14 @@ export class LiveController {
       })
       return
     }
+    if (evidence.source.kind === "network") {
+      this.update({
+        status: "failed",
+        error:
+          "Network camera capture timestamps are unavailable; use a USB camera or synchronized clip",
+      })
+      return
+    }
     const epoch = this.epoch
     const abort = new AbortController()
     this.abort = abort
@@ -154,6 +162,16 @@ export class LiveController {
       if (!health.ready || !health.live) {
         throw new Error("Start the matching local service with live support")
       }
+      abort.signal.throwIfAborted()
+      const stream = await startMicrophone({
+        source: evidence.source.kind,
+        syncVerified,
+        signal: abort.signal,
+      })
+      // Permission can take arbitrarily long; reserve a live session only after
+      // it succeeds, and own the stream while connection/setup is still pending.
+      this.captureStop = () =>
+        stream.getTracks().forEach((track) => track.stop())
       abort.signal.throwIfAborted()
       const socket = new WebSocket(
         this.client.baseUrl.replace("http:", "ws:") + "/live"
@@ -223,11 +241,6 @@ export class LiveController {
             this.stop("Local live connection closed; start again to reconnect")
           }
         }
-      })
-      const stream = await startMicrophone({
-        source: evidence.source.kind,
-        syncVerified,
-        signal: abort.signal,
       })
       this.captureStop = await startCapture(stream, {
         camera: evidence.camera,

@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 import numpy as np
 from fastapi import WebSocket
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketDisconnect
 
 from .faces import FaceTrack, mouth_sequence
@@ -33,6 +33,17 @@ class LiveConfig(BaseModel):
     sync_verified: Literal[True]
     video_offset_ms: float = Field(ge=-500, le=500)
     client_time: float = Field(ge=0)
+
+
+    @field_validator("source")
+    @classmethod
+    def capture_timing_required(cls, source):
+        if source == "network":
+            raise ValueError(
+                "Network camera capture timestamps are unavailable; use a USB camera "
+                "or a synchronized clip"
+            )
+        return source
 
 
 class TargetConfig(BaseModel):

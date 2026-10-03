@@ -75,7 +75,7 @@ def config(**changes):
         type="configure",
         sample_rate=16000,
         audio=True,
-        source="network",
+        source="replay",
         sync_verified=True,
         video_offset_ms=0,
         client_time=monotonic(),
@@ -214,3 +214,34 @@ def test_live_ready_waits_for_preprocessor_initialization(tmp_path, monkeypatch)
             assert socket.receive_json()["type"] == "ready"
             assert initialized == [True]
             socket.send_json({"type": "stop"})
+
+
+def test_arrival_only_network_camera_is_rejected_despite_manual_sync_check():
+    data = config()
+    data["source"] = "network"
+    with pytest.raises(ValueError, match="capture timestamps"):
+        LiveConfig.model_validate(data)
+
+
+def test_live_lost_face_is_removed_immediately_from_selectable_tracks():
+    from gaze_speaker.faces import FaceObservation, FaceTrack
+    from gaze_speaker.live_faces import LiveFaces
+
+    faces = LiveFaces()
+    faces.detector = SimpleNamespace(detect=lambda image: SimpleNamespace(face_landmarks=[]))
+    faces.last_detection = 0
+    box = (0.1, 0.1, 0.2, 0.3)
+    identity = faces.associator.update([box], 0)[0]
+    faces.tracks[identity] = FaceTrack(
+        identity,
+        [
+            FaceObservation(
+                0,
+                box,
+                np.zeros((5, 2)),
+                np.zeros(2),
+            )
+        ],
+    )
+    faces.detect(np.zeros((64, 64, 3), dtype=np.uint8), 0.2)
+    assert faces.view() == []

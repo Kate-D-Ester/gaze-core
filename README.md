@@ -92,9 +92,10 @@ Open `http://127.0.0.1:4010/trial/speaker-focus`. Reference preparation expects
 only the approved mixed degraded clip in the sibling `scene-speech-reference`
 folder; it verifies its SHA-256 and keeps it out of Git. A local file upload is
 also supported. For ESP32 network video in a built preview, start the existing
-relay with `bun run camera-relay` from `frontend/apps/web`; a separate microphone
-is required. Start microphone capture explicitly and verify audiovisual alignment
-before enabling the live path. Model downloads are explicit and checksum pinned.
+relay with `bun run camera-relay` from `frontend/apps/web`; the scene viewer remains available, but live speaker focus rejects arrival-only
+network video because changing camera latency cannot be measured. Use a USB camera
+or synchronized recording for speech separation. USB live mode requests a separate
+microphone explicitly and requires an audiovisual alignment check. Model downloads are explicit and checksum pinned.
 
 See [speaker service setup](speaker-service/README.md) for configuration and
 limits, and [measurements and quality limits](docs/gaze-speaker-focus-results.md)

@@ -54,3 +54,39 @@ def test_real_decoder_enforces_frame_limit(offset_video):
 def test_real_decoder_enforces_pixel_budget(offset_video):
     with pytest.raises(ValueError, match="pixels"):
         media_api().decode_media(offset_video, media_api().MediaLimits(max_decoded_pixels=100))
+
+
+def test_real_decoder_rejects_internal_audio_timestamp_gap(tmp_path):
+    import subprocess
+
+    path = tmp_path / "audio-gap.mkv"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:size=64x64:rate=10:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000:duration=2",
+            "-filter_complex",
+            r"[1:a]asetpts=PTS+gte(T\,1)/TB[a]",
+            "-map",
+            "0:v",
+            "-map",
+            "[a]",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "pcm_s16le",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(ValueError, match="synchronization"):
+        media_api().decode_media(path)

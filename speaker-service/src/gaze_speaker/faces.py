@@ -72,16 +72,13 @@ class FaceAssociator:
         }
         previous = {key: value[0] for key, value in self.last_seen.items()}
         matches = associate_boxes(previous, boxes)
-        for identity, box in zip(matches, boxes, strict=True):
-            if identity is None:
-                self.last_seen = {
-                    key: value
-                    for key, value in self.last_seen.items()
-                    if box_iou(value[0], box) <= 0.05
-                }
         identities = [identity or uuid4().hex[:12] for identity in matches]
-        for identity, box in zip(identities, boxes, strict=True):
-            self.last_seen[identity] = (box, timestamp)
+        # Box overlap alone cannot establish who returned after an occlusion.
+        # Only people observed in consecutive detection passes keep continuity.
+        self.last_seen = {
+            identity: (box, timestamp)
+            for identity, box in zip(identities, boxes, strict=True)
+        }
         return identities
 
 

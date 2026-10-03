@@ -46,6 +46,15 @@ unresumable opaque sessions; an exclusive data-directory lease prevents two
 service processes from racing cleanup. This service currently supports macOS and
 Linux filesystem leases.
 
+`--data-dir` selects the exclusively leased session directory, `--assets` selects
+the checksum-pinned checkpoint directory, and `--origin` is the exact allowed
+local browser origin. Paths resolve from the launch directory. Keep port 4033 for
+the integrated trial; `--port` is available for direct API clients. Preview exports
+use H.264/AAC MP4 for all accepted input codecs, padding odd frame dimensions by
+one edge pixel. Internal audio timestamp gaps or drift are rejected with a
+synchronization error instead of silently collapsing the recording timeline.
+Detection occlusion retires the old face identity and requires explicit reselection.
+
 The API uses opaque clip/job IDs and rejects filesystem paths/remote URLs in
 requests. `POST /clips` accepts a multipart `file`; poll `GET /clips/{id}` until
 ready. Submit `{ "target_id": "…", "generation": 1 }` to
@@ -69,10 +78,12 @@ quality is experimental and uneven; do not interpret model inference as guarante
 clean isolation or mistake clip throughput for a live latency measurement.
 
 Live mode reuses the scene camera and requests a separate mono microphone only
-when **Start live microphone** is pressed. Confirm alignment with a clap/visible
-speech and set the video offset; changing source, orientation, dimensions or
-offset invalidates that manual check. Network arrival time alone is insufficient
-proof of capture timing. The UI rejects stale frames, more than 150 ms residual
+when **Start live microphone** is pressed. USB camera mode requires an alignment check with a clap/visible
+speech and video offset; changing source, orientation, dimensions or
+offset invalidates that manual check. Arrival-only network sources are rejected even after a manual alignment
+check: changing upstream latency cannot be detected from reception timestamps.
+Use USB camera mode or a synchronized recording until capture-clock provenance
+and a monitored mapping are available. The UI rejects stale frames, more than 150 ms residual
 skew, clock discontinuity, and late audio. Use headphones to avoid microphone
 feedback. The listening preview/audio is deliberately delayed **4 seconds**,
 including the 2-second model context; it is not instant hearing enhancement.

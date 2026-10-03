@@ -47,6 +47,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     }, 50)
     return () => clearInterval(timer)
   }, [controller, props.camera])
+  const arrivalOnly = props.source?.kind === "network"
   const busy = state.status === "starting" || state.status === "live"
   const time = (props.frame?.timestamp ?? 0) / 1000
   return (
@@ -237,7 +238,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           I checked camera/microphone alignment
         </label>
         <Button
-          disabled={busy || !props.source || !verified}
+          disabled={busy || !props.source || !verified || arrivalOnly}
           onClick={() => {
             void controller.start(verified, offset)
           }}
@@ -252,6 +253,14 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           Stop live
         </Button>
       </div>
+      {arrivalOnly && (
+        <p role="alert" className="text-xs text-amber-200">
+          Network camera capture timestamps are unavailable. Live focused audio
+          is unavailable for this arrival-only stream; use a USB camera or a
+          synchronized recording. A manual offset cannot detect changing network
+          latency.
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
         Use a clap or visible speech to check alignment. Positive offset moves
         video later. Network arrival timestamps alone cannot verify capture

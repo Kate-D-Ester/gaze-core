@@ -120,3 +120,51 @@ def test_missing_mouth_inside_real_clip_pauses_extraction():
     sample = media(2)
     with pytest.raises(ValueError, match="lost"):
         mouth_sequence(sample, track([0, 0.1, 0.2, 1.8, 1.9]), 0, 2)
+
+
+@pytest.mark.parametrize("width,height", [(64, 64), (65, 63)])
+def test_real_vp8_webm_exports_playable_mp4_and_keeps_waveform(tmp_path, width, height):
+    import json
+    import subprocess
+
+    import soundfile as sf
+
+    from gaze_speaker.benchmark import export_result
+    from gaze_speaker.media import run_media_command
+
+    source = tmp_path / "vp8.webm"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc=size={width}x{height}:rate=10:duration=0.6",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000:duration=0.6",
+            "-c:v",
+            "libvpx",
+            "-c:a",
+            "libopus",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    samples = np.full(9600, 0.2, np.float32)
+    result = api().ExtractionResult(samples, 0.1, [0.1], 2.0, 1.0, 1.0)
+    wav, preview = export_result(source, result, tmp_path / "export")
+    actual, rate = sf.read(wav)
+    assert rate == 16000 and len(actual) == 9600
+    np.testing.assert_allclose(actual, 0.2, atol=4e-5)
+    probe = json.loads(
+        run_media_command(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(preview)])
+    )
+    video = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    assert video["codec_name"] == "h264"
+    assert video["width"] == width + width % 2
+    assert video["height"] == height + height % 2

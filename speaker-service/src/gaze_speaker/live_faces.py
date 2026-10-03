@@ -99,7 +99,7 @@ class LiveFaces:
         self.tracks = {
             key: track
             for key, track in self.tracks.items()
-            if timestamp - track.observations[-1].timestamp <= 0.6
+            if key in self.associator.last_seen
         }
         for track in self.tracks.values():
             track.observations = list(

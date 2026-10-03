@@ -72,6 +72,52 @@ def run_media_command(command: list[str], timeout: float = 90) -> bytes:
     return result.stdout
 
 
+def audio_timeline_start(path: Path, sample_rate: int, limits: MediaLimits) -> float:
+    """Reject source gaps/drift instead of flattening them into contiguous PCM."""
+    if sample_rate <= 0:
+        raise ValueError("Audio synchronization requires a valid source sample rate")
+    maximum = 200_000
+    probe = json.loads(
+        run_media_command(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-select_streams",
+                "a:0",
+                "-read_intervals",
+                f"%+#{maximum}",
+                "-show_frames",
+                "-show_entries",
+                "frame=best_effort_timestamp_time,nb_samples",
+                "-of",
+                "json",
+                str(path.resolve()),
+            ]
+        )
+    )
+    frames = probe.get("frames", [])
+    if not frames or len(frames) >= maximum:
+        raise ValueError("Audio synchronization frame count exceeds the decode limit")
+    try:
+        timestamps = np.array([float(frame["best_effort_timestamp_time"]) for frame in frames])
+        counts = np.array([int(frame["nb_samples"]) for frame in frames])
+    except (KeyError, ValueError) as exc:
+        raise ValueError("Audio synchronization timestamps are unavailable") from exc
+    if not np.isfinite(timestamps).all() or np.any(counts <= 0):
+        raise ValueError("Audio synchronization timestamps are invalid")
+    expected = np.r_[0, np.cumsum(counts[:-1])] / sample_rate
+    # Container timestamp quantization can differ by a millisecond; cumulative
+    # checking prevents small per-packet errors from concealing sustained drift.
+    if np.any(np.abs(timestamps - timestamps[0] - expected) > 0.005):
+        raise ValueError("Audio synchronization discontinuity; use a continuous mixed recording")
+    if counts.sum() / sample_rate > limits.max_duration + 0.1:
+        raise ValueError("Decoded audio exceeds duration limits")
+    return float(timestamps[0])
+
+
 def decode_media(path: Path, limits: MediaLimits | None = None) -> DecodedMedia:
     limits = limits or MediaLimits()
     probe = json.loads(
@@ -125,7 +171,7 @@ def decode_media(path: Path, limits: MediaLimits | None = None) -> DecodedMedia:
     )
     if not times.size or times.size > limits.max_frames:
         raise ValueError("Video frame count exceeds the decode limit")
-    audio_start = float(audio.get("start_time", times[0]))
+    audio_start = audio_timeline_start(path, int(audio.get("sample_rate", 0)), limits)
     origin = min(times[0], audio_start)
     times = times - origin
     nearest_frame_indices(times, times[:1])

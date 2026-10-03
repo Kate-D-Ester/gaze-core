@@ -2,7 +2,7 @@
 
 Final branch measurements, 2026-10-03. This report separates processing throughput, playback delay, and speech quality.
 
-Apple M1 Pro, 16 GB unified memory. RTFS-Net four-layer LRS2 checkpoint plus CTCNet visual encoder, 11,926,898 parameters. Actual device: `mps-video/cpu-audio`. Audio runs on CPU; visual encoding runs on MPS. Full MPS is unsupported by the checkpoint's adaptive pooling operations. Model/checkpoint notices are in `speaker-service/README.md` and `third_party/rtfs_net/NOTICE`.
+Apple M1 Pro, 16 GB unified memory. RTFS-Net four-layer LRS2 checkpoint plus CTCNet visual encoder, 11,926,898 parameters. Actual device: `mps-video/cpu-audio`. Audio runs on CPU; visual encoding runs on MPS. Full MPS is unsupported by the checkpoint's adaptive pooling operations. Model/checkpoint notices are in `speaker-service/README.md` and `third_party/rtfs_net/NOTICE.md`.
 
 Input: `cnn-debate-low-quality-320x180-15fps.mp4`, SHA-256 `53859a95bade8484604726ca442499bdd6b6c4a64c51efe64180e051af3d9062`. Only this 320×180, 15 fps, CRF34 video and its single original mixed audio stream entered inference. No original higher-resolution frames or Oxford target tracks were used. Three source-derived face tracks were processed; the right face required the explicit normalized region `(0.65,0.08,0.32,0.53)` for continuous coverage.
 
@@ -10,11 +10,11 @@ Each extraction uses 2-second context windows, a 1-second stride, 25 fps nearest
 
 | Target (left→right) | Manual region | Extraction seconds | Real-time factor | Window p95 seconds |
 | --- | --- | --- | --- | --- |
-| 1 | False | 24.702 | 0.773 | 0.807 |
-| 2 | False | 24.180 | 0.757 | 0.806 |
-| 3 | True | 23.738 | 0.743 | 0.766 |
+| 1 | False | 24.505 | 0.767 | 0.813 |
+| 2 | False | 25.293 | 0.792 | 0.958 |
+| 3 | True | 24.514 | 0.768 | 0.801 |
 
-Decode took 0.304s; full clip face analysis took 8.679s; model load took 2.101s and separate warm-up took 1.830s. Peak sampled process RSS was 1.108 GB; final MPS driver allocation was 1.175 GB, reported separately rather than added as a claimed unified-memory peak. These extraction times exclude decode, full-clip analysis, load, warm-up and export. Clip extraction faster than clip duration does not prove live latency; the paced replay below measures the live path.
+Decode took 0.386s; full clip face analysis took 8.989s; model load took 2.344s and separate warm-up took 1.790s. Peak sampled process RSS was 1.042 GB; final MPS driver allocation was 1.175 GB, reported separately rather than added as a claimed unified-memory peak. These extraction times exclude decode, full-clip analysis, load, warm-up and export. Clip extraction faster than clip duration does not prove live latency; the paced replay below measures the live path.
 
 Generated WAVs, synchronized MP4 previews, hashes, complete window timings and tracks are in ignored local `speaker-service/data/benchmarks/debate/`. A faster-whisper tiny.en transcription diagnostic is saved alongside them. It gives different transcripts for different targets, but shows substantial cross-speaker content and degraded intelligibility in some intervals. ASR is not a human listening test or an accuracy score. The available tool could not process audio for listening; these previews are prepared for explicit original/focused comparison in the UI. Do not claim clean isolation, perfect background removal, or a verified human listening assessment.
 
@@ -36,23 +36,23 @@ The final replay sends the same original mixed PCM in 100 ms packets and source-
 
 | Measurement | Final replay |
 | --- | --- |
-| Source / total wall duration (including drain tail) | 31.936 / 35.204 s |
-| Connection and face-preprocessor setup | 0.651 s |
+| Source / total wall duration (including drain tail) | 31.936 / 35.091 s |
+| Connection and face-preprocessor setup | 0.655 s |
 | Actual output | 25 × 1-second chunks across all three phases |
-| Inference window median / p95 | 0.758 / 0.917 s |
-| First cold model window | 1.982 s |
-| Arrival delay from chunk start, p95 / maximum | 3.653 / 3.917 s |
+| Inference window median / p95 | 0.770 / 0.959 s |
+| First cold model window | 1.443 s |
+| Arrival delay from chunk start, p95 / maximum | 3.115 / 3.376 s |
 | Maximum waiting model windows | 1 (limit 2) |
-| Sampled service process RSS | 1.054 GB |
+| Sampled service process RSS | 1.012 GB |
 | Deliberate preview/audio playout delay | 4.000 s |
 
 All accepted chunks arrived before the fixed 4-second deadline, with no growing queue or overload. Warm-up, target-reset gaps and the undrained final overlap tail explain the difference between source duration and output count. The corrected-region change produced its expected explicit pause and required reselection; no older-generation output was accepted. A separate earlier cold-service replay produced 24 chunks, median 0.751s / p95 1.447s, maximum arrival 3.888s and process RSS 0.904 GB, illustrating timing variation. Memory values are sampled process RSS; neither is a complete unified-memory peak including GPU allocations.
 
-This establishes paced local pipeline throughput on this machine for this short fixture. It does not establish sustained hours-long operation, physical ESP32/microphone synchronization, gaze accuracy, or instant listening. Browser playback delays both the listening preview and audio by 4 seconds. Stale frames, discontinuity, residual skew over 150 ms, overload and missed playout deadlines pause focused output. A video-only ESP32 stream needs an explicitly started separate microphone and a checked audiovisual offset; arrival timestamps alone do not prove capture alignment. Live sessions are bounded to 120 seconds.
+This establishes paced local pipeline throughput on this machine for this short fixture. It does not establish sustained hours-long operation, physical ESP32/microphone synchronization, gaze accuracy, or instant listening. Browser playback delays both the listening preview and audio by 4 seconds. Stale frames, discontinuity, residual skew over 150 ms, overload and missed playout deadlines pause focused output. Arrival-only ESP32 streams are rejected for live speaker focus because upstream latency drift cannot be observed. Use USB camera mode with an explicitly started separate microphone and checked audiovisual offset, or a synchronized recording. Live sessions are bounded to 120 seconds.
 
 ## Verification and reproduction
 
-The final pre-review frontend run passed **709 tests across 86 files** (0 failures); lint, TypeScript checking and the production build passed. The Python run enabled both real-checkpoint and real-reference tests and passed **80 tests**, with eight known upstream CUDA/TorchScript/profiling/padding warnings. Ruff passed. The production build includes the public `/trial/speaker-focus` route. A fresh whole-branch review follows these checks; any resulting fixes and final counts are recorded in the branch handoff.
+The final post-review frontend run passed **712 tests across 86 files** (0 failures); lint, TypeScript checking and the production build passed. The Python run enabled both real-checkpoint and real-reference tests and passed **87 tests**, with eight known upstream CUDA/TorchScript/profiling/padding warnings. Ruff passed. The production build includes the public `/trial/speaker-focus` route. A fresh whole-branch review and the fixes listed below are complete; these checks ran after the fixes.
 
 Browser testing covered reference loading, local file upload, all three actual model outputs, manual correction, switching/cancellation during processing, source-clock seeking, original/focused playback, WAV/MP4 download, service-loss/restart recovery, responsive layout and keyboard speaker selection. Calibrated scene selection consumes the existing scene camera/calibration lifecycle and has generation, freshness, uncertainty and disposal regression coverage. No physical headset or ESP32 test was performed. The saved browser downloads are actual model outputs, not the reference site's pre-separated demos. Browser sound playback was exercised; an audible quality assessment remains uncertified as stated above.
 
@@ -66,3 +66,8 @@ uv run ruff check src tests
 ```
 
 The live benchmark requires the running local service. Face detector asset SHA-256 is `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`. The separator/config/visual checkpoint SHA-256 values and official download URLs are pinned in `gaze_speaker.assets` and recorded in ignored `data/assets/manifest.json`; the final benchmark report records them again. Complete per-window timings, source/output hashes, tracked observations, WAVs and previews remain local in ignored `speaker-service/data/benchmarks/{debate,live,ui}/`. The reference source is the Oxford project's [mixed CNN debate video](https://www.robots.ox.ac.uk/~vgg/demo/theconversation/demos/cnn2/mix.mp4).
+
+
+## Independent review fixes
+
+A fresh read-only whole-branch review found source audio gaps were flattened, positional IDs survived unverified occlusion, network arrival timestamps could not prove capture alignment, and VP8 WebM could not be copied into an MP4 preview. Each received a failing regression before its fix: real muxed internal-gap rejection, physical-person labels exchanging positions during occlusion, immediate live-track removal, network rejection despite fresh arrivals/manual checking, and real even/odd VP8 WebM export. Microphone permission was also moved before reserving a live WebSocket session; a pending/late-permission regression verifies no idle session is opened and a canceled late stream is released. Reacquisition is intentionally conservative; an interrupted face track requires reselection rather than positional reassignment. Subjective listening and physical ESP32/gaze performance remain unverified.
