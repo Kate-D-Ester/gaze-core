@@ -2,7 +2,7 @@
 
 Date: 2026-10-04
 Branch: `codex/gaze-speaker-focus`
-Status: proposed for user review; no implementation changes yet.
+Status: approved by Kate on 2026-10-04; implementation not started.
 
 ## Intended outcome
 
