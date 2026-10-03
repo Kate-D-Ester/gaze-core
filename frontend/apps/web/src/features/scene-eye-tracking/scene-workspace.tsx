@@ -1,5 +1,6 @@
 import { CircleDot, Clock3, Eye, Hand, Wifi } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { GazeBubbleOverlaySnapshot } from "../gaze-bubble/gaze-bubble-overlay.types"
 import { CameraTransformControls } from "../eye-tracking/components/camera-transform-controls"
 import { SetupStepPanel } from "../eye-tracking/components/setup-step-panel"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
@@ -45,6 +46,8 @@ export function SceneWorkspace({
   eyeRevision,
 }: SceneWorkspaceProps) {
   const [recording, setRecording] = useState(false)
+  const scenePreview = useRef<HTMLCanvasElement | null>(null)
+  const gazePreview = useRef<GazeBubbleOverlaySnapshot | null>(null)
   const [eyeClock, setEyeClock] = useState(0)
   useEffect(() => {
     if (step < 0) {
@@ -213,6 +216,8 @@ export function SceneWorkspace({
           />
         </div>
         <ScenePreview
+          canvasRef={scenePreview}
+          gazeSnapshotRef={gazePreview}
           camera={scene.camera}
           frame={scene.frame}
           hand={displayHand}
@@ -358,6 +363,7 @@ export function SceneWorkspace({
         )}
         <div hidden={active !== 2}>
           <RecordingControls
+            preview={{ scene: scenePreview, gaze: gazePreview }}
             camera={scene.camera}
             tracker={tracker}
             state={state}

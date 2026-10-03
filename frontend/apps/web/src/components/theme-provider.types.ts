@@ -6,6 +6,7 @@ export type ResolvedTheme = "dark" | "light"
 export type ThemeProviderProps = {
   children: ReactNode
   defaultTheme?: Theme
+  forcedTheme?: ResolvedTheme
   storageKey?: string
 }
 

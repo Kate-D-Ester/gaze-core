@@ -51,3 +51,22 @@ test("logs ignore pre-start samples, repeated frame pairs and remain bounded", (
   expect(s.measurements.length).toBeLessThanOrEqual(18000)
   expect(s.truncated).toBe(true)
 })
+
+test("CSV identifies unverified preview coordinates without marking them valid or estimated", () => {
+  const session = createSessionLog(1000, { accuracy: "unverified" })
+  appendMeasurement(session, {
+    ...measurement(1100),
+    valid: false,
+    estimated: false,
+    preview: true,
+    reason: "Accuracy check required",
+  })
+  const [header, row] = exportSessionCsv(session).trim().split("\n")
+  const fields = header.split(",")
+  const values = row.split(",")
+  expect(fields).toContain("preview")
+  expect(values[fields.indexOf("preview")]).toBe("1")
+  expect(values[fields.indexOf("valid")]).toBe("0")
+  expect(values[fields.indexOf("estimated")]).toBe("0")
+  expect(values[fields.indexOf("normalized_x")]).toBe("0.25")
+})

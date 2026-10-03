@@ -1,5 +1,5 @@
 import { gazeVector3D } from "./manual-gaze-vector"
-import { EyeModelEstimator } from "./eye-model"
+import { createManualEyeModel, EyeModelEstimator } from "./eye-model"
 import type {
   Detection,
   EyeModel,
@@ -129,19 +129,11 @@ export class TrackingEngine {
         }
       }
     } else {
-      const corners = settings.corners
-      const center: [number, number] = corners
-        ? [
-            (corners[0][0] + corners[1][0]) / 2,
-            (corners[0][1] + corners[1][1]) / 2,
-          ]
-        : [roi.x + roi.width / 2, roi.y + roi.height / 2]
-      const radius = corners
-        ? Math.hypot(
-            corners[0][0] - corners[1][0],
-            corners[0][1] - corners[1][1]
-          ) / 2
-        : roi.width / 3
+      model = createManualEyeModel(settings.corners, width, height)
+      const center = model?.center ?? [
+        roi.x + roi.width / 2,
+        roi.y + roi.height / 2,
+      ]
       detection = this.pupils.accept(
         this.pupils.detect(
           gray,
@@ -160,20 +152,12 @@ export class TrackingEngine {
         roi.height
       )
       const e = detection.ellipse
-      if (corners && radius > 4) {
-        model = {
-          center,
-          radius,
-          residual: 0,
-          samples: 2,
-          coverage: 1,
-          ready: true,
-        }
+      if (model) {
         if (e && detection.tracking === "tracking") {
           const v = gazeVector3D(
             e.center,
             [center[0] - roi.x, center[1] - roi.y],
-            radius
+            model.radius
           )
           gaze = {
             origin: [0, 0, 0],
