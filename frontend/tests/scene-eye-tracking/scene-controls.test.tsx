@@ -20,11 +20,12 @@ const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
 const { FingerControls, SceneSourceControls, SceneLiveControls } =
   await import("../../apps/web/src/features/scene-eye-tracking/scene-controls")
-const { RecordingControls } =
+const { RecordingControls, drawRecordingOverlays } =
   await import("../../apps/web/src/features/scene-eye-tracking/recording-controls")
 const { useSyncExternalStore } =
   await import("../../apps/web/node_modules/react")
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
+import type { RecordingOverlayFrame } from "../../apps/web/src/features/scene-eye-tracking/recording-controls.types"
 let root: Root | null = null,
   host: HTMLDivElement
 afterEach(async () => {
@@ -39,7 +40,7 @@ test("the primary recovery action retries only the named point and survives canc
   const collected = collectValidation(
     session,
     0,
-    (index) => index === 1 ? [0.2, 0] : [0, 0],
+    (index) => (index === 1 ? [0.2, 0] : [0, 0]),
     CALIBRATION_TARGETS
   )
   const saved = session.getSnapshot().fitFailure!.holds
@@ -345,12 +346,7 @@ test("a cancelled accuracy check still labels fresh provisional gaze as unverifi
   expect(host.textContent).toContain("50.0%, 50.0%")
   expect(s.getSnapshot().measurement?.valid).toBe(false)
 })
-test("recording exports the applied offset and finalizes before a programmatic offset change can mix coordinate systems", async () => {
-  const { s, id } = calibrate()
-  s.setOffset([0.025, -0.025])
-  s.startCapture("validation")
-  collectValidation(s, id, () => [-0.025, 0.025])
-  expect(s.getSnapshot().validation?.passed).toBe(true)
+async function mountRecordingControls(session: SceneSession) {
   const canvas = document.createElement("canvas")
   canvas.width = 640
   canvas.height = 480
@@ -379,13 +375,272 @@ test("recording exports the applied offset and finalizes before a programmatic o
         createElement(RecordingControls, {
           camera,
           tracker,
-          state: s.getSnapshot(),
+          state: session.getSnapshot(),
           hand: null,
-          identity: "offset-test",
+          identity: "recording-test",
+          preview: { scene: { current: canvas }, gaze: { current: null } },
         })
       )
     )
   await render()
+  return { camera, render }
+}
+
+test.each(["failed", "cancelled"])(
+  "a completed calibration with a %s accuracy check can record without claiming verified gaze",
+  async (check) => {
+    const { s, id } = calibrate(false)
+    if (check === "failed") {
+      collectValidation(s, id, () => [0.06, -0.04])
+      expect(s.getSnapshot().validation?.passed).toBe(false)
+    } else {
+      s.cancelCapture()
+    }
+    const { render } = await mountRecordingControls(s)
+    const record = host.querySelector<HTMLButtonElement>(".eye-button.primary")!
+    expect(record.disabled).toBe(false)
+    await act(async () => record.click())
+    expect(host.textContent).toContain("Stop")
+
+    const timestamp = performance.now()
+    s.addEye({
+      id: 1000,
+      timestamp,
+      feature: [0, 0],
+      confidence: 0.95,
+      valid: true,
+    })
+    s.measure(
+      { id: 1000, timestamp, width: 640, height: 480, generation: 1 },
+      timestamp
+    )
+    await render()
+    expect(s.getSnapshot().measurement?.preview).toBe(true)
+    expect(s.getSnapshot().measurement?.valid).toBe(false)
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".eye-button.primary")!.click()
+    })
+
+    const createUrl = URL.createObjectURL
+    const click = HTMLAnchorElement.prototype.click
+    let exported: Blob | null = null
+    URL.createObjectURL = (blob) => {
+      exported = blob
+      return "blob:unverified-export"
+    }
+    HTMLAnchorElement.prototype.click = () => {}
+    try {
+      const jsonButton = Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "JSON"
+      )!
+      await act(async () => jsonButton.click())
+      const json = JSON.parse(await exported!.text())
+      expect(json.metadata.accuracy).toBe("unverified")
+      expect(json.measurements).toHaveLength(1)
+      expect(json.measurements[0].preview).toBe(true)
+      expect(json.measurements[0].valid).toBe(false)
+      expect(json.measurements[0].estimated).toBe(false)
+      expect(json.measurements[0].position[0]).toBeCloseTo(0.5)
+      expect(json.measurements[0].position[1]).toBeCloseTo(0.5)
+    } finally {
+      URL.createObjectURL = createUrl
+      HTMLAnchorElement.prototype.click = click
+    }
+  }
+)
+
+test("recording includes the annotated eye video by default", async () => {
+  const { s } = calibrate()
+  await mountRecordingControls(s)
+  expect(
+    host.querySelector<HTMLInputElement>("input[type='checkbox']")!.checked
+  ).toBe(true)
+})
+
+test("recorded overlays align with transformed camera pixels and remove stale gaze and pupil values", () => {
+  const images: CanvasImageSource[] = []
+  const ellipses: number[][] = []
+  const circles: number[][] = []
+  const captions: string[] = []
+  const context = {
+    drawImage(image: CanvasImageSource) {
+      images.push(image)
+    },
+    ellipse(...values: number[]) {
+      ellipses.push(values)
+    },
+    arc(...values: number[]) {
+      circles.push(values)
+    },
+    fillText(value: string) {
+      captions.push(value)
+    },
+    fillRect() {},
+    save() {},
+    restore() {},
+    beginPath() {},
+    rect() {},
+    fill() {},
+    stroke() {},
+    strokeRect() {},
+    setLineDash() {},
+    moveTo() {},
+    lineTo() {},
+  } as unknown as CanvasRenderingContext2D
+  const createCanvas = () => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 640
+    canvas.height = 480
+    canvas.getContext = (() => context) as typeof canvas.getContext
+    return canvas
+  }
+  const scene = createCanvas()
+  const eye = createCanvas()
+  const raw = createCanvas()
+  const preview = createCanvas()
+  const eyeSource = createCanvas()
+  const { s } = calibrate(false)
+  s.cancelCapture()
+  const input: RecordingOverlayFrame = {
+    camera: {
+      rawCanvas: raw,
+      latest: { width: 640, height: 480, timestamp: 1000 },
+    } as SceneCamera,
+    tracker: {
+      sourceCanvas: { current: eyeSource },
+      settings: {
+        roi: { x: 100, y: 50, width: 300, height: 200 },
+        corners: null,
+      },
+      frame: {
+        timestamp: 1000,
+        roi: { x: 100, y: 50, width: 300, height: 200 },
+        detection: {
+          ellipse: {
+            center: [20, 30],
+            major: 15,
+            minor: 10,
+            angle: 0.4,
+            confidence: 0.95,
+          },
+          previews: [],
+          selected: 0,
+        },
+        model: { center: [140, 120], radius: 80 },
+        gaze: { direction: [0.1, 0.2, -0.9] },
+      },
+    } as unknown as TrackerController,
+    state: {
+      ...s.getSnapshot(),
+      measurement: {
+        timestamp: 1000,
+        eyeTimestamp: 1000,
+        sceneTimestamp: 1000,
+        eyeId: 1,
+        sceneId: 1,
+        confidence: 0.95,
+        position: [0.25, 0.75],
+        pixels: [160, 360],
+        valid: false,
+        preview: true,
+        extrapolated: false,
+        reason: "Accuracy check required",
+      },
+    },
+    preview: {
+      scene: { current: preview },
+      gaze: {
+        current: {
+          view: { width: 320, height: 240, left: 40, top: 0, scale: 0.5 },
+          bubble: {
+            center: [0.25, 0.75],
+            rawPoint: [0.25, 0.75],
+            radiusPx: 14,
+            errorRadiusPx: null,
+            limited: false,
+            verified: false,
+            motion: "moving",
+          },
+        },
+      },
+    },
+  }
+  drawRecordingOverlays(scene, eye, input, 1050)
+  expect(images).toEqual([preview, eyeSource])
+  expect(images).not.toContain(raw)
+  expect(ellipses[0].slice(0, 5)).toEqual([120, 80, 15, 10, 0.4])
+  expect(
+    circles.some(
+      (circle) => circle[0] === 160 && circle[1] === 360 && circle[2] === 28
+    )
+  ).toBe(true)
+  expect(
+    circles.some(
+      (circle) => circle[0] === 140 && circle[1] === 120 && circle[2] === 80
+    )
+  ).toBe(true)
+  expect(captions.join("\n")).toContain(
+    "Gaze X 160.0 px  Y 360.0 px | 0.250, 0.750"
+  )
+  expect(captions.join("\n")).toContain("Pupil X 120.0 px  Y 80.0 px | 95%")
+  expect(captions.join("\n")).toContain("Eye vector 0.100, 0.200, -0.900")
+  expect(captions.join("\n")).toContain("Unverified preview")
+  expect(captions.join("\n")).not.toContain("Accuracy checked")
+
+  images.length = 0
+  ellipses.length = 0
+  circles.length = 0
+  captions.length = 0
+  drawRecordingOverlays(scene, eye, input, 2000)
+  expect(circles).toHaveLength(0)
+  expect(ellipses).toHaveLength(0)
+  expect(captions.join("\n")).toContain("Gaze unavailable")
+  expect(captions.join("\n")).toContain("Pupil unavailable")
+  expect(captions.join("\n")).not.toContain("160.0")
+})
+
+test("recording requires a mapping and scene frames, and an accuracy check finalizes it", async () => {
+  const { s } = calibrate(false)
+  const { camera, render } = await mountRecordingControls(s)
+  const record = () =>
+    host.querySelector<HTMLButtonElement>(".eye-button.primary")!
+  expect(record().disabled).toBe(true)
+  s.cancelCapture()
+  camera.latest = null
+  await render()
+  expect(record().disabled).toBe(true)
+  camera.latest = {
+    id: 1,
+    timestamp: performance.now(),
+    width: 640,
+    height: 480,
+    generation: 1,
+  }
+  await render()
+  expect(record().disabled).toBe(false)
+  await act(async () => record().click())
+  expect(host.textContent).toContain("Stop")
+  s.startCapture("validation")
+  await render()
+  expect(host.textContent).not.toContain("Stop")
+  expect(record().disabled).toBe(true)
+  expect(host.textContent).toContain("JSON")
+
+  const fresh = new SceneSession()
+  await act(async () => root!.unmount())
+  root = null
+  host.remove()
+  await mountRecordingControls(fresh)
+  expect(record().disabled).toBe(true)
+})
+
+test("recording exports the applied offset and finalizes before a programmatic offset change can mix coordinate systems", async () => {
+  const { s, id } = calibrate()
+  s.setOffset([0.025, -0.025])
+  s.startCapture("validation")
+  collectValidation(s, id, () => [-0.025, 0.025])
+  expect(s.getSnapshot().validation?.passed).toBe(true)
+  const { render } = await mountRecordingControls(s)
   await act(async () =>
     (host.querySelector(".eye-button.primary") as HTMLButtonElement).click()
   )

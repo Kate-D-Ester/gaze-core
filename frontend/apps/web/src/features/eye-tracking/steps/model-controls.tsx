@@ -11,7 +11,7 @@ import {
 import { EyeActionButton } from "../components/eye-action-button"
 import { HelpTip } from "../components/help-tip"
 import { SpherePreview } from "../components/sphere-preview"
-import { getEyeModelLockStatus } from "../eye-model"
+import { getTrackerModelLockStatus } from "../eye-model"
 import type { Point } from "../eye-tracking.types"
 import type { ModelControlsProps } from "./model-controls.types"
 export function ModelControls({
@@ -21,12 +21,10 @@ export function ModelControls({
   setNotice,
 }: ModelControlsProps) {
   const { settings, frame } = tracker
-  const lockStatus = getEyeModelLockStatus(
-    frame?.model ?? null,
-    frame?.width ?? 0,
-    frame?.height ?? 0,
-    frame?.roi.width ?? 0,
-    frame?.roi.height ?? 0
+  const lockStatus = getTrackerModelLockStatus(
+    settings,
+    tracker.dimensions,
+    frame?.model ?? null
   )
   let modelHeading = "Look around the full range."
   let modelGuidance = "Move your gaze toward each edge and corner."

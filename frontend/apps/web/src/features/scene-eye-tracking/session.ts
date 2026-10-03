@@ -47,7 +47,7 @@ const cell = (value: string | number | boolean | null) =>
   value === null ? "" : `"${String(value).replaceAll('"', '""')}"`
 export function exportSessionCsv(session: SessionLog): string {
   const header =
-    "session_ms,timestamp_ms,eye_frame_id,scene_frame_id,eye_timestamp_ms,scene_timestamp_ms,confidence,normalized_x,normalized_y,pixel_x,pixel_y,valid,reason,extrapolated,estimated"
+    "session_ms,timestamp_ms,eye_frame_id,scene_frame_id,eye_timestamp_ms,scene_timestamp_ms,confidence,normalized_x,normalized_y,pixel_x,pixel_y,valid,reason,extrapolated,estimated,preview"
   const number = (n: number | null | undefined) =>
     n === null || n === undefined || !Number.isFinite(n) ? "" : String(n)
   const rows = session.measurements.map((m) =>
@@ -67,6 +67,7 @@ export function exportSessionCsv(session: SessionLog): string {
       cell(m.reason),
       m.extrapolated ? "1" : "0",
       m.estimated ? "1" : "0",
+      m.preview ? "1" : "0",
     ].join(",")
   )
   return [header, ...rows].join("\n") + "\n"

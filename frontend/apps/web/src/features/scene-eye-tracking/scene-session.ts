@@ -194,7 +194,9 @@ export class SceneSession {
       method: profile.method,
       offset: [...profile.offset],
       delayMs: profile.delayMs,
-      reusedCalibration: true,
+      // Older profiles could only be saved after passing the reuse gate.
+      // An unchecked saved mapping must remain a preview after reload.
+      reusedCalibration: profile.unverified !== true,
       notice: "",
     })
   }

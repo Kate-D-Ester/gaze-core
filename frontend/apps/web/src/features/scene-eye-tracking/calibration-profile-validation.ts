@@ -167,6 +167,7 @@ export function isSceneCalibrationProfile(
     typeof value.updatedAt === "string" &&
     Number.isFinite(Date.parse(value.updatedAt)) &&
     ["hand", "marker", "one-point"].includes(String(value.method)) &&
+    (value.unverified === undefined || typeof value.unverified === "boolean") &&
     isCalibration(value.calibration) &&
     isSetup(value.setup) &&
     isPoint(value.offset) &&

@@ -43,6 +43,7 @@ import { moveRegion, regionFromPoints, resizeRegion } from "../roi"
 import type { ResizeHandle } from "../roi.types"
 import { CameraTransformControls } from "./camera-transform-controls"
 import type {
+  EyePreviewDrawingOptions,
   EyePreviewHandleDefinition,
   EyePreviewProps,
   ManualCornerGesture,
@@ -131,6 +132,112 @@ function resizeCornerPair(
     [center[0] - unit[0] * radius, center[1] - unit[1] * radius],
     [center[0] + unit[0] * radius, center[1] + unit[1] * radius],
   ]
+}
+export function drawEyePreviewFrame(
+  canvas: HTMLCanvasElement,
+  source: HTMLCanvasElement,
+  {
+    frame,
+    roi,
+    corners,
+    selection = null,
+    selectRegion = false,
+    showModel = true,
+    cornerMode = null,
+    view = "image",
+  }: EyePreviewDrawingOptions
+) {
+  setCanvasDimensions(canvas, source.width, source.height)
+  const ctx = canvas.getContext("2d")
+  if (!ctx) {
+    return
+  }
+  const colors = getComputedStyle(canvas)
+  ctx.drawImage(source, 0, 0)
+  const preview = frame?.detection.previews[frame.detection.selected]
+  if (view === "threshold") {
+    ctx.fillStyle = "#111111"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    if (preview?.mask && frame) {
+      const image = ctx.createImageData(frame.roi.width, frame.roi.height)
+      for (let i = 0; i < preview.mask.length; i++) {
+        const j = i * 4
+        image.data[j] = image.data[j + 1] = image.data[j + 2] = preview.mask[i]
+        image.data[j + 3] = 255
+      }
+      ctx.putImageData(image, frame.roi.x, frame.roi.y)
+    }
+  }
+  const rect = selection ?? roi
+  ctx.fillStyle = "rgba(0,0,0,.42)"
+  ctx.beginPath()
+  ctx.rect(0, 0, canvas.width, canvas.height)
+  ctx.rect(rect.x, rect.y, rect.width, rect.height)
+  ctx.fill("evenodd")
+  ctx.strokeStyle = selectRegion
+    ? "#fafafa"
+    : colors.getPropertyValue("--eye-pupil").trim() || "#a7d7c5"
+  ctx.lineWidth = 1.5
+  ctx.setLineDash([7, 5])
+  ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
+  ctx.setLineDash([])
+  const candidate = frame?.detection.candidate
+  if (!frame?.detection.ellipse && candidate) {
+    ctx.setLineDash([4, 4])
+    drawEllipse(
+      ctx,
+      candidate,
+      [roi.x, roi.y],
+      colors.getPropertyValue("--eye-ray").trim() || "#edd7a4"
+    )
+    ctx.setLineDash([])
+  }
+  if (frame?.detection.ellipse) {
+    drawEllipse(
+      ctx,
+      frame.detection.ellipse,
+      [roi.x, roi.y],
+      colors.getPropertyValue("--eye-pupil").trim() || "#a7d7c5"
+    )
+    const p = frame.detection.ellipse.center
+    ctx.fillStyle = "#fafafa"
+    ctx.beginPath()
+    ctx.arc(p[0] + roi.x, p[1] + roi.y, 2.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  if (showModel && frame?.model && view === "image") {
+    const m = frame.model
+    ctx.strokeStyle =
+      colors.getPropertyValue("--eye-sphere").trim() || "#b8cafa"
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(...m.center, m.radius, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(m.center[0] - 6, m.center[1])
+    ctx.lineTo(m.center[0] + 6, m.center[1])
+    ctx.moveTo(m.center[0], m.center[1] - 6)
+    ctx.lineTo(m.center[0], m.center[1] + 6)
+    ctx.stroke()
+    if (frame.detection.ellipse) {
+      ctx.strokeStyle = colors.getPropertyValue("--eye-ray").trim() || "#edd7a4"
+      ctx.beginPath()
+      ctx.moveTo(...m.center)
+      ctx.lineTo(
+        frame.detection.ellipse.center[0] + roi.x,
+        frame.detection.ellipse.center[1] + roi.y
+      )
+      ctx.stroke()
+    }
+  }
+  if (cornerMode !== "edit") {
+    for (const p of corners ?? []) {
+      ctx.fillStyle = colors.getPropertyValue("--eye-ray").trim() || "#edd7a4"
+      ctx.beginPath()
+      ctx.arc(...p, 5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
 }
 export function EyePreview({
   tracker,
@@ -348,99 +455,16 @@ export function EyePreview({
     if (!canvas || !source) {
       return
     }
-    setCanvasDimensions(canvas, source.width, source.height)
-    const ctx = canvas.getContext("2d")
-    if (!ctx) {
-      return
-    }
-    const colors = getComputedStyle(canvas)
-    ctx.drawImage(source, 0, 0)
-    const preview = frame?.detection.previews[frame.detection.selected]
-    if (view === "threshold") {
-      ctx.fillStyle = "#111111"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      if (preview?.mask && frame) {
-        const image = ctx.createImageData(frame.roi.width, frame.roi.height)
-        for (let i = 0; i < preview.mask.length; i++) {
-          const j = i * 4
-          image.data[j] =
-            image.data[j + 1] =
-            image.data[j + 2] =
-              preview.mask[i]
-          image.data[j + 3] = 255
-        }
-        ctx.putImageData(image, frame.roi.x, frame.roi.y)
-      }
-    }
-    const rect = selection ?? roi
-    ctx.fillStyle = "rgba(0,0,0,.42)"
-    ctx.beginPath()
-    ctx.rect(0, 0, canvas.width, canvas.height)
-    ctx.rect(rect.x, rect.y, rect.width, rect.height)
-    ctx.fill("evenodd")
-    ctx.strokeStyle = selectRegion
-      ? "#fafafa"
-      : colors.getPropertyValue("--eye-pupil")
-    ctx.lineWidth = 1.5
-    ctx.setLineDash([7, 5])
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
-    ctx.setLineDash([])
-    const candidate = frame?.detection.candidate
-    if (!frame?.detection.ellipse && candidate) {
-      ctx.setLineDash([4, 4])
-      drawEllipse(
-        ctx,
-        candidate,
-        [roi.x, roi.y],
-        colors.getPropertyValue("--eye-ray")
-      )
-      ctx.setLineDash([])
-    }
-    if (frame?.detection.ellipse) {
-      drawEllipse(
-        ctx,
-        frame.detection.ellipse,
-        [roi.x, roi.y],
-        colors.getPropertyValue("--eye-pupil")
-      )
-      const p = frame.detection.ellipse.center
-      ctx.fillStyle = "#fafafa"
-      ctx.beginPath()
-      ctx.arc(p[0] + roi.x, p[1] + roi.y, 2.5, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    if (showModel && frame?.model && view === "image") {
-      const m = frame.model
-      ctx.strokeStyle = colors.getPropertyValue("--eye-sphere")
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.arc(...m.center, m.radius, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(m.center[0] - 6, m.center[1])
-      ctx.lineTo(m.center[0] + 6, m.center[1])
-      ctx.moveTo(m.center[0], m.center[1] - 6)
-      ctx.lineTo(m.center[0], m.center[1] + 6)
-      ctx.stroke()
-      if (frame.detection.ellipse) {
-        ctx.strokeStyle = colors.getPropertyValue("--eye-ray")
-        ctx.beginPath()
-        ctx.moveTo(...m.center)
-        ctx.lineTo(
-          frame.detection.ellipse.center[0] + roi.x,
-          frame.detection.ellipse.center[1] + roi.y
-        )
-        ctx.stroke()
-      }
-    }
-    if (cornerMode !== "edit") {
-      for (const p of tracker.settings.corners ?? []) {
-        ctx.fillStyle = colors.getPropertyValue("--eye-ray")
-        ctx.beginPath()
-        ctx.arc(...p, 5, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    }
+    drawEyePreviewFrame(canvas, source, {
+      frame,
+      roi,
+      corners: tracker.settings.corners,
+      selection,
+      selectRegion,
+      showModel,
+      cornerMode,
+      view,
+    })
   }, [
     frame,
     tracker.sourceCanvas,

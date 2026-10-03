@@ -214,7 +214,8 @@ export function Fixture() {
   const [reference, setReference] = useState(0)
   const [frame, setFrame] = useState<TrackingFrame | null>(null)
   const [runtime, setRuntime] = useState("Not tested")
-  const [rawVideo, setRawVideo] = useState<string | null>(null)
+  const [sceneVideo, setSceneVideo] = useState<string | null>(null)
+  const [eyeVideo, setEyeVideo] = useState<string | null>(null)
   const [artifact, setArtifact] = useState("")
   const latest = useRef<TrackingFrame | null>(null)
   const status = useCallback(() => {}, [])
@@ -530,18 +531,22 @@ export function Fixture() {
           <button
             onClick={async () => {
               const link = document.querySelector<HTMLAnchorElement>(
-                "a[download^='scene-raw']"
+                "a[download^='scene-gaze']"
               )
               if (!link) {
                 setArtifact("Finalize a video first.")
                 return
               }
               const blob = await (await fetch(link.href)).blob()
-              setArtifact(`Raw video: ${blob.size} bytes; ${blob.type}`)
-              setRawVideo(link.href)
+              setArtifact(`Tracking video: ${blob.size} bytes; ${blob.type}`)
+              setSceneVideo(link.href)
+              const eyeLink = document.querySelector<HTMLAnchorElement>(
+                "a[download^='eye-tracking']"
+              )
+              setEyeVideo(eyeLink?.href ?? null)
             }}
           >
-            Inspect completed raw video
+            Inspect completed tracking videos
           </button>
         </div>
       </details>
@@ -554,21 +559,31 @@ export function Fixture() {
         {audioStats.lost}
       </output>
       <p role="status">{artifact}</p>
-      {rawVideo && (
-        <video
-          aria-label="Completed raw scene video"
-          src={rawVideo}
-          controls
-          style={{ width: "100%", maxWidth: 640 }}
-          onLoadedMetadata={(e) => {
-            const video = e.currentTarget
-            setArtifact(
-              (current) =>
-                `${current}; decoded ${video.videoWidth} × ${video.videoHeight}`
-            )
-          }}
-        />
-      )}
+      <div className="flex items-start gap-4">
+        {eyeVideo && (
+          <video
+            aria-label="Completed eye tracking video"
+            src={eyeVideo}
+            controls
+            className="w-1/2 max-w-[640px] min-w-0"
+          />
+        )}
+        {sceneVideo && (
+          <video
+            aria-label="Completed scene gaze video"
+            src={sceneVideo}
+            controls
+            style={{ width: "50%", maxWidth: 640, minWidth: 0 }}
+            onLoadedMetadata={(e) => {
+              const video = e.currentTarget
+              setArtifact(
+                (current) =>
+                  `${current}; decoded ${video.videoWidth} × ${video.videoHeight}`
+              )
+            }}
+          />
+        )}
+      </div>
       <SceneWorkspace
         tracker={tracker}
         step={step}

@@ -43,6 +43,43 @@ test("the app defaults to dark even when an old light preference exists", async 
   expect(document.documentElement.classList.contains("light")).toBe(false)
 })
 
+test("typing D outside a field cannot silently switch the app to light", async () => {
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(ThemeProvider, null, createElement("div", null, "app"))
+    )
+  })
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "d" }))
+  })
+  expect(document.documentElement.classList.contains("dark")).toBe(true)
+  expect(localStorage.getItem("gazecore-theme")).not.toBe("light")
+})
+
+test("the fixed app theme ignores a previously saved light preference", async () => {
+  localStorage.setItem("gazecore-theme", "light")
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(
+        ThemeProvider,
+        { forcedTheme: "dark" },
+        createElement("div", null, "app")
+      )
+    )
+  })
+  expect(document.documentElement.classList.contains("dark")).toBe(true)
+  await act(async () => {
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "gazecore-theme", newValue: "light" })
+    )
+  })
+  expect(document.documentElement.classList.contains("dark")).toBe(true)
+})
+
 test("V2 keeps its dark camera workspace surface and native controls", async () => {
   ;(globalThis as any).Worker = class {
     postMessage() {}

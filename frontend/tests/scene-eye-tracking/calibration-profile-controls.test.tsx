@@ -10,7 +10,7 @@ import { useCalibrationProfiles } from "../../apps/web/src/features/scene-eye-tr
 import { CalibrationProfileControls } from "../../apps/web/src/features/scene-eye-tracking/calibration-profile-controls"
 import { DEFAULT_CAMERA_TRANSFORM } from "../../apps/web/src/features/eye-tracking/camera-transform"
 import type { SceneProfileSetup } from "../../apps/web/src/features/scene-eye-tracking/calibration-profiles.types"
-import { calibrate } from "./fixtures"
+import { calibrate, collectValidation } from "./fixtures"
 
 if (typeof document === "undefined") GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -72,8 +72,79 @@ async function click(label: string) {
     `button[aria-label="${label}"]`
   )!
   expect(button).not.toBeNull()
+  expect(button.disabled).toBe(false)
   await act(async () => button.click())
 }
+
+async function saveNamedProfile(name: string) {
+  await click("Save calibration profile")
+  const input = host.querySelector<HTMLInputElement>(
+    '[aria-label="Calibration profile name"]'
+  )!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )!.set!.call(input, name)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    input.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await click("Confirm profile name")
+}
+
+test("a completed mapping can be saved when the accuracy check has not passed", async () => {
+  const { s, id } = calibrate(false)
+  const collected = collectValidation(s, id, () => [0.06, -0.04])
+  expect(s.getSnapshot().validation?.passed).toBe(false)
+  const mapping = s.getSnapshot().calibration
+  await render(s)
+  await saveNamedProfile("Kate · unchecked")
+
+  const saved = readSceneProfiles().profiles[0]
+  expect(saved.calibration.coefficients).toEqual(mapping!.coefficients)
+  expect(saved.unverified).toBe(true)
+  expect(s.getSnapshot().calibration).toBe(mapping)
+  expect(s.getSnapshot().validation?.passed).toBe(false)
+  expect(host.textContent).toContain("accuracy not verified")
+
+  await act(async () => s.setOffset([0.03, -0.01]))
+  expect(readSceneProfiles().profiles[0].offset).toEqual([0.03, -0.01])
+  expect(readSceneProfiles().profiles[0].unverified).toBe(true)
+  await act(async () => {
+    s.startCapture("validation")
+    collectValidation(s, collected.id, () => [-0.03, 0.01])
+  })
+  expect(s.getSnapshot().validation?.passed).toBe(true)
+  expect(readSceneProfiles().profiles[0].unverified).toBe(false)
+})
+
+test("saving after cancelling an accuracy check retains the completed mapping", async () => {
+  const { s } = calibrate(false)
+  const mapping = s.getSnapshot().calibration
+  s.cancelCapture()
+  await render(s)
+  await saveNamedProfile("Pending check")
+  expect(readSceneProfiles().profiles[0].calibration.coefficients).toEqual(
+    mapping!.coefficients
+  )
+  expect(readSceneProfiles().profiles[0].unverified).toBe(true)
+})
+
+test("save remains disabled before fitting and during active capture", async () => {
+  await render(new SceneSession())
+  expect(
+    host.querySelector<HTMLButtonElement>(
+      '[aria-label="Save calibration profile"]'
+    )!.disabled
+  ).toBe(true)
+  const { s } = calibrate(false)
+  await render(s)
+  expect(
+    host.querySelector<HTMLButtonElement>(
+      '[aria-label="Save calibration profile"]'
+    )!.disabled
+  ).toBe(true)
+})
 
 test("save provides an inline name and keeps offset changes with that user", async () => {
   const session = calibrate().s

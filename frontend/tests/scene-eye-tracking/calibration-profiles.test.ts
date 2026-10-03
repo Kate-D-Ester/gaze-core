@@ -2,6 +2,10 @@ import { beforeEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import { calibrate } from "./fixtures"
 import {
+  SceneSession,
+  canUseSceneCalibration,
+} from "../../apps/web/src/features/scene-eye-tracking/scene-session"
+import {
   SCENE_PROFILE_STORAGE_KEY,
   readSceneProfiles,
   saveSceneProfile,
@@ -45,6 +49,45 @@ test("different users retain independent named mappings and offsets after reload
     reloaded.profiles.find((profile) => profile.id === alex.id)?.offset
   ).toEqual([0.1, 0])
   expect(reloaded.profiles[0].calibration.holds[0].pairs).toHaveLength(1)
+})
+
+test("saving and restoring an unchecked mapping cannot promote preview readings to valid gaze", () => {
+  saveSceneProfile(
+    "Unchecked",
+    { ...draft(), offset: [0, 0], delayMs: 0, unverified: true },
+    setup
+  )
+  const saved = readSceneProfiles().profiles[0]
+  expect(saved.unverified).toBe(true)
+  const restored = new SceneSession()
+  restored.restoreCalibration(saved)
+  expect(canUseSceneCalibration(restored.getSnapshot())).toBe(false)
+  restored.addEye({
+    id: 1,
+    timestamp: 1000,
+    feature: [0, 0],
+    confidence: 0.95,
+    valid: true,
+  })
+  restored.measure(
+    { id: 1, timestamp: 1000, width: 640, height: 480, generation: 1 },
+    1000
+  )
+  expect(restored.getSnapshot().measurement?.position?.[0]).toBeCloseTo(0.5)
+  expect(restored.getSnapshot().measurement?.preview).toBe(true)
+  expect(restored.getSnapshot().measurement?.valid).toBe(false)
+  expect(restored.getSnapshot().measurement?.estimated).toBe(false)
+})
+
+test("legacy profiles remain loadable and malformed verification flags are rejected", () => {
+  saveSceneProfile("Existing profile", draft(), setup)
+  const restored = new SceneSession()
+  restored.restoreCalibration(readSceneProfiles().profiles[0])
+  expect(canUseSceneCalibration(restored.getSnapshot())).toBe(true)
+  const raw = JSON.parse(localStorage.getItem(SCENE_PROFILE_STORAGE_KEY)!)
+  raw.profiles[0].unverified = "false"
+  localStorage.setItem(SCENE_PROFILE_STORAGE_KEY, JSON.stringify(raw))
+  expect(readSceneProfiles().profiles).toHaveLength(0)
 })
 
 test("updates and deletion only affect the chosen profile", () => {

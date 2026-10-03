@@ -1,6 +1,17 @@
-import type { Point, Rect } from "../eye-tracking.types"
+import type { Point, Rect, TrackingFrame } from "../eye-tracking.types"
 import type { ResizeHandle } from "../roi.types"
 import type { TrackerController } from "../use-tracker.types"
+
+export type EyePreviewDrawingOptions = {
+  frame: TrackingFrame | null
+  roi: Rect
+  corners: [Point, Point] | null
+  selection?: Rect | null
+  selectRegion?: boolean
+  showModel?: boolean
+  cornerMode?: ManualCornerMode | null
+  view?: "image" | "threshold"
+}
 
 export type EyePreviewProps = {
   tracker: TrackerController

@@ -1,5 +1,5 @@
 import { Camera, LoaderCircle } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { GazeBubbleOverlay } from "../gaze-bubble/gaze-bubble-overlay"
 import { NETWORK_CONNECTION_LABELS } from "../eye-tracking/network-camera"
 import {
@@ -50,8 +50,16 @@ export function ScenePreview({
   target,
   progress,
   connection,
+  canvasRef,
+  gazeSnapshotRef,
 }: ScenePreviewProps) {
-  const canvas = useRef<HTMLCanvasElement>(null)
+  const canvas = useRef<HTMLCanvasElement | null>(null)
+  const attachCanvas = useCallback((element: HTMLCanvasElement | null) => {
+    canvas.current = element
+    if (canvasRef) {
+      canvasRef.current = element
+    }
+  }, [canvasRef])
   useEffect(() => {
     const element = canvas.current
     const raw = camera.rawCanvas
@@ -81,10 +89,8 @@ export function ScenePreview({
       performance.now() - marker.scene.timestamp <= 250
     ) {
       // A same-screen preview must not become another optical calibration
-      // target. Mask only the display copy; detector and recordings use rawCanvas.
+      // target. Mask the display copy while the detector keeps using rawCanvas.
       const xs = marker.corners.map(([x]) => x * w)
-      // A same-screen preview must not become another optical calibration
-      // target. Mask only the display copy; detector and recordings use rawCanvas.
       const ys = marker.corners.map(([, y]) => y * h)
       const left = Math.min(...xs)
       const top = Math.min(...ys)
@@ -205,6 +211,7 @@ export function ScenePreview({
     }
   }, [
     camera,
+    canvas,
     connection,
     frame,
     hand,
@@ -223,7 +230,7 @@ export function ScenePreview({
       className={`scene-preview ${ScenePreviewStyles} ${frame ? "has-scene" : ""}`}
     >
       <canvas
-        ref={canvas}
+        ref={attachCanvas}
         aria-label={
           method === "marker"
             ? "Scene camera preview with calibration marker and mapped gaze"
@@ -234,6 +241,7 @@ export function ScenePreview({
       {frame && (
         <GazeBubbleOverlay
           {...gazeDisplay}
+          snapshotRef={gazeSnapshotRef}
           point={
             !capturing &&
             connection === "live" &&

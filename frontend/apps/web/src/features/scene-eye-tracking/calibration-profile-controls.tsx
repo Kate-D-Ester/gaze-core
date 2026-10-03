@@ -38,7 +38,7 @@ export function CalibrationProfileControls({
         <span>Calibration profile</span>
         <HelpTip
           label="Calibration profile help"
-          text="Named calibrations stay in this browser. The last selected profile loads after camera setup. X/Y adjustments are saved with it. Offsets correct a uniform shift; changed camera angle or fit may need recalibration. Check accuracy whenever needed."
+          text="Save a completed mapping even if its accuracy check has not passed. Unverified profiles stay unverified when loaded. Profiles and X/Y adjustments stay in this browser. The last selected profile loads after camera setup. Changed camera angle or fit may need recalibration."
         />
       </div>
       <div className={`scene-profile-row ${SceneProfileRowStyles}`}>

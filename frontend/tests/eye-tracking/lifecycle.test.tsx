@@ -6,6 +6,7 @@ import { useTracker } from "../../apps/web/src/features/eye-tracking/use-tracker
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
 import { RegionControls } from "../../apps/web/src/features/eye-tracking/steps/region-controls"
 import { SourceControls } from "../../apps/web/src/features/eye-tracking/steps/source-controls"
+import { EyeTrackingWorkspace } from "../../apps/web/src/screens/eye-tracking-workspace"
 import type { WorkerRequest } from "../../apps/web/src/features/eye-tracking/tracker.worker.types"
 import {
   getCameraErrorMessage,
@@ -121,6 +122,57 @@ const stream = () => ({
     },
   ],
 })
+
+test.each([false, true])(
+  "manual model locks without a new worker frame (scene mode: %s)",
+  async (sceneMode) => {
+    const eyeWorkerIndex = workers.length
+    await act(async () =>
+      root?.render(createElement(EyeTrackingWorkspace, { sceneMode }))
+    )
+    await act(async () =>
+      workers[eyeWorkerIndex].onmessage({ data: { type: "ready" } })
+    )
+    await act(async () => {
+      host
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Eye Tracker 1: Manual tracking"]'
+        )!
+        .click()
+    })
+    const clickButton = async (label: string) => {
+      const button = Array.from(host.querySelectorAll("button")).find(
+        (item) =>
+          item.textContent?.trim() === label && !item.closest("[hidden]")
+      )
+      expect(button).toBeDefined()
+      expect(button!.disabled).toBe(false)
+      await act(async () => button!.click())
+    }
+    await clickButton("Connect")
+    await act(async () => resolveCamera(stream()))
+    await act(async () => resolvePlay())
+    await clickButton("Continue")
+    await clickButton("Continue")
+    const lock = Array.from(host.querySelectorAll("button")).find(
+      (item) => item.textContent?.trim() === "Lock model"
+    )!
+    expect(lock.disabled).toBe(true)
+    expect(host.textContent).toContain("Place two separate eye corners")
+    await act(async () => {
+      host
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Reset corners to the eye region"]'
+        )!
+        .click()
+    })
+    await clickButton("Lock model")
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
+      sceneMode ? "Scene camera" : "Head tracker"
+    )
+  }
+)
+
 test("format change while permission is pending does not strand startup", async () => {
   let pending: Promise<void>
   await act(async () => {

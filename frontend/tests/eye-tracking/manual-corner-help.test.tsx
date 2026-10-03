@@ -17,6 +17,7 @@ let root: Root | null
 
 const tracker = {
   settings: { ...DEFAULT_SETTINGS, format: "classic" },
+  dimensions: { width: 640, height: 480 },
   frame: null,
 } as TrackerController
 

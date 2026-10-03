@@ -52,7 +52,8 @@ export class SessionRecorder {
     eyeCanvas: HTMLCanvasElement | null,
     metadata: Record<string, unknown>,
     stream: MediaStream | null,
-    withEye: boolean
+    withEye: boolean,
+    backgroundCanvas: HTMLCanvasElement = canvas
   ) {
     if (this.snapshot.recording || this.snapshot.finalizing) {
       return
@@ -60,7 +61,7 @@ export class SessionRecorder {
     this.disposed = false
     this.revoke()
     this.finish = null
-    this.canvas = canvas
+    this.canvas = backgroundCanvas
     const log = createSessionLog(performance.now(), structuredClone(metadata))
     this.update({
       recording: true,
