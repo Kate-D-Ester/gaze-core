@@ -53,7 +53,7 @@ export class SpeakerClient {
       )
     }
     this.baseUrl = url.origin
-    this.fetcher = options.fetcher ?? fetch
+    this.fetcher = options.fetcher ?? fetch.bind(globalThis)
     this.timeoutMs = options.timeoutMs ?? 15000
   }
   private identifier(id: string): string {

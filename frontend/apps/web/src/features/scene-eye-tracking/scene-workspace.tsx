@@ -17,6 +17,7 @@ import { MAX_FRAME_AGE_MS, MAX_HAND_RECOVERY_MS } from "./calibration"
 import { CalibrationEyePreview } from "./calibration-eye-preview"
 import { CalibrationProfileControls } from "./calibration-profile-controls"
 import { sceneEyeEvidence } from "./eye-evidence"
+import { SceneSpeakerPanel } from "../speaker-focus/scene-panel"
 import { RecordingControls } from "./recording-controls"
 import {
   FingerControls,
@@ -317,21 +318,33 @@ export function SceneWorkspace({
           />
         )}
         {active === 2 && !state.capture && (
-          <SceneLiveControls
-            session={state.session}
-            state={state}
-            sceneDimensions={scene.frame ?? undefined}
-            canValidate={canCapture}
-            recording={recording}
-            onMethodChange={(method) => {
-              state.session.setMethod(method)
-              onStepChange(1)
-            }}
-            onCalibrate={() => {
-              state.session.invalidate("Headset moved. Collect a new mapping.")
-              onStepChange(1)
-            }}
-          />
+          <>
+            <SceneLiveControls
+              session={state.session}
+              state={state}
+              sceneDimensions={scene.frame ?? undefined}
+              canValidate={canCapture}
+              recording={recording}
+              onMethodChange={(method) => {
+                state.session.setMethod(method)
+                onStepChange(1)
+              }}
+              onCalibrate={() => {
+                state.session.invalidate(
+                  "Headset moved. Collect a new mapping."
+                )
+                onStepChange(1)
+              }}
+            />
+            <SceneSpeakerPanel
+              camera={scene.camera}
+              frame={scene.frame}
+              measurement={state.measurement}
+              verified={hasCurrentAccuracyCheck(state)}
+              identity={identity}
+              source={scene.source}
+            />
+          </>
         )}
         {active >= 1 && (
           <details

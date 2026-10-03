@@ -16,7 +16,7 @@ import numpy as np
 
 from .audio import ExtractionCancelled, extract_track
 from .benchmark import export_result
-from .faces import Box, FaceTrack, manual_track, track_faces
+from .faces import Box, FaceTrack, manual_track, track_faces, track_in_region
 from .media import MediaLimits, decode_media
 from .model import Separator
 from .schemas import (
@@ -298,7 +298,14 @@ class Store:
             if clip.cancel.is_set():
                 return
             with self.lock:
-                clip.tracks = clip.tracks + tracks if region else tracks
+                clip.tracks = (
+                    (
+                        [track for track in clip.tracks if not track_in_region(track, region)]
+                        + tracks
+                    )
+                    if region
+                    else tracks
+                )
                 clip.media = MediaView(
                     width=media.width,
                     height=media.height,

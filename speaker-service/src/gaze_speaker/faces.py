@@ -243,3 +243,16 @@ def manual_track(media: DecodedMedia, region: Box) -> FaceTrack:
     if len(usable) != 1:
         raise ValueError("Mark a region containing exactly one visible face")
     return usable[0]
+
+
+def track_in_region(track: FaceTrack, region: Box) -> bool:
+    """An explicit correction takes ownership of its marked face area."""
+    for observation in track.observations:
+        x, y, width, height = observation.box
+        center = (x + width / 2, y + height / 2)
+        if (
+            region[0] <= center[0] <= region[0] + region[2]
+            and region[1] <= center[1] <= region[1] + region[3]
+        ):
+            return True
+    return False

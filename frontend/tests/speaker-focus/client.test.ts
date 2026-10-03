@@ -145,3 +145,18 @@ test("rejects clip and job responses with mismatched request IDs", async () => {
     code: "invalid_response",
   })
 })
+
+test("native browser fetch is called with the global receiver", async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = function (this: unknown) {
+    if (this !== globalThis) {
+      throw new TypeError("Illegal invocation")
+    }
+    return Promise.resolve(Response.json(health))
+  } as typeof fetch
+  try {
+    expect((await new SpeakerClient().health()).ready).toBe(true)
+  } finally {
+    globalThis.fetch = original
+  }
+})

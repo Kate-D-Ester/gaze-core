@@ -81,3 +81,9 @@ The previous Nginx SPA container has been removed.
 Dependency overrides pin compatible security fixes in transitive tooling and
 auth packages. Re-run both audits, tests and builds when changing them. See
 [the v3 audit](../docs/v3-codebase-audit.md) for findings and validation limits.
+
+### Local speaker focus trial
+
+The public `/trial/speaker-focus` route uses a separate loopback inference service. Follow `../speaker-service/README.md` to download pinned model assets and start `uv run gaze-speaker`. The default allowed frontend is `http://localhost:4001`; when using another test port, pass the matching `--origin` to the service. This trial does not need the authentication backend.
+
+From this frontend directory, run `bun run prepare:speaker-reference` to copy the approved degraded mixed debate from `~/Desktop/Codex-projects/scene-speech-reference/` into an ignored public fixture. The command checks its hash and never fetches pre-separated audio. Alternatively upload a local conversation video. Select a face, wait for real processing, then compare original/focused audio and download the locally computed WAV or preview. The existing scene camera trial exposes calibrated gaze selection in its live stage. Other voices and artifacts can remain; see `../docs/gaze-speaker-focus-results.md` for measured quality and performance.

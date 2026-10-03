@@ -1,8 +1,14 @@
 import { buttonVariants } from "@workspace/ui/components/button-variants"
-import { ArrowRight, Monitor, ScanFace, Video } from "lucide-react"
+import { ArrowRight, Headphones, Monitor, ScanFace, Video } from "lucide-react"
 import Link from "next/link"
 import type { TrackingTrial } from "./tracking-trials.types"
 const TRIALS: readonly TrackingTrial[] = [
+  {
+    name: "Speaker focus",
+    description: "Select a visible person and extract their voice locally.",
+    path: "/trial/speaker-focus",
+    icon: Headphones,
+  },
   {
     name: "Screen eye tracking",
     description: "Use your head-mounted eye camera to track screen gaze.",
@@ -28,7 +34,7 @@ export function TrackingTrials() {
       <h2 id="tracking-trials-heading" className="text-lg font-semibold">
         Eye tracking
       </h2>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {TRIALS.map(({ name, description, path, icon: Icon }) => (
           <article
             key={path}

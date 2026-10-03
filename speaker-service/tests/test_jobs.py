@@ -229,3 +229,38 @@ def test_output_reservations_prevent_upload_overcommit(tmp_path):
         store.ensure_capacity(10)
     finally:
         store.close()
+
+
+def test_manual_region_replaces_overlapping_automatic_tracks(tmp_path, monkeypatch):
+    module = api()
+    from pathlib import Path
+
+    import numpy as np
+
+    from gaze_speaker.faces import FaceObservation, FaceTrack
+    from gaze_speaker.media import DecodedMedia
+
+    def face(identity, box):
+        return FaceTrack(identity, [FaceObservation(0, box, np.zeros((5, 2)), np.zeros(2))])
+
+    old = face("old-right", (0.7, 0.1, 0.2, 0.5))
+    left = face("left", (0.1, 0.1, 0.2, 0.5))
+    manual = face("manual-right", (0.7, 0.1, 0.2, 0.5))
+    manual.manual = True
+    monkeypatch.setattr(
+        module,
+        "decode_media",
+        lambda *args: DecodedMedia(
+            Path("unused"), np.zeros(16000), [np.zeros((32, 32, 3))], np.array([0]), 32, 32, 1
+        ),
+    )
+    monkeypatch.setattr(module, "manual_track", lambda *args: manual)
+    store = module.Store(settings(tmp_path), start_worker=False)
+    try:
+        clip = store.create_clip("x.mp4")
+        clip.status = "ready"
+        clip.tracks = [left, old]
+        store._analyse(clip, (0.65, 0.05, 0.35, 0.6))
+        assert [t.id for t in clip.tracks] == ["left", "manual-right"]
+    finally:
+        store.close()

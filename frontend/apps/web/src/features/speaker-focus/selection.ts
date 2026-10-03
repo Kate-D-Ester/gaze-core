@@ -134,6 +134,22 @@ export class SelectionController {
       "Click selection"
     )
   }
+  checkTracks(tracks: readonly FaceTrack[], timestamp: number): SelectionState {
+    const selected = tracks.find(
+      (track) => track.id === this.current.selectedId
+    )
+    const selectedBox = selected ? boxAtTime(selected, timestamp) : null
+    if (this.current.selectedId && !selectedBox && !this.current.paused) {
+      this.current = {
+        ...this.current,
+        paused: true,
+        generation: this.current.generation + 1,
+        pending: null,
+        reason: "Selected face was lost; reacquire it",
+      }
+    }
+    return this.state
+  }
   observeGaze(
     evidence: GazeEvidence,
     tracks: readonly FaceTrack[],
@@ -148,15 +164,7 @@ export class SelectionController {
     const selectedBox = selected
       ? boxAtTime(selected, evidence.mediaTime)
       : null
-    if (this.current.selectedId && !selectedBox && !this.current.paused) {
-      this.current = {
-        ...this.current,
-        paused: true,
-        generation: this.current.generation + 1,
-        pending: null,
-        reason: "Selected face was lost; reacquire it",
-      }
-    }
+    this.checkTracks(tracks, evidence.mediaTime)
     const gaze = evidence.measurement
     const times = [gaze.timestamp, gaze.eyeTimestamp, gaze.sceneTimestamp]
     const verified =

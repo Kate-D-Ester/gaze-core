@@ -153,3 +153,10 @@ test("a long observation gap requires a new continuous dwell", () => {
   controller.observeGaze(gaze(0), tracks, 0)
   expect(controller.observeGaze(gaze(600), tracks, 600).selectedId).toBeNull()
 })
+
+test("checking a video frame pauses a lost target without requiring gaze input", () => {
+  const controller = new SelectionController()
+  controller.click(tracks, [0.2, 0.3], 1)
+  expect(controller.checkTracks(tracks, 2).paused).toBe(true)
+  expect(controller.state.selectedId).toBe("left")
+})
