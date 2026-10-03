@@ -19,7 +19,7 @@ export type PlaybackTiming = {
 export type LivePlayerOptions = {
   context: AudioContext
   now?: () => number
-  onError: (message: string) => void
+  onError: (message: string, sourceSample: number | null) => void
   warmTimings?: number[]
 }
 export type ScheduledChunk = {

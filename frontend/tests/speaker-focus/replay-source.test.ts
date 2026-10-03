@@ -176,3 +176,32 @@ test("an explicit seek clears old flow backpressure before playback resumes", as
   expect(played).toBe(1)
   f.source.dispose()
 })
+
+test("high-frame-rate replay stays within transport limits while retaining every mixed sample", async () => {
+  const frames: number[] = []
+  const f = fixture({
+    onFrame: (event) => {
+      frames.push(event.sample)
+    },
+  })
+  await f.source.load(
+    new File(["mixed"], "reference.mp4"),
+    new AbortController().signal
+  )
+  await f.source.play()
+  for (let index = 1; index < 120; index++) {
+    await f.frame(index / 120)
+  }
+  expect(frames.length + f.audio.length).toBeLessThan(40)
+  for (let index = 1; index < frames.length; index++) {
+    expect((frames[index]! - frames[index - 1]!) / 16000).toBeLessThanOrEqual(
+      0.15
+    )
+  }
+  f.video.dispatchEvent(new Event("ended"))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const joined = Float32Array.from(f.audio.flatMap((packet) => [...packet.pcm]))
+  expect([...joined]).toEqual([...f.pcm])
+  expect(f.ended()).toBe(16003)
+  f.source.dispose()
+})

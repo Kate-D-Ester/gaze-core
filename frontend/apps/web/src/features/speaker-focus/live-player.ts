@@ -10,6 +10,7 @@ export class LivePlayer {
   generation = 0
   private sources = new Map<AudioBufferSourceNode, GainNode>()
   private scheduled: ScheduledChunk[] = []
+  private lastPlayedSample: number | null = null
   private nextSample: number | null = null
   private nextTime: number | null = null
   private disposed = false
@@ -38,6 +39,7 @@ export class LivePlayer {
   reset(generation: number): void {
     this.generation = generation
     this.failed = false
+    this.lastPlayedSample = null
     this.nextSample = null
     this.nextTime = null
     this.finalSample = null
@@ -55,9 +57,10 @@ export class LivePlayer {
     this.bytes = 0
   }
   private fail(message: string): false {
+    const sample = this.sourceSample()
     this.reset(this.generation)
     this.failed = true
-    this.options.onError(message)
+    this.options.onError(message, sample)
     return false
   }
   private stateChanged = () => {
@@ -146,14 +149,15 @@ export class LivePlayer {
   private active(): ScheduledChunk | null {
     const time = this.options.context.currentTime
     while (this.scheduled.length > 1 && this.scheduled[0]!.end <= time) {
-      this.scheduled.shift()
+      const played = this.scheduled.shift()!
+      this.lastPlayedSample = played.chunk.startSample + played.chunk.pcm.length
     }
     return this.scheduled[0] ?? null
   }
   sourceSample(): number | null {
     const record = this.active()
     if (!record || this.options.context.currentTime < record.when) {
-      return null
+      return this.lastPlayedSample
     }
     const elapsed = Math.min(
       record.chunk.pcm.length,
@@ -162,7 +166,11 @@ export class LivePlayer {
         Math.round((this.options.context.currentTime - record.when) * 16000)
       )
     )
-    return record.chunk.startSample + elapsed
+    this.lastPlayedSample = Math.max(
+      this.lastPlayedSample ?? record.chunk.startSample,
+      record.chunk.startSample + elapsed
+    )
+    return this.lastPlayedSample
   }
   getTiming(): PlaybackTiming {
     const record = this.active()

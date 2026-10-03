@@ -68,7 +68,7 @@ async def serve_live(socket: WebSocket):
     try:
         if not acquired:
             raise ServiceError("live_busy", "Only one live session can run at a time", 409)
-        if not owner.queue.empty() or owner.worker_busy:
+        if owner.queue.unfinished_tasks or owner.worker_busy:
             raise ServiceError("worker_busy", "Wait for file processing to finish", 409)
         if owner.separator is None or owner.model_state != "ready":
             raise ServiceError("model_unready", "Wait for the local model to be ready", 503)

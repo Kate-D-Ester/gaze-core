@@ -1,5 +1,7 @@
 import type { ReplayMedia, ReplaySourceOptions } from "./replay-source.types"
 const MAX_BYTES = 120 * 1024 * 1024
+const MIN_FRAME_SAMPLES = Math.floor(16000 / 15)
+const AUDIO_DISPATCH_SAMPLES = 1600
 export class ReplaySource {
   private video: HTMLVideoElement | null = null
   private canvas: HTMLCanvasElement | null = null
@@ -201,12 +203,19 @@ export class ReplaySource {
     }
     this.advanced = end
   }
-  private async capture(sample: number): Promise<void> {
+  private async capture(sample: number, final = false): Promise<void> {
     const video = this.video
     const canvas = this.canvas
     const epoch = this.epoch
     const generation = this.options.generation()
-    if (!video || !canvas || sample <= this.lastFrame) {
+    if (
+      !video ||
+      !canvas ||
+      sample <= this.lastFrame ||
+      (!final &&
+        this.lastFrame >= 0 &&
+        sample - this.lastFrame < MIN_FRAME_SAMPLES)
+    ) {
       return
     }
     const scale = Math.min(1, 640 / video.videoWidth, 480 / video.videoHeight)
@@ -253,7 +262,8 @@ export class ReplaySource {
             if (
               epoch === this.epoch &&
               generation === this.options.generation() &&
-              this.desired
+              this.desired &&
+              sample - this.cursor >= AUDIO_DISPATCH_SAMPLES
             ) {
               this.advance(sample)
             }
@@ -343,7 +353,7 @@ export class ReplaySource {
       if (epoch !== this.epoch || !this.pcm) {
         return
       }
-      await this.capture(this.pcm.length - 1)
+      await this.capture(this.pcm.length - 1, true)
       this.advance(this.pcm.length)
       this.options.onEnd(this.pcm.length)
     })().catch((e: unknown) =>

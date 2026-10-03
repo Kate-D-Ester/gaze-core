@@ -195,16 +195,21 @@ class Store:
                 self.lease.close()
 
     def submit(self, task: Callable[[], None], *, live=False):
-        if not live and self.live_lock.locked():
+        reserved = not live
+        if reserved and not self.live_lock.acquire(blocking=False):
             raise ServiceError("live_busy", "The live listener owns the processing worker", 409)
-        if self.stopping.is_set():
-            raise ServiceError("service_stopped", "The local service is stopping", 503)
         try:
-            self.queue.put_nowait(task)
-        except queue.Full as exc:
-            raise ServiceError(
-                "queue_full", "The processing queue is full; retry after a job finishes", 429
-            ) from exc
+            if self.stopping.is_set():
+                raise ServiceError("service_stopped", "The local service is stopping", 503)
+            try:
+                self.queue.put_nowait(task)
+            except queue.Full as exc:
+                raise ServiceError(
+                    "queue_full", "The processing queue is full; retry after a job finishes", 429
+                ) from exc
+        finally:
+            if reserved:
+                self.live_lock.release()
 
     def ensure_capacity(self, additional: int):
         used = sum(

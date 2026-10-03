@@ -79,16 +79,34 @@ No physical gaze/headset/ESP32 or hours-long live trial was performed.
 
 Browser verification covered actual Buffering→Focused playback, original-mode
 comparison after a busy service, seeking, manual correction and safe target loss.
-Output clock suspension now pauses and retains the source for retry; service
-errors remain actionable through socket cleanup. Screenshot evidence:
+Output clock suspension and rebuffering retain the played source cursor for retry.
+Pause/recovery reacquires the selected identity at its played observation, requiring
+explicit selection when that evidence is missing. Processing errors retire the
+generation before queued audio can play. Reconnect reopens streaming ownership
+without reloading the decoded source; service errors remain actionable through
+socket cleanup. A 120 fps regression verifies bounded frame/PCM dispatch and exact
+EOF conservation. Controlled concurrent requests verify atomic live/batch admission,
+including the dequeued-but-unfinished worker interval. Late playback permission
+completion cannot start a replacement source or fail disposal. Screenshot evidence:
 `focused-playback.png`, `narrow.png`, `desktop.png`. Guided setup/calibration and
 bubble/sticky-lock regression coverage remain in the frontend suite.
 
-Final pre-review verification: **783 frontend tests across 95 files** and
-**148 service tests**, with all real-model/reference flags enabled and eight known
+Final post-review verification: **792 frontend tests across 96 files** and
+**150 service tests**, with all real-model/reference flags enabled and eight known
 upstream warnings. Frontend lint, type checking, production build and Ruff passed.
 Production build used an ignored copy of the same frontend source so the running
-feature URL was not interrupted. The original v3 relay remained available.
+feature URL was not interrupted. The v3 relay was checked at the earlier feature restart; its checkout was not changed.
+After the final review, the frontend loaded the recovery fixes through the running
+dev server. Automatic approval rejected stopping the feature launcher, so the
+final atomic worker-admission changes require a backend restart before they are
+active in the running service. Source tests and the isolated build include those
+changes; the current feature URL remains available.
+
+The independent final review found seven Important recovery/admission issues;
+each received a failing regression before its fix. Three minor gaps are deferred:
+the underrun boundary fade, automatic first-frame preview after EOF, and a rolling
+processing/output telemetry ratio. Human listening and physical long-session
+acceptance remain outstanding as described above.
 
 Reproduction commands are in [the service README](../speaker-service/README.md).
 Use `--automatic-faces` for full-scene tracking rather than correction regions.

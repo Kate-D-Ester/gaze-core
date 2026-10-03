@@ -270,3 +270,61 @@ def test_health_reports_the_active_model_stream_profile(tmp_path):
         assert health.stride_seconds == 1.8
     finally:
         store.close()
+
+
+def test_batch_enqueue_and_live_admission_cannot_interleave(tmp_path, monkeypatch):
+    import threading
+
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
+    settings = Settings(data_dir=tmp_path)
+    store = Store(settings, start_worker=False, load_model=False)
+    store.separator = SimpleNamespace(device="cpu", engine_key="rtfs")
+    store.model_state = "ready"
+    store.streaming_ready = True
+    entered, release = threading.Event(), threading.Event()
+    original_put = store.queue.put_nowait
+
+    def delayed_put(task):
+        entered.set()
+        assert release.wait(3)
+        original_put(task)
+
+    monkeypatch.setattr(store.queue, "put_nowait", delayed_put)
+    batch = threading.Thread(target=lambda: store.submit(lambda: None))
+    batch.start()
+    assert entered.wait(2)
+    try:
+        with TestClient(create_app(settings, store), base_url="http://127.0.0.1") as client:
+            with client.websocket_connect(
+                "ws://127.0.0.1/live", headers={"origin": settings.origin}
+            ) as socket:
+                socket.send_json(config())
+                reply = socket.receive_json()
+                assert reply.get("code") == "live_busy", reply
+    finally:
+        release.set()
+        batch.join(3)
+        store.close()
+
+
+def test_live_admission_rejects_a_dequeued_unfinished_batch_task(tmp_path, monkeypatch):
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
+    settings = Settings(data_dir=tmp_path)
+    store = Store(settings, start_worker=False, load_model=False)
+    store.separator = SimpleNamespace(device="cpu", engine_key="rtfs")
+    store.model_state = "ready"
+    store.streaming_ready = True
+    store.submit(lambda: None)
+    store.queue.get_nowait()
+    assert store.queue.empty()
+    try:
+        with TestClient(create_app(settings, store), base_url="http://127.0.0.1") as client:
+            with client.websocket_connect(
+                "ws://127.0.0.1/live", headers={"origin": settings.origin}
+            ) as socket:
+                socket.send_json(config())
+                reply = socket.receive_json()
+                assert reply.get("code") == "worker_busy", reply
+    finally:
+        store.queue.task_done()
+        store.close()
