@@ -26,7 +26,10 @@ export function CommandBar({
       className="rounded-lg border bg-card p-4"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 id="viewer-command-title" className="text-sm font-semibold">
+        <h2
+          id="viewer-command-title"
+          className="scroll-mt-4 text-sm font-semibold"
+        >
           Commands · {activeLabel}
         </h2>
         <div className="flex flex-wrap gap-2">
@@ -52,15 +55,6 @@ export function CommandBar({
             )}
             {voiceActive ? "Stop voice" : "Enable local voice"}
           </button>
-          {voice.canInstall && (
-            <button
-              type="button"
-              className={`secondary ${EyeButtonStyles}`}
-              onClick={onVoiceInstall}
-            >
-              Download speech pack
-            </button>
-          )}
         </div>
       </div>
       <form
@@ -99,18 +93,47 @@ export function CommandBar({
             className={`secondary ${EyeButtonStyles}`}
             onClick={() => onCommand(text)}
           >
-            {text}
+            {text === "select" ? "Select point" : text}
           </button>
         ))}
       </div>
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        {voice.message}
+        “select” keeps your marked point, or uses the center if none is marked.
+        “switch camera” cycles Eye → Scene → Auxiliary. Type a camera name to
+        choose it directly. “clear” removes its point.
       </p>
-      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        Also say “eye camera,” “scene camera,” “auxiliary camera,” or “stop
-        voice.” Click a preview to pin a static point; “select” uses its center
-        if no point is chosen.
-      </p>
+      <div className="mt-4 border-t pt-3">
+        <h3 className="text-xs font-medium">Optional English voice commands</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Offline voice keeps microphone audio on your device. Your browser may
+          need to download its English voice model once; this is only for voice.
+          It is not required for camera setup, buttons or typing. Some browsers
+          cannot install or run offline voice.
+        </p>
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-2 text-xs leading-relaxed text-muted-foreground"
+        >
+          {voice.message}
+        </p>
+        {voice.canInstall && (
+          <button
+            type="button"
+            className={`secondary mt-2 ${EyeButtonStyles}`}
+            onClick={onVoiceInstall}
+          >
+            {voice.status === "error"
+              ? "Retry voice download"
+              : "Download English voice model"}
+          </button>
+        )}
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          After enabling voice, say a complete command: “eye camera,” “scene
+          camera,” “auxiliary camera,” “select,” “clear,” “switch camera,” “take
+          photo,” “stop cameras,” or “stop voice.”
+        </p>
+      </div>
     </section>
   )
 }

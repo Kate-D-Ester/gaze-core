@@ -31,8 +31,9 @@ export function CameraPanel({
   const disabled = connectionPending || state.busy
   return (
     <section
+      id={`${role}-camera-panel`}
+      className={`min-w-0 scroll-mt-4 self-start overflow-hidden rounded-lg border bg-card ${active ? "border-primary/70" : "border-border"}`}
       aria-labelledby={`${role}-camera-title`}
-      className={`min-w-0 self-start overflow-hidden rounded-lg border bg-card ${active ? "border-primary/70" : "border-border"}`}
     >
       <header className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-3">
         <button

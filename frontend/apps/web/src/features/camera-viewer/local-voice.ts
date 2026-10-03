@@ -16,7 +16,8 @@ function browserRecognition(): LocalRecognitionConstructor | undefined {
 export class LocalVoiceController {
   private snapshot: LocalVoiceSnapshot = {
     status: "idle",
-    message: "Voice is off. Type a command or enable local voice.",
+    message:
+      "Voice is optional. Buttons and typed commands work without a speech model.",
     canInstall: false,
   }
   private listeners = new Set<() => void>()
@@ -103,11 +104,20 @@ export class LocalVoiceController {
         return
       }
       if (availability !== "available") {
+        let message =
+          "This browser has no offline English voice model available. Use buttons or typed commands, or try a browser with on-device speech support."
+        if (availability === "downloadable") {
+          message =
+            "English offline voice needs a one-time browser model download. Camera previews, buttons and typed commands work without it."
+        }
+        if (availability === "downloading") {
+          message =
+            "Your browser is already downloading its English offline voice model. Finish voice setup to wait for it, or use buttons and typed commands."
+        }
         this.update({
           status: "unavailable",
-          message:
-            "The local English speech pack is not ready. Typed commands remain available.",
-          canInstall: availability === "downloadable" && !!Constructor.install,
+          message,
+          canInstall: availability !== "unavailable" && !!Constructor.install,
         })
         return
       }
@@ -189,7 +199,7 @@ export class LocalVoiceController {
     this.update({
       status: "downloading",
       message:
-        "Downloading the local English speech pack. No microphone audio is sent.",
+        "Your browser is downloading its English offline voice model. The microphone is off.",
       canInstall: false,
     })
     try {
@@ -200,17 +210,20 @@ export class LocalVoiceController {
       this.update({
         status: installed ? "idle" : "error",
         message: installed
-          ? "Speech pack installed. Enable local voice to begin."
-          : "Speech pack download failed. Use typed commands or retry voice setup.",
-        canInstall: false,
+          ? "English offline voice is ready. Enable local voice to begin."
+          : "Your browser could not install the English offline voice model. Check its downloads and network connection, or try a browser with on-device speech support. Buttons and typed commands still work.",
+        canInstall: !installed,
       })
-    } catch {
+    } catch (failure) {
       if (generation === this.generation && !this.disposed) {
+        const blocked =
+          failure instanceof Error && failure.name === "NotAllowedError"
         this.update({
           status: "error",
-          message:
-            "Speech pack download failed. Typed commands remain available.",
-          canInstall: false,
+          message: blocked
+            ? "This browser blocked offline voice setup. Use buttons and typed commands, or open the viewer in a browser with on-device speech support."
+            : "Your browser could not download the English offline voice model. Check its downloads and network connection, then retry. Buttons and typed commands still work.",
+          canInstall: !blocked,
         })
       }
     }

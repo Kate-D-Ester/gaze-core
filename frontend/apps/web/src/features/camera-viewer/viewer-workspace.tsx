@@ -18,6 +18,7 @@ import { parseViewerCommand } from "./commands"
 import type { CameraRole } from "./commands.types"
 import { LocalVoiceController } from "./local-voice"
 import { captureCameraPhoto } from "./photo"
+import { ViewerSetup } from "./viewer-setup"
 import {
   createVisualSelection,
   hasFreshFrame,
@@ -288,6 +289,7 @@ export function ViewerWorkspace() {
               Visual selection stays at a fixed image position.
             </p>
           </div>
+          <ViewerSetup />
           <CommandBar
             activeLabel={LABELS[active]}
             canCapture={hasFreshFrame(activeState, displayTime)}

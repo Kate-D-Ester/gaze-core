@@ -19,6 +19,12 @@ Network feeds use the existing local relay on port 4022, started by the developm
 
 Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Orientation preferences are stored locally under separate viewer keys and do not alter existing tracking orientation.
 
+## Setup and calibration
+
+The viewer starts with a three-step setup guide: connect the feeds you need, check each image orientation, then choose an active feed and use its controls. Links jump directly to the Eye, Scene and Auxiliary panels. A single connected feed is enough for static selection and photos.
+
+For gaze tracking, choose **Open scene / eye calibration**. This opens the existing `/trial/scene-camera-eye-tracking` workflow, where you connect its eye and scene feeds and run its calibration. Calibration belongs to that trial and is not transferred to this preview viewer. Connecting an Eye preview here does not estimate gaze or enable eye-driven selection.
+
 ## Commands
 
 Click a camera's heading to make it active. Click its preview to pin a static image point, or focus the preview and press Enter/Space to choose its center. The marker stays at that image position and clears from view after reconnecting, changing orientation, or losing fresh frames.
@@ -39,12 +45,16 @@ Phrases must match a whole command. Unknown input does nothing and displays help
 
 Enable local voice explicitly. This uses English (`en-US`) browser [on-device speech recognition](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition/processLocally), requires an installed local language pack, and sets `processLocally = true`. Voice is experimental and browser-dependent. If unavailable, use the same commands in the text field. The app never falls back to remote speech recognition.
 
-When offered, Download speech pack asks the browser to download its English language model; this does not start the microphone. Enable voice afterward. Microphone permission is still required. Voice stops on errors, page hiding, browser recognition ending, stop cameras, and leaving the viewer. A browser ending recognition after silence requires Enable local voice again.
+When offered, Download English voice model asks the browser to download its English language model; this does not start the microphone. The requirement is explained before the download control. Enable voice afterward. An installation can fail even after the browser reports that the model is downloadable. The viewer now explains that browser failure and keeps Retry voice download available. A policy rejection is shown separately; repeatedly downloading cannot bypass it. A model already downloading can be completed through the setup control. Cameras, buttons and typed commands work regardless of voice setup. Microphone permission is still required. Voice stops on errors, page hiding, browser recognition ending, stop cameras, and leaving the viewer. A browser ending recognition after silence requires Enable local voice again.
 
 Frames, photos, transcripts, commands, and the supplied reference video are not uploaded by this feature. Source URLs are not logged or saved. Only orientation settings persist. The viewer does not contain object acquisition/tracking, cross-camera matching, hardware-control output, or firing commands.
 
 ## Verification on this branch
 
-676 frontend tests, lint, typecheck, production build, and `bun audit` passed. The public production route was inspected at 1280px and 390px CSS widths and tested for command switching, source controls, transform independence and disconnected-frame rejection. Camera/microphone APIs were exercised with controlled platform fixtures in tests; live validation with three physical cameras and a microphone remains outstanding.
+The initial implementation passed 676 frontend tests, lint, typecheck, production build, and `bun audit`. The setup and speech recovery follow-up is verified below. The public production route was inspected at 1280px and 390px CSS widths and tested for command switching, source controls, transform independence and disconnected-frame rejection. Camera/microphone APIs were exercised with controlled platform fixtures in tests; live validation with three physical cameras and a microphone remains outstanding.
 
 The inherited global `brace-expansion` v5 override was removed because `minimatch` v3 expects the v1 callable API. The lockfile now resolves compatible patched versions and passes the dependency audit. If an existing install retains the incompatible dependency symlink, run `bun install --force --frozen-lockfile` once.
+
+### Setup and speech recovery follow-up
+
+680 frontend tests, lint, typecheck and the production build passed. Browser checks verified setup shortcuts, typed camera switching after a refused speech installation, the visible retry control, the existing six-step scene/eye calibration route and a narrow layout. The browser still returns `false` for English model installation without a diagnostic reason; live speech recognition is not verified in this browser. This change improves setup and failure recovery; it does not claim to repair the browser's model installer.

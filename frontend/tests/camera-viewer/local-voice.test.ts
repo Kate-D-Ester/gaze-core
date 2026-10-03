@@ -105,3 +105,68 @@ test("disposing while checking language availability cancels late microphone sta
   await pending
   expect(fake.started()).toBe(0)
 })
+
+test("a refused language installation stays retryable without starting the microphone", async () => {
+  const fake = speech("downloadable")
+  fake.factory()!.install = async () => false
+  const voice = new LocalVoiceController(fake.factory)
+  await voice.start(() => {})
+  await voice.install()
+  expect(voice.getSnapshot().status).toBe("error")
+  expect(voice.getSnapshot().canInstall).toBe(true)
+  expect(voice.getSnapshot().message).toMatch(/browser.*offline.*model/i)
+  expect(fake.started()).toBe(0)
+
+  fake.factory()!.install = async () => true
+  await voice.install()
+  expect(voice.getSnapshot().status).toBe("idle")
+  expect(voice.getSnapshot().canInstall).toBe(false)
+  expect(fake.started()).toBe(0)
+  fake.factory()!.available = async () => "available"
+  await voice.start(() => {})
+  expect(fake.started()).toBe(1)
+  voice.dispose()
+})
+
+test("an in-progress browser language download can be completed explicitly", async () => {
+  const fake = speech("downloading")
+  const voice = new LocalVoiceController(fake.factory)
+  await voice.start(() => {})
+  expect(voice.getSnapshot().canInstall).toBe(true)
+  expect(voice.getSnapshot().message).toMatch(/already downloading/i)
+  await voice.install()
+  expect(voice.getSnapshot().status).toBe("idle")
+  expect(fake.started()).toBe(0)
+  voice.dispose()
+})
+
+test("browser policy rejection is explained separately from microphone permission", async () => {
+  const fake = speech("downloadable")
+  fake.factory()!.install = async () => {
+    throw new DOMException("Policy blocked installation", "NotAllowedError")
+  }
+  const voice = new LocalVoiceController(fake.factory)
+  await voice.start(() => {})
+  await voice.install()
+  expect(voice.getSnapshot().message).toMatch(/browser blocked offline voice/i)
+  expect(voice.getSnapshot().canInstall).toBe(false)
+  expect(fake.started()).toBe(0)
+  voice.dispose()
+})
+
+test("leaving during an installation ignores its late completion", async () => {
+  const fake = speech("downloadable")
+  let release!: (installed: boolean) => void
+  fake.factory()!.install = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  const voice = new LocalVoiceController(fake.factory)
+  await voice.start(() => {})
+  const installation = voice.install()
+  voice.dispose()
+  release(false)
+  await installation
+  expect(voice.getSnapshot().status).toBe("idle")
+  expect(voice.getSnapshot().canInstall).toBe(false)
+})
