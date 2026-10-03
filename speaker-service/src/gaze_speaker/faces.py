@@ -217,6 +217,8 @@ def mouth_sequence(
     if not track.observations:
         raise ValueError("Selected face has no usable observations")
     desired = start + np.arange(round(duration * VIDEO_FPS)) / VIDEO_FPS
+    # Only context beyond EOF repeats the last frame; real internal gaps still fail.
+    desired = np.minimum(desired, media.timestamps[-1])
     frame_indices = nearest_frame_indices(media.timestamps, desired)
     observations = track.observations
     observed_times = np.array([observation.timestamp for observation in observations])
