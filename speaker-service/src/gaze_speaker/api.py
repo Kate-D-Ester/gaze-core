@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from .jobs import ServiceError, Store
+from .live import serve_live
 from .schemas import ClipView, ExtractionRequest, HealthView, JobView, RegionRequest
 from .settings import Settings
 
@@ -186,4 +187,5 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         request.app.state.store.remove_clip(identity)
         return Response(status_code=204)
 
+    app.websocket("/live")(serve_live)
     return app

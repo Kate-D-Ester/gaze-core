@@ -68,3 +68,27 @@ GAZE_MODEL_TESTS=1 GAZE_REFERENCE_TESTS=1 uv run pytest
 Results and limitations are in `../docs/gaze-speaker-focus-results.md`. Separation
 quality is experimental and uneven; do not interpret model inference as guaranteed
 clean isolation or mistake clip throughput for a live latency measurement.
+
+Live mode reuses the scene camera and requests a separate mono microphone only
+when **Start live microphone** is pressed. Confirm alignment with a clap/visible
+speech and set the video offset; changing source, orientation, dimensions or
+offset invalidates that manual check. Network arrival time alone is insufficient
+proof of capture timing. The UI rejects stale frames, more than 150 ms residual
+skew, clock discontinuity, and late audio. Use headphones to avoid microphone
+feedback. The listening preview/audio is deliberately delayed **4 seconds**,
+including the 2-second model context; it is not instant hearing enhancement.
+One live session, one model worker, one CPU face preprocessor, and at most two
+waiting inference windows are allowed. Stop/unmount closes its microphone,
+WebSocket and audio context while leaving the shared scene camera owned by its
+existing scene session.
+
+To reproduce the timestamp-paced, actual mixed-input transport benchmark with the
+service running:
+
+```sh
+uv run python -m gaze_speaker.live_benchmark --origin http://localhost:4001
+```
+
+Generated report/chunks are in `data/benchmarks/live/`. This replay verifies the
+local transport/model pipeline; it does not certify ESP32 microphone clocks or
+gaze hardware. Model quality and measured throughput remain separate results.

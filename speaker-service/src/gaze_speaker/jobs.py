@@ -97,6 +97,7 @@ class Store:
             if re.fullmatch(r"[a-f0-9]{32}", path.name) and path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)
         self.lock = threading.RLock()
+        self.live_lock = threading.Lock()
         self.queue: queue.Queue[Callable[[], None]] = queue.Queue(maxsize=settings.max_queue)
         self.reserved_bytes = 0
         self.clips: dict[str, Clip] = {}
@@ -263,6 +264,7 @@ class Store:
         return HealthView(
             ready=self.separator is not None,
             model_state=self.model_state,
+            live=True,
             device=self.separator.device if self.separator else None,
             error=self.model_error,
             max_upload_bytes=self.settings.max_upload_bytes,

@@ -7,6 +7,7 @@ import { EyeAppStyles } from "../tracking-ui/layout-styles"
 import { useSpeakerFocus } from "./use-speaker-focus"
 import { SourceControls } from "./source-controls"
 import { VideoStage } from "./video-stage"
+import { StandaloneLive } from "./standalone-live"
 import { listeningStatus } from "./status"
 
 export function SpeakerFocusWorkspace() {
@@ -151,6 +152,7 @@ export function SpeakerFocusWorkspace() {
             </div>
           </aside>
         </div>
+        <StandaloneLive />
       </main>
     </div>
   )

@@ -16,14 +16,19 @@ await cp(
 const result = await Bun.build({
   entrypoints: [
     path.join(root, "src/features/scene-eye-tracking/hand.worker.ts"),
+    path.join(root, "src/features/speaker-focus/audio-capture.worklet.ts"),
   ],
   target: "browser",
   format: "iife",
   minify: true,
   outdir: destination,
-  naming: "scene-hand.worker.js",
+  naming: "[name].js",
 })
 if (!result.success) {
   throw new Error(result.logs.map(String).join("\n"))
 }
+await cp(
+  path.join(destination, "hand.worker.js"),
+  path.join(destination, "scene-hand.worker.js")
+)
 console.log("Prepared pinned MediaPipe worker and WASM assets.")
