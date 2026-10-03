@@ -21,3 +21,27 @@ export function listeningStatus(
   }
   return "Original conversation audio. Choose a visible person to extract their voice."
 }
+
+import type { ReplayState } from "./replay-controller.types"
+export function streamingStatus(state: ReplayState): string {
+  if (state.status === "loading") {
+    return "Loading video…"
+  }
+  if (!state.media) {
+    return "Choose the debate reference or a local video."
+  }
+  if (state.status === "ended") {
+    return "Playback finished"
+  }
+  if (state.status === "paused" || state.status === "ready") {
+    return "Paused · select a face, then press Play"
+  }
+  if (state.mode === "focused" && !state.selectedId) {
+    return "Select a face to listen"
+  }
+  const listening = state.mode === "original" ? "Original" : "Focused"
+  if (state.timing?.state !== "playing") {
+    return `Buffering · ${listening}`
+  }
+  return `${listening} · ${state.timing.delaySeconds?.toFixed(1) ?? "—"} s delay`
+}

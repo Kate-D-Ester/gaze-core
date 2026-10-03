@@ -217,6 +217,7 @@ export class ReplayController {
       }
       this.player.setWarmTimings(ready.warm_timings)
       this.update({ status: "ready", media, error: "", serviceError: "" })
+      void this.connect()
       await this.restart(0, null, false)
     } catch (error) {
       if (epoch === this.epoch) {

@@ -159,3 +159,20 @@ test("cancelling a pending native decode immediately revokes its object URL", as
   await expect(pending).rejects.toThrow()
   expect(f.audio.length).toBe(0)
 })
+
+test("an explicit seek clears old flow backpressure before playback resumes", async () => {
+  const f = fixture()
+  await f.source.load(
+    new File(["mixed"], "reference.mp4"),
+    new AbortController().signal
+  )
+  f.source.setFlow(true)
+  await f.source.seek(0)
+  let played = 0
+  f.video.play = async () => {
+    played++
+  }
+  await f.source.play()
+  expect(played).toBe(1)
+  f.source.dispose()
+})

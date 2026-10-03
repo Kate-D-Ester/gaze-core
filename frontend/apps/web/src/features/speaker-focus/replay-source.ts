@@ -319,7 +319,8 @@ export class ReplaySource {
       throw new Error("Invalid reference position")
     }
     this.pause()
-    this.epoch++
+    const epoch = ++this.epoch
+    this.flow = false
     this.cursor = sample
     this.advanced = sample
     this.lastFrame = -1
@@ -330,7 +331,9 @@ export class ReplaySource {
       this.video.currentTime = time
       await seeked
     }
-    await this.capture(sample)
+    if (epoch === this.epoch) {
+      await this.capture(sample)
+    }
   }
   private ended = () => {
     const epoch = this.epoch

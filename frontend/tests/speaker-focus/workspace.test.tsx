@@ -46,7 +46,7 @@ test("public speaker workspace distinguishes original, focused and processed-fil
     device: "cpu",
     error: null,
     clip: true,
-    live: false,
+    live: true,
     max_upload_bytes: 125829120,
     max_duration: 120,
     queued: 0,
@@ -76,12 +76,12 @@ test("public speaker workspace distinguishes original, focused and processed-fil
     host
       .querySelector('button[aria-label="Listen to original audio"]')
       ?.getAttribute("aria-pressed")
-  ).toBe("true")
+  ).toBe("false")
   expect(
     host
       .querySelector('button[aria-label="Listen to focused audio"]')
       ?.getAttribute("aria-pressed")
-  ).toBe("false")
+  ).toBe("true")
   expect(host.querySelector('input[type="file"]')).not.toBeNull()
   expect(host.textContent).not.toContain("For calibrated gaze selection")
   health.mockRestore()
