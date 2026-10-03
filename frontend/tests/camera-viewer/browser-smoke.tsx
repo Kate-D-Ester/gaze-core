@@ -1,3 +1,5 @@
+import { ViewerEyeCamera } from "../../apps/web/src/features/camera-viewer/eye-camera"
+import { createViewerTracker } from "./fixtures"
 import type { SceneCameraSnapshot } from "../../apps/web/src/features/scene-eye-tracking/scene-camera.types"
 import { createElement } from "../../apps/web/node_modules/react"
 import { createRoot } from "../../apps/web/node_modules/react-dom/client"
@@ -13,6 +15,7 @@ const cameras = ["Eye", "Scene", "Auxiliary"].map((name, index) => {
   const camera = new SceneCamera()
   const listeners = new Set<() => void>()
   let connected = true
+  let droppedUntil = 0
   let state: SceneCameraSnapshot = {
     ...camera.getSnapshot(),
     connection: "live" as const,
@@ -67,9 +70,11 @@ const cameras = ["Eye", "Scene", "Auxiliary"].map((name, index) => {
     listeners.forEach((callback) => callback())
   }
   const tick = (now: number) => {
-    if (!connected) return
+    if (!connected || now < droppedUntil) return
     state = {
       ...state,
+      connection: "live",
+      busy: false,
       frame: {
         id: sequence,
         generation: 1,
@@ -81,11 +86,56 @@ const cameras = ["Eye", "Scene", "Auxiliary"].map((name, index) => {
     camera.latest = state.frame
     listeners.forEach((callback) => callback())
   }
-  return { camera, tick }
+  const interrupt = () => {
+    droppedUntil = Infinity
+    camera.latest = null
+    state = { ...state, frame: null, connection: "reconnecting", busy: true }
+    listeners.forEach((callback) => callback())
+  }
+  return {
+    camera,
+    tick,
+    interrupt,
+    resume: () => {
+      droppedUntil = 0
+    },
+  }
 })
+const eyeTracker = createViewerTracker()
+eyeTracker.sourceCanvas.current = cameras[0].camera.rawCanvas
+const eyeCamera = new ViewerEyeCamera(eyeTracker)
+const updateEye = () => {
+  const state = cameras[0].camera.getSnapshot()
+  const feature = [
+    Math.sin(performance.now() / 2500) * 0.25,
+    Math.cos(performance.now() / 2500) * 0.2,
+  ]
+  eyeCamera.update({
+    ...eyeTracker,
+    connection: state.connection,
+    frame: state.frame
+      ? {
+          ...eyeTracker.frame!,
+          id: state.frame.id,
+          timestamp: state.frame.timestamp,
+          detection: {
+            ...eyeTracker.frame!.detection,
+            ellipse: {
+              center: [320 + feature[0] * 200, 240 + feature[1] * 200],
+              major: 25,
+              minor: 18,
+              angle: 0.2,
+              confidence: 0.95,
+            },
+          },
+        }
+      : null,
+  })
+}
+updateEye()
 createRoot(document.getElementById("viewer")!).render(
   createElement(ViewerWorkspace, {
-    eyeCamera: cameras[0].camera,
+    eyeCamera,
     sceneCamera: cameras[1].camera,
     auxiliaryCamera: cameras[2].camera,
     gazeSession: session,
@@ -96,10 +146,23 @@ let gazeEnabled = true
 document.getElementById("pause-gaze")!.onclick = () => {
   gazeEnabled = !gazeEnabled
 }
+let framesPaused = false
+document.getElementById("drop-frames")!.onclick = () => {
+  framesPaused = !framesPaused
+  cameras
+    .slice(0, 2)
+    .forEach((camera) => (framesPaused ? camera.interrupt() : camera.resume()))
+  document.getElementById("drop-frames")!.textContent = framesPaused
+    ? "Resume frames"
+    : "Drop frames"
+  updateEye()
+}
 setInterval(() => {
   const now = performance.now()
   sequence++
-  if (gazeEnabled)
+  cameras.forEach((camera) => camera.tick(now))
+  updateEye()
+  if (gazeEnabled && cameras[0].camera.getSnapshot().frame)
     session.addEye(
       {
         id: sequence,
@@ -110,8 +173,14 @@ setInterval(() => {
       },
       now
     )
-  cameras.forEach((camera) => camera.tick(now))
   session.measure(cameras[1].camera.latest, now)
+  document.getElementById("feed-result")!.textContent =
+    (cameras.slice(0, 2).every(({ camera }) => camera.getSnapshot().frame)
+      ? "Feeds live"
+      : "Frames paused") +
+    (session.getSnapshot().calibration
+      ? " · calibration retained"
+      : " · calibration missing")
 }, 100)
 
 document.getElementById("voice-test")!.onclick = async () => {

@@ -1,3 +1,5 @@
+import { MAX_FRAME_AGE_MS } from "../scene-eye-tracking/calibration"
+import { drawEyePreviewFrame } from "../eye-tracking/components/eye-preview"
 import { ViewerGazePreview } from "./viewer-gaze-preview"
 import { Camera } from "lucide-react"
 import { useEffect, useRef } from "react"
@@ -14,16 +16,32 @@ export function CameraPreview({
 }: CameraPreviewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const frame = state.frame
+  const live = state.connection === "live" && !!frame
+  const eyePreview = camera.eyePreview
+  const pupilFrame = eyePreview?.frame
+  const clock = Math.max(now, frame?.timestamp ?? 0)
+  const pupilFresh =
+    !!pupilFrame &&
+    Number.isFinite(now) &&
+    Number.isFinite(pupilFrame.timestamp) &&
+    clock >= pupilFrame.timestamp &&
+    clock - pupilFrame.timestamp <= MAX_FRAME_AGE_MS
   useEffect(() => {
     const element = canvas.current
-    if (!element || !frame) {
+    if (!element || !live || !frame) {
       return
     }
-    element.width = frame.width
-    element.height = frame.height
-    element.getContext("2d")?.drawImage(camera.rawCanvas, 0, 0)
-  }, [camera, frame])
-  const live = state.connection === "live" && !!frame
+    if (eyePreview) {
+      drawEyePreviewFrame(element, camera.rawCanvas, {
+        ...eyePreview,
+        frame: pupilFresh ? pupilFrame : null,
+      })
+    } else {
+      element.width = frame.width
+      element.height = frame.height
+      element.getContext("2d")?.drawImage(camera.rawCanvas, 0, 0)
+    }
+  }, [camera, frame, live, eyePreview, pupilFrame, pupilFresh])
   return (
     <button
       type="button"

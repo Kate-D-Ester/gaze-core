@@ -50,7 +50,7 @@ const styles = [...page.matchAll(/href="([^"]+\.css[^"]*)"/g)]
 const html =
   '<!doctype html><html class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
   styles +
-  '</head><body><div style="position:fixed;right:12px;bottom:12px;z-index:100;background:#17211d;padding:8px;border:1px solid #496;max-width:300px;font:12px sans-serif;color:white"><b>Synthetic test feeds</b><br><button id="voice-test">Test generated speech</button> · <button id="pause-gaze">Pause gaze</button><p id="voice-result">Ready</p></div><div id="viewer"></div><script type="module" src="/voice-smoke.js"></script></body></html>'
+  '</head><body><div style="position:fixed;right:12px;bottom:12px;z-index:100;background:#17211d;padding:8px;border:1px solid #496;max-width:300px;font:12px sans-serif;color:white"><b>Synthetic test feeds</b><br><button id="voice-test">Test generated speech</button> · <button id="pause-gaze">Pause gaze</button> · <button id="drop-frames">Drop frames</button><p id="feed-result">Starting feeds</p><p id="voice-result">Ready</p></div><div id="viewer"></div><script type="module" src="/voice-smoke.js"></script></body></html>'
 Bun.serve({
   hostname: "127.0.0.1",
   port: 4030,

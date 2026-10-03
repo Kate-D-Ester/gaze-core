@@ -1,3 +1,4 @@
+import type { EyePreviewDrawingOptions } from "../eye-tracking/components/eye-preview.types"
 import type { CameraTransform } from "../eye-tracking/camera-transform"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
 import type { SceneCameraSnapshot } from "../scene-eye-tracking/scene-camera.types"
@@ -7,6 +8,7 @@ import type { ViewerCamera } from "./viewer-camera.types"
 export class ViewerEyeCamera implements ViewerCamera {
   private tracker: TrackerController
   private snapshot: SceneCameraSnapshot
+  private preview: EyePreviewDrawingOptions
   private generation = 0
   private readonly emptyCanvas = document.createElement("canvas")
   private readonly listeners = new Set<() => void>()
@@ -14,12 +16,24 @@ export class ViewerEyeCamera implements ViewerCamera {
   constructor(tracker: TrackerController) {
     this.tracker = tracker
     this.snapshot = this.readSnapshot()
+    this.preview = this.readEyePreview()
   }
   get canConnect() {
     return this.tracker.engineReady
   }
   get rawCanvas() {
     return this.tracker.sourceCanvas.current ?? this.emptyCanvas
+  }
+  get eyePreview() {
+    return this.preview
+  }
+  private readEyePreview(): EyePreviewDrawingOptions {
+    const tracker = this.tracker
+    return {
+      frame: tracker.frame,
+      roi: tracker.frame?.roi ?? tracker.settings.roi,
+      corners: tracker.settings.corners,
+    }
   }
   getSnapshot = () => this.snapshot
   subscribe = (listener: () => void) => {
@@ -49,11 +63,13 @@ export class ViewerEyeCamera implements ViewerCamera {
       previous.devices === tracker.devices &&
       previous.connection === tracker.connection &&
       previous.reconnectAttempt === tracker.reconnectAttempt &&
-      previous.engineReady === tracker.engineReady
+      previous.engineReady === tracker.engineReady &&
+      previous.settings === tracker.settings
     ) {
       return
     }
     this.snapshot = this.readSnapshot()
+    this.preview = this.readEyePreview()
     this.listeners.forEach((listener) => listener())
   }
   private readSnapshot(): SceneCameraSnapshot {

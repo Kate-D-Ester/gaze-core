@@ -70,8 +70,10 @@ export function SceneWorkspace({
     tracker.transform,
     scene.transform,
     scene.source?.key,
-    scene.frame?.width,
-    scene.frame?.height,
+    // Canvas geometry survives a dropped frame; fresh evidence can recover
+    // without erasing the mapping. Source and orientation still invalidate it.
+    scene.camera.rawCanvas.width,
+    scene.camera.rawCanvas.height,
   ])
   const state = useSceneSession(tracker, scene.camera, identity)
   useEffect(() => {

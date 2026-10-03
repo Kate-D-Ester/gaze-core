@@ -396,104 +396,160 @@ test("pending scene allocation blocks footer Back and cannot expose eye connecti
   expect(back.disabled).toBe(false)
 })
 
-test("a saved scene calibration survives the setup round trip and a changed scene orientation invalidates it", async () => {
-  const { ViewerSession } =
-    await import("../../apps/web/src/features/camera-viewer/three-camera-workspace")
-  const { SceneCamera } =
-    await import("../../apps/web/src/features/scene-eye-tracking/scene-camera")
-  const { saveSceneProfile } =
-    await import("../../apps/web/src/features/scene-eye-tracking/calibration-profiles")
-  const { calibrate } = await import("../scene-eye-tracking/fixtures")
-  const { createViewerTracker } = await import("./fixtures")
-  const tracker = createViewerTracker()
-  tracker.settings = {
-    ...tracker.settings,
-    format: "classic",
-    corners: [
-      [100, 240],
-      [540, 240],
-    ],
-  }
-  const scene = new SceneCamera()
-  const auxiliary = new SceneCamera()
-  const listeners = new Set<() => void>()
-  let snapshot = {
-    ...scene.getSnapshot(),
-    connection: "live" as const,
-    source: {
-      kind: "camera" as const,
-      name: "Scene",
-      key: "scene:1",
-      deviceId: "scene-usb",
-    },
-    frame: {
-      id: 1,
-      timestamp: performance.now(),
-      width: 640,
-      height: 480,
-      generation: 1,
-    },
-  }
-  scene.latest = snapshot.frame
-  scene.getSnapshot = () => snapshot
-  scene.subscribe = (listener) => {
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
+test.each(["orientation", "source", "dimensions"])(
+  "calibration survives setup and dropped frames but a changed scene %s invalidates it",
+  async (change) => {
+    const { ViewerSession } =
+      await import("../../apps/web/src/features/camera-viewer/three-camera-workspace")
+    const { SceneCamera } =
+      await import("../../apps/web/src/features/scene-eye-tracking/scene-camera")
+    const { saveSceneProfile } =
+      await import("../../apps/web/src/features/scene-eye-tracking/calibration-profiles")
+    const { calibrate } = await import("../scene-eye-tracking/fixtures")
+    const { createViewerTracker } = await import("./fixtures")
+    const tracker = createViewerTracker()
+    tracker.settings = {
+      ...tracker.settings,
+      format: "classic",
+      corners: [
+        [100, 240],
+        [540, 240],
+      ],
     }
-  }
-  scene.setTransform = (transform) => {
-    snapshot = { ...snapshot, transform }
-    listeners.forEach((listener) => listener())
-  }
-  const calibrated = calibrate().s.getSnapshot()
-  saveSceneProfile(
-    "Saved headset",
-    {
-      calibration: calibrated.calibration!,
-      method: calibrated.method,
-      offset: [0.02, -0.03],
-      delayMs: 30,
-    },
-    {
-      trackerFormat: "classic",
-      orientation: { eye: tracker.transform, scene: snapshot.transform },
+    const scene = new SceneCamera()
+    scene.rawCanvas.width = 640
+    scene.rawCanvas.height = 480
+    const auxiliary = new SceneCamera()
+    const listeners = new Set<() => void>()
+    let snapshot: import("../../apps/web/src/features/scene-eye-tracking/scene-camera.types").SceneCameraSnapshot =
+      {
+        ...scene.getSnapshot(),
+        connection: "live" as const,
+        source: {
+          kind: "camera" as const,
+          name: "Scene",
+          key: "scene:1",
+          deviceId: "scene-usb",
+        },
+        frame: {
+          id: 1,
+          timestamp: performance.now(),
+          width: 640,
+          height: 480,
+          generation: 1,
+        },
+      }
+    scene.latest = snapshot.frame
+    scene.getSnapshot = () => snapshot
+    scene.subscribe = (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
     }
-  )
-  host = document.createElement("div")
-  document.body.append(host)
-  root = createRoot(host)
-  await act(async () =>
-    root!.render(
-      createElement(ViewerSession, {
-        tracker,
-        sceneCamera: scene,
-        auxiliaryCamera: auxiliary,
-      })
+    scene.setTransform = (transform) => {
+      snapshot = { ...snapshot, transform }
+      listeners.forEach((listener) => listener())
+    }
+    const calibrated = calibrate().s.getSnapshot()
+    saveSceneProfile(
+      "Saved headset",
+      {
+        calibration: calibrated.calibration!,
+        method: calibrated.method,
+        offset: [0.02, -0.03],
+        delayMs: 30,
+      },
+      {
+        trackerFormat: "classic",
+        orientation: { eye: tracker.transform, scene: snapshot.transform },
+      }
     )
-  )
-  await click("Gaze setup")
-  const calibrationStep = Array.from(
-    host.querySelectorAll<HTMLButtonElement>(
-      '[aria-label="Setup steps"] button'
+    host = document.createElement("div")
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () =>
+      root!.render(
+        createElement(ViewerSession, {
+          tracker,
+          sceneCamera: scene,
+          auxiliaryCamera: auxiliary,
+        })
+      )
     )
-  ).find((button) => button.textContent?.includes("Calibration"))!
-  await act(async () => calibrationStep.click())
-  expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
-    "Live scene gaze"
-  )
-  await click("Use in viewer")
-  expect(host.textContent).toContain("Calibration loaded")
-  await click("Gaze setup")
-  expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
-    "Live scene gaze"
-  )
-  await click("Use in viewer")
-  expect(host.textContent).toContain("Calibration loaded")
-  await act(async () =>
-    scene.setTransform({ rotation: 90, mirrorX: false, mirrorY: false })
-  )
-  expect(host.textContent).not.toContain("Calibration loaded")
-  expect(host.textContent).toContain("Eye model ready · Calibrate scene")
-  expect(tracker.settings.locked).toBe(true)
-})
+    await click("Gaze setup")
+    const calibrationStep = Array.from(
+      host.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Setup steps"] button'
+      )
+    ).find((button) => button.textContent?.includes("Calibration"))!
+    await act(async () => calibrationStep.click())
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
+      "Live scene gaze"
+    )
+    await click("Use in viewer")
+    expect(host.textContent).toContain("Calibration loaded")
+    await click("Gaze setup")
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
+      "Live scene gaze"
+    )
+    await click("Use in viewer")
+    expect(host.textContent).toContain("Calibration loaded")
+    const liveFrame = snapshot.frame!
+    await act(async () => {
+      scene.latest = null
+      snapshot = { ...snapshot, frame: null, connection: "reconnecting" }
+      listeners.forEach((listener) => listener())
+    })
+    expect(host.textContent).toContain("Reconnect cameras")
+    await act(async () => {
+      snapshot = {
+        ...snapshot,
+        frame: { ...liveFrame, id: 2, timestamp: performance.now() },
+        connection: "live",
+      }
+      scene.latest = snapshot.frame
+      listeners.forEach((listener) => listener())
+    })
+    expect(host.textContent).toContain("Calibration loaded")
+    await act(async () =>
+      root!.render(
+        createElement(ViewerSession, {
+          tracker: { ...tracker, frame: null, connection: "reconnecting" },
+          sceneCamera: scene,
+          auxiliaryCamera: auxiliary,
+        })
+      )
+    )
+    expect(host.textContent).toContain("Reconnect cameras")
+    await act(async () =>
+      root!.render(
+        createElement(ViewerSession, {
+          tracker,
+          sceneCamera: scene,
+          auxiliaryCamera: auxiliary,
+        })
+      )
+    )
+    expect(host.textContent).toContain("Calibration loaded")
+    await act(async () => {
+      if (change === "orientation") {
+        scene.setTransform({ rotation: 90, mirrorX: false, mirrorY: false })
+      } else {
+        if (change === "source")
+          snapshot = {
+            ...snapshot,
+            source: { ...snapshot.source!, key: "scene:2" },
+          }
+        if (change === "dimensions") {
+          scene.rawCanvas.width = 800
+          snapshot = { ...snapshot, frame: { ...snapshot.frame!, width: 800 } }
+        }
+        listeners.forEach((listener) => listener())
+      }
+    })
+    expect(host.textContent).not.toContain("Calibration loaded")
+    expect(host.textContent).toContain("Eye model ready · Calibrate scene")
+    expect(tracker.settings.locked).toBe(true)
+  }
+)

@@ -66,3 +66,24 @@ test("an interrupted tracker feed never exposes a stale photo or selection frame
   camera.update(eye)
   expect(camera.getSnapshot()).toBe(stable)
 })
+
+test("settings changes refresh pupil drawing metadata without replacing the worker frame", () => {
+  const eye = createViewerTracker()
+  const camera = new ViewerEyeCamera(eye)
+  const preview = camera.eyePreview
+  expect(camera.eyePreview).toBe(preview)
+  camera.update(eye)
+  expect(camera.eyePreview).toBe(preview)
+  const snapshot = camera.getSnapshot()
+  const settings = {
+    ...eye.settings,
+    corners: [
+      [100, 200],
+      [500, 200],
+    ] as [[number, number], [number, number]],
+  }
+  camera.update({ ...eye, settings })
+  expect(camera.getSnapshot()).not.toBe(snapshot)
+  expect(camera.eyePreview.corners).toBe(settings.corners)
+  expect(camera.eyePreview.frame).toBe(eye.frame)
+})
