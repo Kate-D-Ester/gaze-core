@@ -19,6 +19,7 @@ export type CaptureOptions = {
     generation: number
   ) => void
   onFrame?: (jpeg: Blob, sampleStart: number, generation: number) => void
+  onVideoWaiting?: (waiting: boolean) => void
   onError: (message: string) => void
 }
 export type CaptureMessage = {

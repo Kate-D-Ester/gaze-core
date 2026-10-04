@@ -1,3 +1,45 @@
+# Continuous listening through camera interruptions (2026-10-05)
+
+A single scene frame older than 150 ms previously stopped the microphone and
+closed the live connection. Temporary missing frames also changed observation
+identity, invalidating the alignment check and clearing the speaker lock. Frame
+freshness now controls visual targeting only: the microphone and connection stay
+open during waiting/reconnecting, and focused playback resumes automatically
+once fresh detections uniquely match the saved face location. Frame observation
+epochs no longer count as a different source. Source key, calibration/orientation
+identity and geometry changes still clear selection and require a fresh start.
+The existing visual freshness checks are not a playout-delay limit; adaptive
+audio processing and buffering are unchanged. Speech without usable matching
+video cannot be isolated reliably, so focused output can pause during the gap.
+
+Retries retain manual alignment and corrected face regions. Detector renumbering
+never chooses another person: ambiguous or absent spatial matches keep waiting;
+later unique matches can recover automatically, and a deliberate fresh gaze or
+click can select another face. Terminal camera errors stop active capture with
+the actual camera error, while already-draining accepted audio can finish.
+Missing/nonfinite microphone samples and genuine audio-device failures retain
+fatal cleanup. No source timestamps, pupil observations or lip frames are filled
+in to disguise a camera gap.
+
+The camera-gap regressions failed before implementation. Final verification
+passed **874 frontend tests across 102 files**, lint, TypeScript, diff checks and
+the isolated production build, including actual capture callbacks,
+controller/device routing, alignment across null/retry frames, gaze recovery,
+ambiguous-then-unique matching, overlapping face centers, terminal errors and
+preserved correction regions. Independent review found and verified the terminal
+error, crop preservation and recovery edge cases; no important findings remain.
+
+The running MPS service accepted five synthetic microphone packets during a
+simulated video gap, detected three faces again from the public debate frame,
+and acknowledged a unique spatial reacquisition on the same WebSocket. The test
+then accepted fresh capture and closed cleanly. This is a real transport/model
+face-detection check, not a recording of the user's microphone or a measurement
+of isolated speech quality. Both feature services are ready. Native browser
+inspection found no current eye/scene camera connected, so physical-room
+recovery and headphone quality are not claimed as tested.
+
+---
+
 # Microphone PCM boundary fix (2026-10-05)
 
 The microphone-to-service boundary previously sent finite over-range Float32

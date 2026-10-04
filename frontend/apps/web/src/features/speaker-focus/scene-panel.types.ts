@@ -3,7 +3,10 @@ import type {
   GazeMeasurement,
   SceneObservation,
 } from "../scene-eye-tracking/scene.types"
-import type { SceneSource } from "../scene-eye-tracking/scene-camera.types"
+import type {
+  SceneCameraSnapshot,
+  SceneSource,
+} from "../scene-eye-tracking/scene-camera.types"
 export type SceneSpeakerPanelProps = {
   camera: SceneCamera
   frame: SceneObservation | null
@@ -13,6 +16,8 @@ export type SceneSpeakerPanelProps = {
   errorRadiusPx?: number | null
   identity: string
   source: SceneSource | null
+  connection?: SceneCameraSnapshot["connection"]
+  cameraError?: string
   guided?: boolean
   active?: boolean
 }

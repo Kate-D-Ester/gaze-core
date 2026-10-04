@@ -1,3 +1,4 @@
+import { freshSceneFrame, SceneSourceIdentity } from "./scene-frame"
 import { matchFaceLocation } from "./face-locations"
 import { boxAtTime } from "./face-geometry"
 import type { AudioDeviceSelection } from "./audio-devices.types"
@@ -24,6 +25,7 @@ export class LiveController {
   private snapshot: LiveState = {
     status: "idle",
     mode: "focused",
+    videoWaiting: false,
     tracks: [],
     selection: this.adapter.state,
     device: "",
@@ -35,7 +37,9 @@ export class LiveController {
   private listeners = new Set<() => void>()
   private evidence: LiveEvidence | null = null
   private displayedGaze: DisplayedGaze | null = null
+  private readonly sceneIdentity = new SceneSourceIdentity()
   private sourceIdentity = ""
+  private captureVideoWaiting = false
   private abort: AbortController | null = null
   private connection: StreamConnection | null = null
   private acceptedEnd: number | null = null
@@ -78,13 +82,11 @@ export class LiveController {
     }, 100)
   }
   setEvidence(evidence: LiveEvidence): void {
-    const identity = JSON.stringify([
+    const identity = this.sceneIdentity.observe(
       evidence.identity,
-      evidence.frame?.generation,
-      evidence.frame?.width,
-      evidence.frame?.height,
-      evidence.source?.key,
-    ])
+      evidence.frame,
+      evidence.source?.key
+    )
     if (this.sourceIdentity && identity !== this.sourceIdentity) {
       this.displayedGaze = null
       this.correction = null
@@ -100,6 +102,16 @@ export class LiveController {
     }
     this.sourceIdentity = identity
     this.evidence = evidence
+    if (
+      evidence.connection === "error" &&
+      ["starting", "live"].includes(this.snapshot.status)
+    ) {
+      this.stop(
+        evidence.cameraError ||
+          "The scene camera stopped. Reconnect it, then start listening."
+      )
+      return
+    }
     this.observe()
   }
   setDisplayedGaze(gaze: DisplayedGaze | null): void {
@@ -128,11 +140,20 @@ export class LiveController {
     const previous = this.adapter.state
     const next = this.adapter.observe({
       ...evidence,
+      frame: this.captureVideoWaiting ? null : evidence.frame,
       measurement: displayed?.measurement ?? null,
       tracks: this.snapshot.tracks,
       bubble: displayed?.bubble ?? null,
       now,
     })
+    const videoWaiting =
+      this.captureVideoWaiting ||
+      !freshSceneFrame(evidence.frame, now) ||
+      this.adapter.waitingForScene
+    if (videoWaiting && !this.snapshot.videoWaiting) {
+      this.serviceTracks = []
+    }
+    this.update({ videoWaiting })
     this.selectionChanged(previous, next)
   }
   private selectionChanged(
@@ -152,7 +173,10 @@ export class LiveController {
     )
     const box = selected ? boxAtTime(selected, timestamp) : null
     const target =
-      box && !this.snapshot.selection.paused && this.snapshot.mode === "focused"
+      box &&
+      !this.snapshot.videoWaiting &&
+      !this.snapshot.selection.paused &&
+      this.snapshot.mode === "focused"
         ? matchFaceLocation(
             box,
             this.serviceTracks,
@@ -221,6 +245,13 @@ export class LiveController {
       this.select([box[0] + box[2] / 2, box[1] + box[3] / 2])
     }
     const evidence = this.evidence
+    if (evidence?.connection === "error") {
+      this.update({
+        status: "failed",
+        error: evidence.cameraError || "Reconnect the scene camera first",
+      })
+      return
+    }
     if (
       !evidence?.source ||
       !evidence.frame ||
@@ -347,6 +378,10 @@ export class LiveController {
             })
           }
         },
+        onVideoWaiting: (waiting) => {
+          this.captureVideoWaiting = waiting
+          this.observe()
+        },
         onError: (message) => this.stop(message),
       })
       if (abort.signal.aborted || epoch !== this.epoch) {
@@ -378,7 +413,13 @@ export class LiveController {
         target_id: null,
       })
       this.audioTargetId = null
-      this.update({ selection: this.adapter.clear(), error: reply.message })
+      const recovering =
+        this.snapshot.videoWaiting &&
+        reply.code === "synchronization_or_target_lost"
+      this.update({
+        selection: recovering ? this.adapter.state : this.adapter.clear(),
+        error: recovering ? "" : reply.message,
+      })
       return
     }
     if (reply.generation !== this.generation) {
@@ -456,6 +497,7 @@ export class LiveController {
     this.connection = null
     this.serviceTracks = []
     this.audioTargetId = null
+    this.captureVideoWaiting = false
     this.videoOffsetSeconds = 0
     this.acceptedEnd = null
     this.player?.dispose()
@@ -467,6 +509,7 @@ export class LiveController {
       inferenceSeconds: null,
       arrivalDelay: null,
       timing: null,
+      videoWaiting: false,
     })
   }
   dispose(): void {

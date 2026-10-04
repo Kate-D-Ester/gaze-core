@@ -17,6 +17,23 @@ async function captureFixture() {
     HTMLCanvasElement.prototype,
     "getContext"
   ).mockReturnValue({ drawImage() {} } as never)
+  let tick: (() => void) | null = null
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(
+    (callback) => {
+      tick = callback as () => void
+      return 1 as never
+    }
+  )
+  const blob = spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+    (callback) => {
+      callback(new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }))
+    }
+  )
+  const camera = {
+    latest: { id: 1, timestamp: 1000, generation: 1, width: 640, height: 480 },
+    rawCanvas: document.createElement("canvas"),
+  }
+  const waiting: boolean[] = []
   const pcm: Float32Array[] = []
   const packets: ArrayBuffer[] = []
   const errors: string[] = []
@@ -37,16 +54,7 @@ async function captureFixture() {
         getTracks: () => [{ stop: () => stopped++ }],
       } as unknown as MediaStream,
       {
-        camera: {
-          latest: {
-            id: 1,
-            timestamp: 1000,
-            generation: 1,
-            width: 640,
-            height: 480,
-          },
-          rawCanvas: document.createElement("canvas"),
-        } as never,
+        camera: camera as never,
         context: {
           currentTime: 0.5,
           audioWorklet: { addModule: async () => {} },
@@ -62,10 +70,18 @@ async function captureFixture() {
         },
         onPacket: (value) => packets.push(value),
         onError: (value) => errors.push(value),
+        onVideoWaiting: (value) => waiting.push(value),
       }
     )
     return {
       pcm,
+      camera,
+      waiting,
+      async tick(time: number) {
+        clock.mockReturnValue(time)
+        tick!()
+        await Promise.resolve()
+      },
       packets,
       errors,
       get stopped() {
@@ -86,12 +102,16 @@ async function captureFixture() {
       },
       dispose() {
         stop()
+        interval.mockRestore()
+        blob.mockRestore()
         canvas.mockRestore()
         clock.mockRestore()
         globalThis.AudioWorkletNode = originalNode
       },
     }
   } catch (error) {
+    interval.mockRestore()
+    blob.mockRestore()
     canvas.mockRestore()
     clock.mockRestore()
     globalThis.AudioWorkletNode = originalNode
@@ -188,6 +208,42 @@ test("old-generation PCM cannot alter capture or trigger a microphone error", as
     expect(capture.pcm).toHaveLength(0)
     expect(capture.packets).toHaveLength(0)
     expect(capture.errors).toHaveLength(0)
+    expect(capture.stopped).toBe(0)
+  } finally {
+    capture.dispose()
+  }
+})
+
+test("late or missing scene frames keep microphone PCM flowing and resume fresh video", async () => {
+  const capture = await captureFixture()
+  try {
+    await capture.tick(1000)
+    expect(
+      capture.packets.filter((packet) => new DataView(packet).getUint8(4) === 2)
+    ).toHaveLength(1)
+    await capture.tick(1300)
+    capture.send(new Float32Array([0.25]))
+    capture.camera.latest = null as never
+    await capture.tick(1800)
+    capture.send(new Float32Array([0.5]))
+    expect(capture.stopped).toBe(0)
+    expect(capture.errors).toEqual([])
+    expect(capture.pcm).toHaveLength(2)
+    expect(capture.waiting.at(-1)).toBe(true)
+    capture.camera.latest = {
+      id: 2,
+      timestamp: 2000,
+      generation: 2,
+      width: 640,
+      height: 480,
+    }
+    await capture.tick(2000)
+    expect(capture.waiting.at(-1)).toBe(false)
+    const frames = capture.packets.filter(
+      (packet) => new DataView(packet).getUint8(4) === 2
+    )
+    expect(frames).toHaveLength(2)
+    expect(new DataView(frames[1]!).getFloat64(20, true)).toBe(2)
     expect(capture.stopped).toBe(0)
   } finally {
     capture.dispose()

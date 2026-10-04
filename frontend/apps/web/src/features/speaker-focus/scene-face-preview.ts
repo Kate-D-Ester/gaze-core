@@ -1,4 +1,5 @@
 import type { Box } from "./client.types"
+import { SceneSourceIdentity } from "./scene-frame"
 import { FaceLocations } from "./face-locations"
 import type {
   FacePreviewReply,
@@ -18,6 +19,8 @@ export class SceneFacePreview {
   private inflight = false
   private lastTimestamp = -Infinity
   private sourceGeneration = -1
+  private sourceIdentity = ""
+  private readonly sceneIdentity = new SceneSourceIdentity()
   private locations = new FaceLocations()
   private region: Box | null = null
   private revision = 0
@@ -118,11 +121,21 @@ export class SceneFacePreview {
       }
       return
     }
-    if (scene.generation !== this.sourceGeneration) {
-      if (this.sourceGeneration !== -1) {
+    const snapshot = this.camera.getSnapshot()
+    const identity = this.sceneIdentity.observe(
+      JSON.stringify(snapshot.transform),
+      scene,
+      snapshot.source?.key
+    )
+    if (
+      scene.generation !== this.sourceGeneration ||
+      identity !== this.sourceIdentity
+    ) {
+      if (this.sourceIdentity && identity !== this.sourceIdentity) {
         this.region = null
         this.revision++
       }
+      this.sourceIdentity = identity
       this.sourceGeneration = scene.generation
       this.lastTimestamp = -Infinity
       this.locations.reset()
@@ -193,6 +206,7 @@ export class SceneFacePreview {
     this.inflight = false
     this.lastTimestamp = -Infinity
     this.sourceGeneration = -1
+    this.sourceIdentity = ""
     this.locations.reset()
     this.region = null
     this.revision = 0

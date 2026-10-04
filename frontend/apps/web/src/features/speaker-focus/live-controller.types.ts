@@ -11,6 +11,7 @@ export type LiveReply = z.infer<typeof liveReplySchema>
 export type LiveState = {
   status: "idle" | "starting" | "live" | "draining" | "paused" | "failed"
   mode: ListeningMode
+  videoWaiting: boolean
   tracks: FaceTrack[]
   selection: SelectionState
   device: string

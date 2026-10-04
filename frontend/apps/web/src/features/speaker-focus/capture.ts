@@ -5,6 +5,7 @@ import type {
 } from "./capture.types"
 export { PcmResampler } from "./resampler"
 import { packetBytes } from "./stream-protocol"
+import { freshSceneFrame } from "./scene-frame"
 import { normalizeMicrophonePcm } from "./microphone-pcm"
 export { packetBytes } from "./stream-protocol"
 export async function startMicrophone(
@@ -132,7 +133,7 @@ export async function startCapture(
     if (!context) {
       throw new Error("Live frame capture is unavailable")
     }
-    const initial = options.camera.latest?.generation
+    let videoWaiting = false
     let last = -1
     let encoding = false
     timer = setInterval(() => {
@@ -142,15 +143,12 @@ export async function startCapture(
         node?.port.postMessage({ generation })
       }
       const frame = options.camera.latest
-      if (
-        !frame ||
-        frame.generation !== initial ||
-        performance.now() - frame.timestamp > 150
-      ) {
-        options.onError(
-          "Scene source changed or became stale; restart live capture"
-        )
-        stop()
+      const waiting = !freshSceneFrame(frame, performance.now())
+      if (waiting !== videoWaiting) {
+        videoWaiting = waiting
+        options.onVideoWaiting?.(waiting)
+      }
+      if (!frame || waiting || stopped) {
         return
       }
       if (frame.id === last || encoding) {
@@ -168,12 +166,18 @@ export async function startCapture(
         canvas.width,
         canvas.height
       )
-      const capturedGeneration = generation
+      const capturedGeneration = options.generation()
+      const sceneGeneration = frame.generation
       const timestamp = frame.timestamp / 1000
       canvas.toBlob(
         (blob) => {
           encoding = false
-          if (!blob || stopped || capturedGeneration !== options.generation()) {
+          if (
+            !blob ||
+            stopped ||
+            capturedGeneration !== options.generation() ||
+            sceneGeneration !== options.camera.latest?.generation
+          ) {
             return
           }
           const sampleStart = Math.round(timestamp * 16000)
@@ -181,7 +185,11 @@ export async function startCapture(
           void blob
             .arrayBuffer()
             .then((bytes) => {
-              if (!stopped && capturedGeneration === options.generation()) {
+              if (
+                !stopped &&
+                capturedGeneration === options.generation() &&
+                sceneGeneration === options.camera.latest?.generation
+              ) {
                 options.onPacket(
                   packetBytes(
                     2,

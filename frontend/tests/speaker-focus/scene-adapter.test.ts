@@ -159,3 +159,132 @@ test("explicit unchecked Focus permission selects with estimated gaze but still 
   }
   expect(stale.state.selectedId).toBeNull()
 })
+
+// Camera transport gaps are not evidence that the selected person left.
+test("camera interruption retains its location lock and recovers after detector IDs change", () => {
+  const adapter = new SceneSelectionAdapter()
+  const input = (time: number, generation = 1) => ({
+    identity: "source",
+    frame: frame(time, generation),
+    measurement: null,
+    verified: false,
+    tracks: tracks(time),
+    now: time,
+  })
+  adapter.observe(input(1000))
+  adapter.click([0.2, 0.2], 1000)
+  adapter.observe({ ...input(1300), frame: frame(1000) })
+  expect(adapter.state.selectedId).toBe("face")
+  expect(adapter.state.paused).toBe(false)
+  adapter.observe({ ...input(1400), frame: null, tracks: [] })
+  expect(adapter.state.selectedId).toBe("face")
+  const recovered = input(2000, 2)
+  adapter.observe({ ...recovered, tracks: [] })
+  expect(adapter.state.selectedId).toBe("face")
+  adapter.observe({
+    ...recovered,
+    tracks: [
+      {
+        id: "different-person",
+        manual: false,
+        observations: [{ timestamp: 2, box: [0.6, 0.1, 0.2, 0.3] }],
+      },
+      { ...tracks(2000)[0]!, id: "new-left-id" },
+    ],
+  })
+  expect(adapter.state.selectedId).toBe("new-left-id")
+  expect(adapter.state.paused).toBe(false)
+})
+
+test("ambiguous recovery never changes a location lock to a different person", () => {
+  const adapter = new SceneSelectionAdapter()
+  const input = {
+    identity: "source",
+    frame: frame(1000),
+    measurement: null,
+    verified: false,
+    tracks: tracks(1000),
+    now: 1000,
+  }
+  adapter.observe(input)
+  adapter.click([0.2, 0.2], 1000)
+  adapter.observe({ ...input, frame: null, tracks: [], now: 1500 })
+  adapter.observe({
+    ...input,
+    frame: frame(2000, 2),
+    now: 2000,
+    tracks: [
+      { ...tracks(2000)[0]!, id: "first" },
+      { ...tracks(2000)[0]!, id: "second" },
+    ],
+  })
+  expect(adapter.state.selectedId).toBe("face")
+  expect(adapter.state.paused).toBe(true)
+  adapter.observe({
+    ...input,
+    frame: frame(2100, 2),
+    now: 2100,
+    tracks: [{ ...tracks(2100)[0]!, id: "unique" }],
+  })
+  expect(adapter.state.selectedId).toBe("unique")
+  expect(adapter.state.paused).toBe(false)
+})
+
+test("a gaze-selected location survives a camera retry without an intermediate null frame", () => {
+  const adapter = new SceneSelectionAdapter()
+  const input = (time: number) => ({
+    identity: "source",
+    frame: frame(time),
+    measurement: gaze(time),
+    verified: true,
+    bubble: {
+      center: [0.2, 0.2] as const,
+      radius: [0.02, 0.03] as const,
+      timestamp: time,
+    },
+    tracks: tracks(time),
+    now: time,
+  })
+  for (let time = 1000; time <= 1500; time += 100) {
+    adapter.observe(input(time))
+  }
+  expect(adapter.state.selectedId).toBe("face")
+  adapter.observe({
+    ...input(1600),
+    frame: frame(1600, 2),
+    measurement: null,
+    tracks: [{ ...tracks(1600)[0]!, id: "recovered" }],
+  })
+  expect(adapter.state.selectedId).toBe("recovered")
+  expect(adapter.state.paused).toBe(false)
+})
+
+test("a unique spatial recovery is not lost when another face surrounds its center", () => {
+  const adapter = new SceneSelectionAdapter()
+  const input = {
+    identity: "source",
+    frame: frame(1000),
+    measurement: null,
+    verified: false,
+    tracks: tracks(1000),
+    now: 1000,
+  }
+  adapter.observe(input)
+  adapter.click([0.2, 0.2], 1000)
+  adapter.observe({ ...input, frame: null, tracks: [], now: 1500 })
+  adapter.observe({
+    ...input,
+    frame: frame(2000, 2),
+    now: 2000,
+    tracks: [
+      { ...tracks(2000)[0]!, id: "recovered" },
+      {
+        id: "surrounding",
+        manual: false,
+        observations: [{ timestamp: 2, box: [0, 0, 0.5, 0.5] }],
+      },
+    ],
+  })
+  expect(adapter.state.selectedId).toBe("recovered")
+  expect(adapter.state.paused).toBe(false)
+})

@@ -257,6 +257,28 @@ test.each(["camera", "network"] as const)(
       rawCanvas: document.createElement("canvas"),
       subscribe: () => () => {},
     } as unknown as SceneCamera
+    const sceneFrame = {
+      id: 1,
+      generation: 1,
+      width: 640,
+      height: 480,
+      timestamp: performance.now(),
+    }
+    const sceneProps = {
+      camera,
+      frame: sceneFrame,
+      measurement: null,
+      source: {
+        kind: source,
+        key: "test",
+        name: "Camera",
+        url: "http://esp32.local/stream",
+      },
+      identity: "mic-alignment",
+      verified: false,
+      guided: true,
+      active: true,
+    }
     host = document.createElement("div")
     document.body.append(host)
     try {
@@ -293,6 +315,30 @@ test.each(["camera", "network"] as const)(
         'button[aria-label="Start live microphone"]'
       )!
       await act(async () => check.click())
+      expect(check.checked).toBe(true)
+      expect(start.disabled).toBe(false)
+      await act(async () =>
+        root!.render(
+          createElement(LiveSpeakerPanel, {
+            ...sceneProps,
+            frame: null,
+          })
+        )
+      )
+      expect(check.checked).toBe(true)
+      await act(async () =>
+        root!.render(
+          createElement(LiveSpeakerPanel, {
+            ...sceneProps,
+            frame: {
+              ...sceneFrame,
+              id: 2,
+              generation: 2,
+              timestamp: performance.now(),
+            },
+          })
+        )
+      )
       expect(check.checked).toBe(true)
       expect(start.disabled).toBe(false)
       await act(async () => {

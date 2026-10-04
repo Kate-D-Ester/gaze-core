@@ -1,3 +1,4 @@
+import { freshSceneFrame, SceneSourceIdentity } from "./scene-frame"
 import { AudioDevices } from "./audio-devices"
 import { AudioDeviceControls } from "./audio-device-controls"
 import { SceneFacePreview } from "./scene-face-preview"
@@ -21,6 +22,7 @@ import type { SceneSpeakerPanelProps } from "./scene-panel.types"
 
 export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   const [controller] = useState(() => new LiveController())
+  const [sceneIdentity] = useState(() => new SceneSourceIdentity())
   const [devices] = useState(() => new AudioDevices())
   const audioDevices = useSyncExternalStore(
     devices.subscribe,
@@ -59,10 +61,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   const [anchor, setAnchor] = useState<ImagePoint | null>(null)
   const active = props.active !== false
   const syncIdentity = JSON.stringify([
-    props.identity,
-    props.frame?.generation,
-    props.frame?.width,
-    props.frame?.height,
+    sceneIdentity.observe(props.identity, props.frame, props.source?.key),
     offset,
     audioDevices.selection.microphoneId,
   ])
@@ -75,10 +74,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   const drawing = marking && state.status === "live"
   const arrivalOnly = props.source?.kind === "network"
   const time = (props.frame?.timestamp ?? 0) / 1000
-  const frameFresh =
-    !!props.frame &&
-    now >= props.frame.timestamp &&
-    now - props.frame.timestamp <= 150
+  const frameFresh = freshSceneFrame(props.frame, now)
   const gazeEnabled = props.verified || props.allowUnverifiedGaze === true
   const point =
     gazeEnabled && frameFresh
@@ -110,6 +106,12 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     }
     if (state.selection.paused) {
       status = "Face lost · select it again"
+    }
+  }
+  if (busy && state.videoWaiting) {
+    status = "Camera interrupted · listening will resume automatically"
+    if (frameFresh) {
+      status = "Waiting for the locked face · look at or click another face"
     }
   }
   if (state.status === "draining") {
@@ -205,7 +207,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
         />
         {!props.frame && (
           <div className="absolute inset-0 grid place-items-center text-muted-foreground">
-            Connect a scene camera
+            {props.source ? "Waiting for camera" : "Connect a scene camera"}
           </div>
         )}
         {!drawing &&
@@ -371,6 +373,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
               disabled={
                 !active ||
                 !props.source ||
+                props.connection === "error" ||
                 !verified ||
                 audioDevices.inputMissing ||
                 audioDevices.outputMissing ||

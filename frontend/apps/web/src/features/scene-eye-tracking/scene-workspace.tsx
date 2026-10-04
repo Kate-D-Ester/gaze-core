@@ -216,6 +216,8 @@ export function SceneWorkspace({
       >
         <SceneSpeakerPanel
           camera={scene.camera}
+          connection={scene.connection}
+          cameraError={scene.error}
           frame={scene.frame}
           measurement={state.measurement}
           verified={accuracyChecked}
@@ -449,6 +451,8 @@ export function SceneWorkspace({
             />
             <SceneSpeakerPanel
               camera={scene.camera}
+              connection={scene.connection}
+              cameraError={scene.error}
               frame={scene.frame}
               measurement={state.measurement}
               verified={hasCurrentAccuracyCheck(state)}

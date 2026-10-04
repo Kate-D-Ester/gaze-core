@@ -89,6 +89,10 @@ test("preview ignores frames from an old camera orientation and closes late bitm
   const camera = {
     latest: { id: 1, timestamp: 1000, generation: 1, width: 640, height: 480 },
     rawCanvas: document.createElement("canvas"),
+    getSnapshot: () => ({
+      source: { key: "scene" },
+      transform: { rotation: 0, mirrorX: false, mirrorY: false },
+    }),
     subscribe: (fn: () => void) => {
       listener = fn
       return () => {
@@ -173,6 +177,10 @@ test("face correction applies to preview detection and rejects the preceding unc
   const camera = {
     latest: { id: 1, timestamp: 1000, generation: 1, width: 640, height: 480 },
     rawCanvas: document.createElement("canvas"),
+    getSnapshot: () => ({
+      source: { key: "scene" },
+      transform: { rotation: 0, mirrorX: false, mirrorY: false },
+    }),
     subscribe: () => () => {},
   } as unknown as SceneCamera
   const messages: Record<string, unknown>[] = []
@@ -225,4 +233,64 @@ test("face correction applies to preview detection and rejects the preceding unc
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(messages.at(-1)!.region).toEqual([0.5, 0.2, 0.25, 0.4])
   preview.dispose()
+})
+
+test("a camera transport retry preserves the corrected face region", async () => {
+  let listener: (() => void) | null = null
+  const camera = {
+    latest: { id: 1, timestamp: 1000, generation: 1, width: 640, height: 480 },
+    rawCanvas: document.createElement("canvas"),
+    getSnapshot: () => ({
+      source: { key: "same-camera" },
+      transform: { rotation: 0, mirrorX: false, mirrorY: false },
+    }),
+    subscribe: (fn: () => void) => {
+      listener = fn
+      return () => {
+        listener = null
+      }
+    },
+  } as unknown as SceneCamera
+  const messages: Record<string, unknown>[] = []
+  const worker = {
+    onmessage: null,
+    postMessage: (message: Record<string, unknown>) => messages.push(message),
+    terminate() {},
+  } as unknown as Worker
+  const preview = new SceneFacePreview(
+    camera,
+    () => worker,
+    async () => ({ close() {} }) as ImageBitmap
+  )
+  try {
+    preview.start()
+    const generation = messages[0]!.generation
+    preview.correct([0.5, 0.2, 0.25, 0.4])
+    worker.onmessage!({ data: { type: "ready", generation } } as MessageEvent)
+    await Promise.resolve()
+    worker.onmessage!({
+      data: {
+        type: "faces",
+        generation,
+        revision: messages.at(-1)!.revision,
+        scene: camera.latest,
+        boxes: [],
+      },
+    } as MessageEvent)
+    camera.latest = null
+    listener!()
+    camera.latest = {
+      id: 2,
+      timestamp: 2000,
+      generation: 2,
+      width: 640,
+      height: 480,
+    }
+    listener!()
+    await Promise.resolve()
+    expect(messages.at(-1)!.region).toEqual([0.5, 0.2, 0.25, 0.4])
+    expect(messages.at(-1)!.scene).toEqual(camera.latest)
+  } finally {
+    preview.dispose()
+  }
 })
