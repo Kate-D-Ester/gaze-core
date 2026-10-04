@@ -7,7 +7,8 @@ import { SceneSession } from "./scene-session"
 export function useSceneSession(
   tracker: TrackerController,
   camera: SceneCamera,
-  identity: string
+  identity: string,
+  allowUnverifiedGaze = false
 ) {
   const [session] = useState(() => new SceneSession(readCalibrationMethod()))
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
@@ -36,7 +37,7 @@ export function useSceneSession(
   useEffect(() => {
     const measure = () => {
       const now = performance.now()
-      session.measure(camera.latest, now)
+      session.measure(camera.latest, now, allowUnverifiedGaze)
       session.checkCaptureFreshness(now)
     }
     const unsubscribe = camera.subscribe(measure)
@@ -45,6 +46,6 @@ export function useSceneSession(
       unsubscribe()
       clearInterval(timer)
     }
-  }, [camera, session])
+  }, [camera, session, allowUnverifiedGaze])
   return { session, ...state }
 }

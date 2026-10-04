@@ -1,15 +1,16 @@
 import type { GazeMeasurement } from "../scene-eye-tracking/scene.types"
 
-/** Shared by the face selector and its gaze overlay; preview estimates never target voices. */
+/** Unchecked estimates require explicit Focus permission; freshness checks always apply. */
 export function verifiedGazePoint(
   gaze: GazeMeasurement | null,
-  now: number
+  now: number,
+  allowUnverifiedGaze = false
 ): GazeMeasurement["position"] {
   if (
     !gaze ||
     !Number.isFinite(now) ||
     !gaze.valid ||
-    gaze.estimated ||
+    (gaze.estimated && !allowUnverifiedGaze) ||
     gaze.preview ||
     gaze.extrapolated ||
     !Number.isFinite(gaze.confidence) ||

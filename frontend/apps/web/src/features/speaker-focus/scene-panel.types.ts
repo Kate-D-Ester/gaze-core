@@ -9,6 +9,7 @@ export type SceneSpeakerPanelProps = {
   frame: SceneObservation | null
   measurement: GazeMeasurement | null
   verified: boolean
+  allowUnverifiedGaze?: boolean
   errorRadiusPx?: number | null
   identity: string
   source: SceneSource | null

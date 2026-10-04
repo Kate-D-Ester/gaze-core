@@ -25,7 +25,7 @@ export class SceneSelectionAdapter {
       this.selection.resetDwell()
       return this.selection.checkTracks([], input.now / 1000)
     }
-    if (!input.verified || !input.measurement) {
+    if ((!input.verified && !input.allowUnverifiedGaze) || !input.measurement) {
       this.selection.resetDwell()
       return this.selection.checkTracks(
         input.tracks,
@@ -35,6 +35,7 @@ export class SceneSelectionAdapter {
     return this.selection.observeGaze(
       {
         measurement: input.measurement,
+        allowUnverifiedGaze: input.allowUnverifiedGaze,
         bubble: input.bubble,
         sourceGeneration: this.generation,
         mediaTime: input.frame.timestamp / 1000,

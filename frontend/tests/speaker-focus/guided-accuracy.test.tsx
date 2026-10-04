@@ -18,7 +18,7 @@ if (typeof document === "undefined") {
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-test("guided accuracy exposes failed results and enables Focus after a fresh corrected check", async () => {
+test("guided Focus accepts an unchecked or failed mapping without falsifying accuracy", async () => {
   localStorage.clear()
   const { s } = calibrate()
   saveSceneProfile(
@@ -150,7 +150,7 @@ test("guided accuracy exposes failed results and enables Focus after a fresh cor
     await act(async () => steps()[4]!.click())
     expect(installed).not.toBeNull()
     expect(steps()[5]!.disabled).toBe(false)
-    expect(steps()[6]!.disabled).toBe(true)
+    expect(steps()[6]!.disabled).toBe(false)
     await act(async () => steps()[4]!.click())
     await act(async () => steps()[5]!.click())
     expect(steps()[5]!.getAttribute("aria-current")).toBe("step")
@@ -162,7 +162,20 @@ test("guided accuracy exposes failed results and enables Focus after a fresh cor
       collectValidation(installed!, 0, () => [0.08, -0.06])
     })
     expect(installed!.getSnapshot().validation?.passed).toBe(false)
-    expect(steps()[6]!.disabled).toBe(true)
+    expect(steps()[6]!.disabled).toBe(false)
+    const failedValidation = installed!.getSnapshot().validation
+    const focusButton = Array.from(
+      host.querySelectorAll<HTMLButtonElement>("button")
+    ).find((button) => button.textContent?.trim() === "Continue to focus")!
+    expect(focusButton.disabled).toBe(false)
+    await act(async () => focusButton.click())
+    expect(steps()[6]!.getAttribute("aria-current")).toBe("step")
+    expect(
+      host.querySelector('section[aria-label="Calibrated speaker focus"]')
+    ).not.toBeNull()
+    expect(host.textContent).toContain("Accuracy not verified")
+    expect(installed!.getSnapshot().validation).toBe(failedValidation)
+    await act(async () => steps()[5]!.click())
     const recovery = host.querySelector(".scene-validation-recovery")!
     expect(recovery).not.toBeNull()
     expect(recovery.closest("details")?.open).toBe(true)
@@ -172,7 +185,12 @@ test("guided accuracy exposes failed results and enables Focus after a fresh cor
     expect(correction.disabled).toBe(false)
     await act(async () => correction.click())
     expect(installed!.getSnapshot().capture).toBe("validation")
-    expect(steps()[6]!.disabled).toBe(true)
+    expect(steps()[6]!.disabled).toBe(false)
+    await act(async () => steps()[6]!.click())
+    expect(installed!.getSnapshot().capture).toBeNull()
+    expect(steps()[6]!.getAttribute("aria-current")).toBe("step")
+    await act(async () => steps()[5]!.click())
+    await act(async () => installed!.startCapture("validation"))
     await act(async () => {
       collectValidation(installed!, 500, () => [0.08, -0.06])
     })

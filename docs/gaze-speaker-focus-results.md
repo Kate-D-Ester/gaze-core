@@ -1,3 +1,37 @@
+# Optional accuracy check in guided Focus (2026-10-04)
+
+The user explicitly chose to use the current fitted scene calibration despite
+failed accuracy (46.0 px RMS / 63.6 px worst). Guided Focus now accepts a fitted
+mapping without requiring a passed check. The Continue button and Focus step are
+available, and status updates do not bounce the user back solely for unverified
+accuracy. Entering Focus cancels an unfinished optional validation collection.
+
+Fresh gaze from the unchecked mapping is marked estimated, with a compact
+“Accuracy not verified” warning. Explicit guided-Focus permission admits that
+estimate through the displayed bubble, continuous dwell and face selector,
+including when no error radius has been measured. Failed validation results and
+saved profile verification remain truthful. Missing/stale/weak pupil evidence,
+stale scene frames, extrapolated coordinates and source invalidation still reject
+selection. Ordinary scene and reference routes retain their previous defaults.
+
+Verification: **849 frontend tests across 101 files**, formatting, lint,
+TypeScript, diff checks and an isolated production build passed. Regressions
+first reproduced disabled navigation, rejected estimated selection and the
+missing-radius bubble, then passed after their repairs. Independent read-only
+review found no remaining important issue.
+
+Native Chrome verification opened Focus using the saved “esterk” profile, without
+another accuracy check, with the existing +36 px X / -20 px Y adjustments intact.
+The development page update reset the scene connection; reconnecting the same
+ESP32 stream automatically restored that saved profile. Stale development modules
+were refreshed without reloading the eye camera. Final screenshot:
+`speaker-service/data/benchmarks/reference-reliability/unchecked-focus.png`.
+Live audio remains independently blocked for this network camera because its
+stream lacks capture timestamps. No physical-room audio isolation or headphones
+quality is claimed by this validation. Backend services were not restarted.
+
+---
+
 # Audio device selection and live face preview (2026-10-04)
 
 Focus now provides separate Microphone and Speaker / headphones selectors, with

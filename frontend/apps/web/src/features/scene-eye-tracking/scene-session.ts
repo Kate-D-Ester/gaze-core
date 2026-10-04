@@ -583,7 +583,11 @@ export class SceneSession {
     }
     this.collector = null
   }
-  measure(latestScene: SceneObservation | null, now: number) {
+  measure(
+    latestScene: SceneObservation | null,
+    now: number,
+    allowUnverifiedGaze = false
+  ) {
     if (latestScene && this.scenes.at(-1)?.id !== latestScene.id) {
       this.scenes.push(latestScene)
       this.scenes = this.scenes
@@ -673,15 +677,18 @@ export class SceneSession {
     const verified = hasCurrentAccuracyCheck(this.snapshot)
     const estimated =
       !verified &&
-      (this.snapshot.method === "one-point" ||
+      (allowUnverifiedGaze ||
+        this.snapshot.method === "one-point" ||
         !!this.snapshot.reusedCalibration)
     const preview = inFrame && !verified && !estimated && !this.snapshot.capture
     if (inFrame && !verified) {
       reason = "Accuracy check required"
       if (this.snapshot.reusedCalibration) {
         reason = "Reused calibration · accuracy not rechecked"
-      } else if (estimated) {
+      } else if (this.snapshot.method === "one-point") {
         reason = "One-point estimate · accuracy not measured"
+      } else if (allowUnverifiedGaze) {
+        reason = "Accuracy not verified · using current calibration"
       }
     }
     const extrapolated =

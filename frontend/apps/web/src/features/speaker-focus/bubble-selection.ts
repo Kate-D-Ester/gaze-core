@@ -11,13 +11,15 @@ export function visibleSelectionBubble(
   snapshot: GazeBubbleOverlaySnapshot | null,
   measurement: GazeMeasurement | null,
   verified: boolean,
-  now: number
+  now: number,
+  allowUnverifiedGaze = false
 ): SelectionBubble | null {
-  const point = verifiedGazePoint(measurement, now)
+  const point = verifiedGazePoint(measurement, now, allowUnverifiedGaze)
   if (
-    !verified ||
+    (!verified && !allowUnverifiedGaze) ||
     !point ||
-    !snapshot?.bubble.verified ||
+    !snapshot ||
+    (!snapshot.bubble.verified && !allowUnverifiedGaze) ||
     snapshot.bubble.rawPoint.some((value, index) => value !== point[index]) ||
     !measurement
   ) {

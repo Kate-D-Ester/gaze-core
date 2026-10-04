@@ -156,7 +156,11 @@ export class SelectionController {
       this.reset(evidence.sourceGeneration)
     }
     this.checkTracks(tracks, evidence.mediaTime)
-    const point = verifiedGazePoint(evidence.measurement, now)
+    const point = verifiedGazePoint(
+      evidence.measurement,
+      now,
+      evidence.allowUnverifiedGaze
+    )
     const bubble = evidence.bubble
     if (
       !point ||
@@ -188,7 +192,12 @@ export class SelectionController {
       this.current.pending = { id: target, since: now }
     }
     if (now - this.current.pending.since >= 500) {
-      return this.choose(target, "Verified gaze selection")
+      return this.choose(
+        target,
+        evidence.measurement.estimated
+          ? "Estimated gaze selection"
+          : "Verified gaze selection"
+      )
     }
     this.current.reason = "Hold gaze on one visible face"
     return this.state

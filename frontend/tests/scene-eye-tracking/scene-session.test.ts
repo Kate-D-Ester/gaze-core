@@ -825,3 +825,55 @@ test("a failed fresh check cannot be overridden by a reused profile", () => {
   restored.measure(handAt(id + 1, time + 50).scene, time + 50)
   expect(restored.getSnapshot().measurement?.valid).toBe(false)
 })
+
+test("Focus can use a failed mapping as an estimate while preserving validation and freshness", () => {
+  const { s, id } = calibrate(false)
+  s.cancelCapture()
+  s.startCapture("validation")
+  const result = collectValidation(s, id, () => [0.08, -0.06])
+  const validation = s.getSnapshot().validation
+  expect(validation?.passed).toBe(false)
+  const eye = {
+    id: result.id + 1,
+    timestamp: result.time + 50,
+    feature: [0, 0] as [number, number],
+    confidence: 0.95,
+    valid: true,
+  }
+  s.addEye(eye)
+  s.measure(handAt(eye.id, eye.timestamp).scene, eye.timestamp, true)
+  expect(s.getSnapshot().measurement?.valid).toBe(true)
+  expect(s.getSnapshot().measurement?.estimated).toBe(true)
+  expect(s.getSnapshot().measurement?.preview).toBe(false)
+  expect(s.getSnapshot().validation).toBe(validation)
+  // Leaving Focus restores the default preview policy for an unchecked mapping.
+  s.addEye({ ...eye, id: eye.id + 1, timestamp: eye.timestamp + 50 })
+  s.measure(handAt(eye.id + 1, eye.timestamp + 50).scene, eye.timestamp + 50)
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+  s.measure(
+    handAt(eye.id + 2, eye.timestamp + 500).scene,
+    eye.timestamp + 500,
+    true
+  )
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+  s.addEye({
+    ...eye,
+    id: eye.id + 3,
+    timestamp: eye.timestamp + 550,
+    confidence: 0.1,
+  })
+  s.measure(
+    handAt(eye.id + 3, eye.timestamp + 550).scene,
+    eye.timestamp + 550,
+    true
+  )
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+  s.invalidate()
+  s.addEye({ ...eye, id: eye.id + 4, timestamp: eye.timestamp + 600 })
+  s.measure(
+    handAt(eye.id + 4, eye.timestamp + 600).scene,
+    eye.timestamp + 600,
+    true
+  )
+  expect(s.getSnapshot().measurement).toBeNull()
+})

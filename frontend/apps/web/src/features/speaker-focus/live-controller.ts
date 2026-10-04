@@ -118,7 +118,11 @@ export class LiveController {
     const now = performance.now()
     // Keep the bubble and its source sample together across React commits. A
     // physically missing/invalid eye sample still interrupts dwell immediately.
-    const displayed = verifiedGazePoint(evidence.measurement, now)
+    const displayed = verifiedGazePoint(
+      evidence.measurement,
+      now,
+      evidence.allowUnverifiedGaze
+    )
       ? this.displayedGaze
       : null
     const previous = this.adapter.state

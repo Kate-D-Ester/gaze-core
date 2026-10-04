@@ -292,7 +292,7 @@ export function EyeTrackingWorkspace({
       settings.locked &&
         !!source &&
         sceneStatus.connected &&
-        !!sceneStatus.accuracyChecked
+        sceneStatus.calibrated
     )
   }
   const handleSceneStatus = useCallback(
@@ -300,8 +300,11 @@ export function EyeTrackingWorkspace({
       setSceneStatus(next)
       if (speakerMode) {
         setStep((current) => {
-          if (current === 6 && !next.accuracyChecked) {
-            return next.calibrated ? 5 : 4
+          if (current === 6 && !next.connected) {
+            return 3
+          }
+          if (current === 6 && !next.calibrated) {
+            return 4
           }
           return current
         })

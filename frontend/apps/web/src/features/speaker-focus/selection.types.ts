@@ -5,6 +5,7 @@ export type ImageBounds = Pick<DOMRect, "left" | "top" | "width" | "height">
 export type GazeEvidence = {
   bubble?: SelectionBubble | null
   measurement: GazeMeasurement
+  allowUnverifiedGaze?: boolean
   sourceGeneration: number
   mediaTime: number
 }

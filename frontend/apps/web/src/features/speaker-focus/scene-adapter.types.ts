@@ -10,6 +10,7 @@ export type SceneSelectionInput = {
   measurement: GazeMeasurement | null
   bubble?: SelectionBubble | null
   verified: boolean
+  allowUnverifiedGaze?: boolean
   tracks: readonly FaceTrack[]
   now: number
 }

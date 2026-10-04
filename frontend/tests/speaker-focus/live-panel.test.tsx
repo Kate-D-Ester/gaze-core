@@ -62,128 +62,137 @@ test("leaving the focus workspace stops microphone capture and returns to a safe
   }
 })
 
-test("changing gaze coordinates publish the displayed bubble atomically and complete one continuous dwell", async () => {
-  const { SceneSelectionAdapter } =
-    await import("../../apps/web/src/features/speaker-focus/scene-adapter")
-  const adapter = new SceneSelectionAdapter()
-  let now = 1000
-  let latest: Parameters<LiveController["setEvidence"]>[0] | null = null
-  let displayed: Parameters<LiveController["setDisplayedGaze"]>[0] = null
-  const clock = spyOn(performance, "now").mockImplementation(() => now)
-  const rectangle = spyOn(
-    HTMLElement.prototype,
-    "getBoundingClientRect"
-  ).mockReturnValue({
-    x: 0,
-    y: 0,
-    width: 800,
-    height: 450,
-    top: 0,
-    left: 0,
-    bottom: 450,
-    right: 800,
-    toJSON() {},
-  })
-  const camera = {
-    latest: null,
-    rawCanvas: document.createElement("canvas"),
-  } as unknown as SceneCamera
-  const props = (time: number) => ({
-    camera,
-    frame: {
-      id: time,
-      timestamp: time,
-      generation: 1,
-      width: 320,
-      height: 180,
-    },
-    measurement: {
-      timestamp: time,
-      eyeId: time,
-      sceneId: time,
-      eyeTimestamp: time,
-      sceneTimestamp: time,
-      confidence: 1,
-      position: [0.2 + (time - 1000) / 10000, 0.2] as [number, number],
-      pixels: [64, 36] as [number, number],
-      valid: true,
-      reason: "",
-      extrapolated: false,
-    },
-    source: null,
-    identity: "test",
-    verified: true,
-    errorRadiusPx: 20,
-    guided: true,
-    active: true,
-  })
-  const observe = () => {
-    if (latest) {
-      adapter.observe({
-        ...latest,
-        measurement: displayed?.measurement ?? null,
-        bubble: displayed?.bubble ?? null,
-        tracks: [
-          {
-            id: "person",
-            manual: false,
-            observations: [
-              { timestamp: now / 1000, box: [0.1, 0.1, 0.3, 0.3] },
-            ],
-          },
-        ],
-        now,
-      })
-    }
-  }
-  const evidence = spyOn(
-    LiveController.prototype,
-    "setEvidence"
-  ).mockImplementation((value) => {
-    latest = value
-    observe()
-  })
-  const publication = spyOn(
-    LiveController.prototype,
-    "setDisplayedGaze"
-  ).mockImplementation((value) => {
-    displayed = value
-    observe()
-  })
-  host = document.createElement("div")
-  document.body.append(host)
-  try {
-    await act(async () => {
-      root = createRoot(host!)
-      root.render(createElement(LiveSpeakerPanel, props(now)))
+test.each([
+  { allowUnverifiedGaze: false, errorRadiusPx: 20 },
+  { allowUnverifiedGaze: true, errorRadiusPx: 20 },
+  { allowUnverifiedGaze: true, errorRadiusPx: null },
+])(
+  "changing gaze coordinates complete a continuous dwell with Focus permission %j",
+  async ({ allowUnverifiedGaze, errorRadiusPx }) => {
+    const { SceneSelectionAdapter } =
+      await import("../../apps/web/src/features/speaker-focus/scene-adapter")
+    const adapter = new SceneSelectionAdapter()
+    let now = 1000
+    let latest: Parameters<LiveController["setEvidence"]>[0] | null = null
+    let displayed: Parameters<LiveController["setDisplayedGaze"]>[0] = null
+    const clock = spyOn(performance, "now").mockImplementation(() => now)
+    const rectangle = spyOn(
+      HTMLElement.prototype,
+      "getBoundingClientRect"
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 450,
+      top: 0,
+      left: 0,
+      bottom: 450,
+      right: 800,
+      toJSON() {},
     })
-    for (now = 1100; now <= 1500; now += 100) {
-      await act(async () =>
-        root!.render(createElement(LiveSpeakerPanel, props(now)))
-      )
-      expect(displayed?.measurement.timestamp).toBe(now)
-      expect(displayed?.bubble.timestamp).toBe(now)
+    const camera = {
+      latest: null,
+      rawCanvas: document.createElement("canvas"),
+    } as unknown as SceneCamera
+    const props = (time: number) => ({
+      camera,
+      frame: {
+        id: time,
+        timestamp: time,
+        generation: 1,
+        width: 320,
+        height: 180,
+      },
+      measurement: {
+        timestamp: time,
+        eyeId: time,
+        sceneId: time,
+        eyeTimestamp: time,
+        sceneTimestamp: time,
+        confidence: 1,
+        position: [0.2 + (time - 1000) / 10000, 0.2] as [number, number],
+        pixels: [64, 36] as [number, number],
+        valid: true,
+        reason: "",
+        estimated: allowUnverifiedGaze,
+        extrapolated: false,
+      },
+      source: null,
+      identity: "test",
+      verified: !allowUnverifiedGaze,
+      allowUnverifiedGaze,
+      errorRadiusPx,
+      guided: true,
+      active: true,
+    })
+    const observe = () => {
+      if (latest) {
+        adapter.observe({
+          ...latest,
+          measurement: displayed?.measurement ?? null,
+          bubble: displayed?.bubble ?? null,
+          tracks: [
+            {
+              id: "person",
+              manual: false,
+              observations: [
+                { timestamp: now / 1000, box: [0.1, 0.1, 0.3, 0.3] },
+              ],
+            },
+          ],
+          now,
+        })
+      }
     }
-    expect(adapter.state.selectedId).toBe("person")
-    const bubble = host.querySelector<HTMLElement>(".gaze-bubble")!
-    expect(bubble.className).not.toContain("transition-")
-    expect(parseFloat(bubble.style.left)).toBeCloseTo(25)
-    await act(async () =>
-      root!.render(
-        createElement(LiveSpeakerPanel, { ...props(now), measurement: null })
+    const evidence = spyOn(
+      LiveController.prototype,
+      "setEvidence"
+    ).mockImplementation((value) => {
+      latest = value
+      observe()
+    })
+    const publication = spyOn(
+      LiveController.prototype,
+      "setDisplayedGaze"
+    ).mockImplementation((value) => {
+      displayed = value
+      observe()
+    })
+    host = document.createElement("div")
+    document.body.append(host)
+    try {
+      await act(async () => {
+        root = createRoot(host!)
+        root.render(createElement(LiveSpeakerPanel, props(now)))
+      })
+      for (now = 1100; now <= 1500; now += 100) {
+        await act(async () =>
+          root!.render(createElement(LiveSpeakerPanel, props(now)))
+        )
+        expect(displayed?.measurement.timestamp).toBe(now)
+        expect(displayed?.bubble.timestamp).toBe(now)
+      }
+      expect(adapter.state.selectedId).toBe("person")
+      const bubble = host.querySelector<HTMLElement>(".gaze-bubble")!
+      expect(bubble.className).not.toContain("transition-")
+      expect(parseFloat(bubble.style.left)).toBeCloseTo(25)
+      await act(async () =>
+        root!.render(
+          createElement(LiveSpeakerPanel, { ...props(now), measurement: null })
+        )
       )
-    )
-    expect(displayed).toBeNull()
-    expect(adapter.state.selectedId).toBe("person")
-  } finally {
-    await act(async () => root?.unmount())
-    root = null
-    evidence.mockRestore()
-    publication.mockRestore()
-    clock.mockRestore()
-    rectangle.mockRestore()
+      expect(displayed).toBeNull()
+      expect(adapter.state.selectedId).toBe("person")
+    } finally {
+      await act(async () => root?.unmount())
+      root = null
+      evidence.mockRestore()
+      publication.mockRestore()
+      clock.mockRestore()
+      rectangle.mockRestore()
+    }
   }
-})
+)
 
 test("Focus exposes both device selectors and keeps the current camera preview visible", async () => {
   const camera = {

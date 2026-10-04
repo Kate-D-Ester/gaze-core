@@ -129,3 +129,33 @@ test.each(["missing gaze", "unverified gaze", "stale scene"])(
     expect(adapter.state.selectedId).toBe("other")
   }
 )
+
+test("explicit unchecked Focus permission selects with estimated gaze but still rejects stale evidence", () => {
+  const adapter = new SceneSelectionAdapter()
+  const input = (time: number) => ({
+    identity: "source",
+    frame: frame(time),
+    measurement: { ...gaze(time), estimated: true },
+    bubble: {
+      center: [0.2, 0.2] as const,
+      radius: [0.02, 0.03] as const,
+      timestamp: time,
+    },
+    verified: false,
+    allowUnverifiedGaze: true,
+    tracks: tracks(time),
+    now: time,
+  })
+  for (let time = 1000; time <= 1500; time += 100) {
+    adapter.observe(input(time))
+  }
+  expect(adapter.state.selectedId).toBe("face")
+  const stale = new SceneSelectionAdapter()
+  for (let time = 1000; time <= 1600; time += 100) {
+    stale.observe({
+      ...input(time),
+      measurement: { ...gaze(time - 200), estimated: true },
+    })
+  }
+  expect(stale.state.selectedId).toBeNull()
+})

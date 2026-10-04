@@ -73,7 +73,13 @@ export function SceneWorkspace({
     scene.camera.rawCanvas.width,
     scene.camera.rawCanvas.height,
   ])
-  const state = useSceneSession(tracker, scene.camera, identity)
+  const focusActive = speakerMode && enabled && step === 3
+  const state = useSceneSession(tracker, scene.camera, identity, focusActive)
+  useEffect(() => {
+    if (focusActive && state.capture === "validation") {
+      state.session.cancelCapture()
+    }
+  }, [focusActive, state.capture, state.session])
   const profiles = useCalibrationProfiles({
     session: state.session,
     state,
@@ -114,13 +120,15 @@ export function SceneWorkspace({
     : canUseSceneCalibration(state)
   const accuracyChecked = hasCurrentAccuracyCheck(state)
   const validationFailed = !!state.validation && !state.validation.passed
-  let accuracyHint = "Check 5 fingertip positions to unlock gaze focus."
+  let accuracyHint =
+    "Accuracy check is optional. Continue to focus with your current calibration."
   if (accuracyChecked) {
     accuracyHint = "Accuracy checked"
   } else if (validationFailed && state.validation) {
     accuracyHint = `Accuracy check failed · ${state.validation.pixelRms.toFixed(1)} px RMS · ${state.validation.maxPixelError.toFixed(1)} px worst.`
   } else if (isMarker) {
-    accuracyHint = "Check 5 marker positions to unlock gaze focus."
+    accuracyHint =
+      "Marker accuracy check is optional. Continue to focus with your current calibration."
   }
   useEffect(() => {
     onStatus({
@@ -210,7 +218,8 @@ export function SceneWorkspace({
           camera={scene.camera}
           frame={scene.frame}
           measurement={state.measurement}
-          verified={hasCurrentAccuracyCheck(state)}
+          verified={accuracyChecked}
+          allowUnverifiedGaze={focusActive && !!state.calibration}
           errorRadiusPx={state.validation?.pixelRms ?? null}
           identity={identity}
           source={scene.source}
@@ -390,12 +399,8 @@ export function SceneWorkspace({
             </button>
             <button
               className={`eye-button ${EyeButtonStyles} primary`}
-              disabled={!accuracyChecked}
-              title={
-                accuracyChecked
-                  ? "Open gaze-controlled speaker focus"
-                  : "Pass all 5 accuracy checks first"
-              }
+              disabled={!calibrated}
+              title="Open speaker focus with your current calibration"
               onClick={() => onStepChange(3)}
             >
               Continue to focus

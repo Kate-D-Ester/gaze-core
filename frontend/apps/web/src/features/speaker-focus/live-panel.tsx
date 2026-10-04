@@ -79,9 +79,10 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     !!props.frame &&
     now >= props.frame.timestamp &&
     now - props.frame.timestamp <= 150
+  const gazeEnabled = props.verified || props.allowUnverifiedGaze === true
   const point =
-    props.verified && frameFresh
-      ? verifiedGazePoint(props.measurement, now)
+    gazeEnabled && frameFresh
+      ? verifiedGazePoint(props.measurement, now, props.allowUnverifiedGaze)
       : null
   const selected = state.tracks.findIndex(
     (track) => track.id === state.selection.selectedId
@@ -95,7 +96,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   }
   if (busy) {
     status = "Look at a face for 0.5 s, or click to select."
-    if (!props.verified) {
+    if (!gazeEnabled) {
       status = "Click a face. Check gaze accuracy to use gaze selection."
     }
     if (selected >= 0) {
@@ -145,7 +146,8 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
         snapshot,
         measurement,
         evidence.current.verified,
-        performance.now()
+        performance.now(),
+        evidence.current.allowUnverifiedGaze
       )
       controller.setDisplayedGaze(
         measurement && bubble ? { measurement, bubble } : null
@@ -241,7 +243,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           <GazeBubbleOverlay
             point={point}
             timestamp={props.measurement?.timestamp ?? null}
-            verified={props.verified}
+            verified={gazeEnabled}
             resetKey={props.identity}
             fixed={false}
             stabilize={false}
@@ -305,6 +307,11 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           />
         )}
       </div>
+      {props.allowUnverifiedGaze && !props.verified && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Accuracy not verified · using your current calibration.
+        </p>
+      )}
       <AudioDeviceControls
         devices={devices}
         snapshot={audioDevices}
