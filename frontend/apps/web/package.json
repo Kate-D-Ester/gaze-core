@@ -9,10 +9,9 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "next typegen && tsc --noEmit",
-    "preview": "next start --port 4001",
-    "camera-relay": "bun scripts/camera-relay.ts",
+    "preview": "bun scripts/dev.ts start",
     "prepare:vision": "bun scripts/prepare-vision.ts",
-    "start": "next start --port 4001"
+    "start": "bun scripts/dev.ts start"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.32",

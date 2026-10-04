@@ -18,7 +18,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Open `http://localhost:4001/trial/screen-eye-tracking`. Camera access requires localhost or HTTPS and browser permission. USB and network camera frames are processed locally and are not sent to the backend. Network camera streams, including ESP32 `.local` URLs, are read through a local relay, so the camera itself does not need CORS support. `bun run dev` starts the relay automatically and reuses it if it is already running. To use a built preview or hosted app, run `bun run camera-relay` from `frontend/apps/web` separately. For a hosted app, set `GAZE_CAMERA_RELAY_ALLOWED_ORIGINS` to its exact origin when starting the relay.
+Open `http://localhost:4001/trial/screen-eye-tracking`. Camera access requires localhost or HTTPS and browser permission. USB and network camera frames are processed locally and are not sent to the backend. Network cameras connect directly from the browser; there is no camera relay service or camera API route. The browser resolves ESP32 `.local` and IP URLs and follows camera redirects. If a local HTTP `/stream` URL on the default port is blocked, the app tries the ESP32 stream port 81 on that same host. Working URLs and custom ports are preserved. The camera must allow CORS so the app can read pixels. Browser local-network and mixed-content restrictions still apply. `bun run dev` starts the app on port 4001; `bun run start` and `bun run preview` require `bun run build` first.
 
 ## Remote eye tracking
 
