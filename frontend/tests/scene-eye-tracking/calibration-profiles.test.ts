@@ -117,6 +117,33 @@ test("invalid names and duplicate names cannot silently replace someone else's c
   expect(readSceneProfiles().profiles).toHaveLength(1)
 })
 
+test("replacing a profile by ID preserves other legacy profiles with the same name", () => {
+  const ester = saveSceneProfile("Ester", draft(), setup)
+  const other = saveSceneProfile("Another profile", draft(), setup)
+  const library = readSceneProfiles()
+  library.profiles.find((profile) => profile.id === other.id)!.name = "ester"
+  localStorage.setItem(SCENE_PROFILE_STORAGE_KEY, JSON.stringify(library))
+  const before = readSceneProfiles()
+
+  saveSceneProfile(
+    "Ester",
+    { ...draft(), offset: [0.05, -0.04] },
+    setup,
+    ester.id
+  )
+
+  const saved = readSceneProfiles()
+  expect(saved.profiles).toHaveLength(2)
+  expect(saved.selectedId).toBe(ester.id)
+  expect(
+    saved.profiles.find((profile) => profile.id === ester.id)?.offset
+  ).toEqual([0.05, -0.04])
+  expect(saved.profiles.find((profile) => profile.id === other.id)).toEqual(
+    before.profiles.find((profile) => profile.id === other.id)
+  )
+  expect(() => saveSceneProfile("Ester", draft(), setup)).toThrow(/already/i)
+})
+
 test("corrupt storage and unsupported versions are ignored", () => {
   localStorage.setItem(SCENE_PROFILE_STORAGE_KEY, "{broken")
   expect(readSceneProfiles().profiles).toEqual([])

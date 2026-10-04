@@ -67,11 +67,15 @@ export function saveSceneProfile(
   if (id && !existing) {
     throw new Error("This profile was removed. Save a new profile.")
   }
+  const nameChanged =
+    !existing ||
+    existing.name.trim().toLowerCase() !== normalizedName.toLowerCase()
   if (
+    nameChanged &&
     library.profiles.some(
       (profile) =>
         profile.id !== id &&
-        profile.name.toLowerCase() === normalizedName.toLowerCase()
+        profile.name.trim().toLowerCase() === normalizedName.toLowerCase()
     )
   ) {
     throw new Error("That name already exists. Choose another name.")

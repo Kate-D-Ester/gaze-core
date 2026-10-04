@@ -270,6 +270,52 @@ test("live X/Y pixel controls preserve the mapping, reset together, and are disa
       .disabled
   ).toBe(true)
 })
+
+test("the completed calibration step exposes X/Y adjustments without another calibration", async () => {
+  const { s } = calibrate()
+  const mapping = s.getSnapshot().calibration
+  function Controls() {
+    const state = useSyncExternalStore(s.subscribe, s.getSnapshot)
+    return createElement(FingerControls, {
+      session: s,
+      state,
+      hands: { status: "ready", error: "" },
+      canCapture: true,
+      retry() {},
+      onLive() {},
+    })
+  }
+  host = document.createElement("div")
+  document.body.append(host)
+  root = createRoot(host)
+  await act(async () => root!.render(createElement(Controls)))
+
+  for (const [axis, pixels] of [
+    ["X", "12.8"],
+    ["Y", "-9.6"],
+  ]) {
+    const input = host.querySelector<HTMLInputElement>(
+      `[aria-label='Gaze offset ${axis} (pixels)']`
+    )
+    expect(input).not.toBeNull()
+    expect(input!.disabled).toBe(false)
+    await act(async () => {
+      input!.focus()
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )!.set!.call(input, pixels)
+      input!.dispatchEvent(new Event("input", { bubbles: true }))
+      input!.blur()
+    })
+  }
+  expect(s.getSnapshot().offset).toEqual([0.02, -0.02])
+  expect(s.getSnapshot().calibration).toBe(mapping)
+  expect(s.getSnapshot().capture).toBeNull()
+  expect(
+    host.querySelectorAll('[aria-label="Gaze position adjustment"]')
+  ).toHaveLength(1)
+})
 test("a failed accuracy check exposes pixel errors, offset controls and a correction followed by fresh validation", async () => {
   const { s, id } = calibrate(false)
   collectValidation(s, id, () => [0.06, -0.04])
