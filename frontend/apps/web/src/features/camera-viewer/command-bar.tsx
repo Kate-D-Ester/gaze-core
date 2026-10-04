@@ -117,7 +117,7 @@ export function CommandBar({
             className={`secondary ${EyeButtonStyles}`}
             onClick={() => onCommand(text)}
           >
-            {text === "select" ? "Confirm point" : text}
+            {text === "select" ? "Select" : text}
           </button>
         ))}
         <details className="text-xs text-muted-foreground">
@@ -126,10 +126,11 @@ export function CommandBar({
           </summary>
           <div className="mt-2 max-h-24 space-y-2 overflow-y-auto pb-1">
             <p>
-              Click a preview to mark a point. Select confirms it; clear removes
-              it. Enter or Space on a preview marks its center. The gaze dot is
-              a live preview. Each camera has its own manual markers. The
-              auxiliary HUD is a cosplay simulation.
+              Click an object in Scene or drag a box around it, then Select. The
+              third camera searches for that example. Clear stops tracking. A
+              live calibrated gaze can also select. Match scores above 80%
+              require visual detail; similar candidates stay Ambiguous. Enter or
+              Space marks a preview center explicitly.
             </p>
             <p>
               Commands: eye camera, scene camera, auxiliary camera, select,
@@ -149,7 +150,7 @@ export function CommandBar({
           aria-live="polite"
           className={commandError ? "text-red-200" : undefined}
         >
-          {feedback || "Click a preview to mark a point."}
+          {feedback || "Choose an object in Scene, then Select."}
         </p>
         {voice.status !== "idle" && (
           <p

@@ -3,6 +3,7 @@ import path from "node:path"
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  distDir: process.env.GAZE_WEB_DIST_DIR ?? ".next",
   agentRules: false,
   allowedDevOrigins: [
     "localhost",

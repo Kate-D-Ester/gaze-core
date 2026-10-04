@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url"
+import { startVisionService } from "./vision-service"
 
 export function applicationServerArguments(
   nextCli: string,
@@ -44,18 +45,28 @@ async function runApplicationServer() {
     command,
     extraArguments
   )
+  const vision = await startVisionService()
   const web = Bun.spawn(argumentsList, {
+    env: {
+      ...process.env,
+      GAZE_VISION_URL: vision?.url ?? "",
+      GAZE_VISION_SECRET: vision?.secret ?? "",
+    },
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   })
-  const stopWeb = () => web.kill()
+  const stopWeb = () => {
+    web.kill()
+    vision?.stop()
+  }
   process.once("SIGINT", stopWeb)
   process.once("SIGTERM", stopWeb)
   process.once("exit", stopWeb)
   try {
     process.exitCode = await web.exited
   } finally {
+    vision?.stop()
     process.removeListener("SIGINT", stopWeb)
     process.removeListener("SIGTERM", stopWeb)
     process.removeListener("exit", stopWeb)

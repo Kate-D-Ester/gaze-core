@@ -1,3 +1,6 @@
+import { useObjectTracking } from "./use-object-tracking"
+import { getViewerGaze } from "./viewer-gaze"
+import type { ObjectBox, ObjectRegion } from "./object-tracking.types"
 import { ShieldCheck } from "lucide-react"
 import {
   useCallback,
@@ -48,6 +51,7 @@ export function ViewerWorkspace({
   setupStatus,
   gazeSession,
   voiceSessionFactory,
+  objectTracking,
   visible = true,
 }: ViewerWorkspaceProps = {}) {
   const eye = useViewerCamera({
@@ -74,6 +78,14 @@ export function ViewerWorkspace({
     [eye.camera, scene.camera, auxiliary.camera]
   )
   const snapshots = { eye, scene, auxiliary }
+  const { tracking, snapshot: tracked } = useObjectTracking(
+    scene.camera,
+    auxiliary.camera,
+    visible,
+    objectTracking
+  )
+  const region = useRef<ObjectRegion | null>(null)
+  const [sceneRegion, setSceneRegion] = useState<ObjectRegion | null>(null)
   const [active, setActive] = useState<CameraRole>("scene")
   const activeRole = useRef<CameraRole>("scene")
   const selectCamera = useCallback((role: CameraRole) => {
@@ -155,12 +167,33 @@ export function ViewerWorkspace({
         )
         return
       }
+      if (role === "scene") {
+        region.current = null
+        setSceneRegion(null)
+      }
       selectCamera(role)
       saveSelections({ ...chosenPoints.current, [role]: selection })
       setError("")
       setNotice(`${LABELS[role]}: static point selected.`)
     },
     [cameras, saveSelections, selectCamera]
+  )
+
+  const selectRegion = useCallback(
+    (box: ObjectBox) => {
+      selectPoint("scene", [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
+      const chosen = chosenPoints.current.scene
+      if (chosen) {
+        region.current = {
+          box,
+          sourceKey: chosen.sourceKey,
+          generation: chosen.generation,
+        }
+        setSceneRegion(region.current)
+        setNotice("Object rectangle chosen. Press Select.")
+      }
+    },
+    [selectPoint]
   )
 
   const execute = useCallback(
@@ -186,7 +219,21 @@ export function ViewerWorkspace({
         return
       }
       if (command.kind === "select") {
-        const selected = chosenPoints.current[role] ?? null
+        let selected = chosenPoints.current[role] ?? null
+        if (role === "scene" && !selected && gazeSession) {
+          const gaze = getViewerGaze(
+            gazeSession.getSnapshot(),
+            cameras.scene.getSnapshot(),
+            performance.now()
+          )
+          if (gaze.point) {
+            selected = createVisualSelection(
+              gaze.point,
+              cameras.scene.getSnapshot(),
+              performance.now()
+            )
+          }
+        }
         const current = isSelectionCurrent(
           selected,
           cameras[role].getSnapshot(),
@@ -200,12 +247,38 @@ export function ViewerWorkspace({
           setError(
             `Click a point in the ${LABELS[role].toLowerCase()} preview first.`
           )
+        } else if (role === "scene") {
+          const area = region.current
+          const usable =
+            area &&
+            area.sourceKey === selected!.sourceKey &&
+            area.generation === selected!.generation
+          setNotice("Selecting object…")
+          await tracking.select(
+            cameras.scene,
+            usable ? { box: area.box } : { point: selected!.point }
+          )
+          const state = tracking.getSnapshot()
+          if (mounted.current) {
+            if (state.error) {
+              setError(state.error)
+            } else {
+              setNotice(
+                state.reference
+                  ? `${state.reference.label}: reference selected.`
+                  : "Selection cleared."
+              )
+            }
+          }
         } else {
           setNotice(`${LABELS[role]}: manual point confirmed.`)
         }
         return
       }
       if (command.kind === "clear") {
+        tracking.clear()
+        region.current = null
+        setSceneRegion(null)
         saveSelections({ ...chosenPoints.current, [role]: undefined })
         setNotice(`${LABELS[role]} selection cleared.`)
         return
@@ -215,6 +288,9 @@ export function ViewerWorkspace({
         return
       }
       if (command.kind === "stop") {
+        tracking.clear()
+        region.current = null
+        setSceneRegion(null)
         connection.current.generation++
         connection.current.busy = false
         setConnectionPending(false)
@@ -250,7 +326,7 @@ export function ViewerWorkspace({
         }
       }
     },
-    [cameras, saveSelections, selectCamera, voice]
+    [cameras, gazeSession, saveSelections, selectCamera, tracking, voice]
   )
 
   async function connect(
@@ -266,6 +342,11 @@ export function ViewerWorkspace({
     const generation = ++connection.current.generation
     setConnectionPending(true)
     setError("")
+    if (role === "scene") {
+      tracking.clear()
+      region.current = null
+      setSceneRegion(null)
+    }
     saveSelections({ ...chosenPoints.current, [role]: undefined })
     try {
       if (kind === "network") {
@@ -287,6 +368,11 @@ export function ViewerWorkspace({
     }
   }
   function disconnect(role: CameraRole) {
+    if (role === "scene") {
+      tracking.clear()
+      region.current = null
+      setSceneRegion(null)
+    }
     cameras[role].stop()
     if (connection.current.role === role) {
       connection.current.generation++
@@ -369,6 +455,16 @@ export function ViewerWorkspace({
                   excludedDevices={excluded}
                   selection={valid ? selection : null}
                   gazeSession={role === "scene" ? gazeSession : undefined}
+                  tracking={role === "eye" ? undefined : tracked}
+                  region={
+                    role === "scene" &&
+                    sceneRegion &&
+                    sceneRegion.sourceKey === state.source?.key &&
+                    sceneRegion.generation === state.frame?.generation
+                      ? sceneRegion.box
+                      : null
+                  }
+                  onRegion={role === "scene" ? selectRegion : undefined}
                   onActivate={() => selectCamera(role)}
                   onConnect={(kind, value) => {
                     void connect(role, kind, value)

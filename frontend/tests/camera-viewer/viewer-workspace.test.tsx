@@ -1,3 +1,4 @@
+import { ObjectTracking } from "../../apps/web/src/features/camera-viewer/object-tracking"
 import { spyOn } from "bun:test"
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
 import { liveSnapshot } from "./fixtures"
@@ -209,12 +210,26 @@ test("select requires a manually chosen point and keeps its feedback in the comm
   ).toBe(true)
 })
 
-test("select confirms the clicked coordinates without copying them into another camera", async () => {
+test("select submits the clicked Scene object without copying coordinates into another camera", async () => {
   const camera = new SceneCamera()
   const snapshot = liveSnapshot()
   snapshot.frame!.timestamp = performance.now()
   camera.getSnapshot = () => snapshot
-  await render({ sceneCamera: camera })
+  const tracking = new ObjectTracking({
+    encode: () => "jpeg",
+    request: async (request) => {
+      if (request.action === "select") {
+        expect(request.point).toEqual([0.25, 0.9])
+        return {
+          token: "selected-token",
+          box: [0.1, 0.7, 0.4, 1],
+          label: "Object",
+        }
+      }
+      return { status: "searching" }
+    },
+  })
+  await render({ sceneCamera: camera, objectTracking: tracking })
   const preview = host.querySelector<HTMLButtonElement>(
     "[aria-label='Choose a point in Scene camera']"
   )!
@@ -234,7 +249,7 @@ test("select confirms the clicked coordinates without copying them into another 
     host.querySelector("[aria-label='Auxiliary camera static selection']")
   ).toBeNull()
   expect(host.querySelector("[role='status']")?.textContent).toContain(
-    "confirmed"
+    "reference selected"
   )
   snapshot.frame!.timestamp = performance.now() - 2000
   await command("select")
@@ -286,75 +301,158 @@ test("voice state and command outcomes remain visible together in the pinned con
   expect(!!host.querySelector("[aria-label='Voice feedback']")).toBe(false)
 })
 
-test("auxiliary cosplay effects work without an eye tracker and follow only clicked points", async () => {
+test("auxiliary tracking status explains how to start without requiring Eye", async () => {
   const camera = new SceneCamera()
   const snapshot = liveSnapshot()
   snapshot.frame!.timestamp = performance.now()
   camera.getSnapshot = () => snapshot
   await render({ auxiliaryCamera: camera })
-  const hud = () =>
-    host.querySelector("[aria-label='Auxiliary camera cosplay simulation']")
-  expect(hud()?.textContent ?? "").toContain("Scanning")
   expect(
-    host.querySelectorAll("[aria-label$='cosplay simulation']").length
-  ).toBe(1)
+    host.querySelector("[aria-label='auxiliary object tracking']")?.textContent
+  ).toContain("Select an object in Scene")
+  expect(
+    host.querySelector("[aria-label='auxiliary matched object box']")
+  ).toBeNull()
+})
+
+test("real controller results render third-camera geometry and clear removes it", async () => {
+  const scene = new SceneCamera(),
+    auxiliary = new SceneCamera()
+  const sceneState = liveSnapshot(),
+    auxiliaryState = liveSnapshot()
+  sceneState.frame!.timestamp = auxiliaryState.frame!.timestamp =
+    performance.now()
+  scene.getSnapshot = () => sceneState
+  auxiliary.getSnapshot = () => auxiliaryState
+  const tracking = new ObjectTracking({
+    encode: () => "jpeg",
+    request: async (request) =>
+      request.action === "select"
+        ? {
+            token: "selected-token",
+            box: [0.1, 0.2, 0.4, 0.6],
+            label: "Bottle",
+          }
+        : {
+            status: "matched",
+            box: [0.6, 0.3, 0.9, 0.7],
+            score: 0.91,
+            inliers: 18,
+            detectionConfidence: 0.82,
+          },
+  })
+  await render({
+    sceneCamera: scene,
+    auxiliaryCamera: auxiliary,
+    objectTracking: tracking,
+  })
+  await act(async () => tracking.select(scene, { point: [0.2, 0.3] }))
+  await act(async () => tracking.tick(scene, auxiliary))
+  const box = host.querySelector<HTMLElement>(
+    "[aria-label='auxiliary matched object box']"
+  )!
+  expect(box.style.left).toBe("60%")
+  expect(box.style.top).toBe("30%")
+  expect(
+    host.querySelector("[aria-label='auxiliary object tracking']")?.textContent
+  ).toContain("Match 91%")
+  auxiliaryState.frame!.timestamp = performance.now() - 2000
+  await command("auxiliary camera")
+  expect(
+    host.querySelector("[aria-label='auxiliary matched object box']")
+  ).toBeNull()
+  auxiliaryState.frame!.timestamp = performance.now()
+  await command("switch camera")
+  await command("clear")
+  expect(
+    host.querySelector("[aria-label='auxiliary matched object box']")
+  ).toBeNull()
+  expect(tracking.getSnapshot().reference).toBeNull()
+})
+
+test("Scene drag uses pointer-up coordinates rather than the last move", async () => {
+  const scene = new SceneCamera(),
+    state = liveSnapshot()
+  state.frame!.timestamp = performance.now()
+  scene.getSnapshot = () => state
+  await render({ sceneCamera: scene })
   const preview = host.querySelector<HTMLButtonElement>(
-    "[aria-label='Choose a point in Auxiliary camera']"
+    "[aria-label='Choose a point in Scene camera']"
+  )!
+  preview.getBoundingClientRect = () => new DOMRect(0, 0, 200, 100)
+  await act(async () => {
+    preview.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      })
+    )
+    preview.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        pointerId: 1,
+        clientX: 80,
+        clientY: 50,
+      })
+    )
+    preview.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        pointerId: 1,
+        clientX: 120,
+        clientY: 80,
+      })
+    )
+  })
+  const box = host.querySelector<HTMLElement>(
+    "[aria-label='scene reference box']"
+  )!
+  expect(box.style.left).toBe("10%")
+  expect(parseFloat(box.style.width)).toBeCloseTo(50)
+  expect(parseFloat(box.style.height)).toBeCloseTo(60)
+})
+test("a Scene drag spanning a source change cannot select a rectangle", async () => {
+  const scene = new SceneCamera(),
+    state = liveSnapshot()
+  state.frame!.timestamp = performance.now()
+  scene.getSnapshot = () => state
+  await render({ sceneCamera: scene })
+  const preview = host.querySelector<HTMLButtonElement>(
+    "[aria-label='Choose a point in Scene camera']"
   )!
   preview.getBoundingClientRect = () => new DOMRect(0, 0, 200, 100)
   await act(async () =>
     preview.dispatchEvent(
-      new MouseEvent("click", { bubbles: true, clientX: 30, clientY: 70 })
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      })
     )
   )
-  expect(hud()?.textContent ?? "").toContain("Locked point")
-  const effect = host.querySelector<SVGElement>(
-    "[aria-label='Auxiliary camera simulated manual lock']"
-  )!
-  expect(effect.style.left).toBe("15%")
-  expect(effect.style.top).toBe("70%")
-  await command("select")
-  expect(effect.style.left).toBe("15%")
-  const toggle = host.querySelector<HTMLButtonElement>(
-    "[aria-label='Cosplay HUD']"
-  )!
-  await act(async () => toggle.click())
-  expect(!!hud()).toBe(false)
-  expect(toggle.getAttribute("aria-pressed")).toBe("false")
-  const point = host.querySelector<HTMLElement>(
-    "[aria-label='Auxiliary camera static selection']"
-  )!
-  expect(point.style.left).toBe("15%")
-  expect(point.style.top).toBe("70%")
-  await act(async () => toggle.click())
-  expect(hud()?.textContent ?? "").toContain("Locked point")
-  const restored = host.querySelector<SVGElement>(
-    "[aria-label='Auxiliary camera simulated manual lock']"
-  )!
-  expect(restored.style.left).toBe("15%")
-  expect(restored.style.top).toBe("70%")
-  await command("clear")
-  expect(hud()?.textContent ?? "").toContain("Scanning")
-  expect(
-    !!host.querySelector(
-      "[aria-label='Auxiliary camera simulated manual lock']"
+  state.source!.key = "replacement"
+  await act(async () => {
+    preview.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        pointerId: 1,
+        clientX: 80,
+        clientY: 50,
+      })
     )
-  ).toBe(false)
-})
-
-test("cosplay effects disappear on stale frames instead of claiming an active lock", async () => {
-  const camera = new SceneCamera()
-  const snapshot = liveSnapshot()
-  snapshot.frame!.timestamp = performance.now()
-  camera.getSnapshot = () => snapshot
-  await render({ auxiliaryCamera: camera })
-  const visible = () =>
-    !!host.querySelector("[aria-label='Auxiliary camera cosplay simulation']")
-  expect(visible()).toBe(true)
-  snapshot.frame!.timestamp = performance.now() - 2000
-  await command("auxiliary camera")
-  expect(visible()).toBe(false)
-  snapshot.frame!.timestamp = performance.now()
-  await command("switch camera")
-  expect(visible()).toBe(true)
+    preview.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        pointerId: 1,
+        clientX: 120,
+        clientY: 80,
+      })
+    )
+  })
+  expect(host.querySelector("[aria-label='scene reference box']")).toBeNull()
 })

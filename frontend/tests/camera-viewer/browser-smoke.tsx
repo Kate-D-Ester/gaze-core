@@ -217,6 +217,37 @@ createRoot(document.getElementById("viewer")!).render(
     voiceSessionFactory: generatedVoiceSession,
   })
 )
+let publicView = false
+let blankAuxiliary = false
+const publicImage = new Image()
+publicImage.src = "/public-bus.jpg"
+document.getElementById("public-object")!.onclick = () => {
+  publicView = !publicView
+  if (publicView) {
+    cameras[0].camera.stop()
+    session.invalidate()
+  }
+}
+document.getElementById("blank-auxiliary")!.onclick = () => {
+  blankAuxiliary = !blankAuxiliary
+}
+const drawPublicFrames = () => {
+  if (!publicView || !publicImage.complete) {
+    return
+  }
+  const scene = cameras[1].camera.rawCanvas.getContext("2d")!
+  scene.drawImage(publicImage, 0, 0, 640, 480)
+  const auxiliary = cameras[2].camera.rawCanvas.getContext("2d")!
+  auxiliary.fillStyle = "#111"
+  auxiliary.fillRect(0, 0, 640, 480)
+  if (!blankAuxiliary) {
+    auxiliary.save()
+    auxiliary.translate(320 + Math.sin(performance.now() / 1800) * 12, 240)
+    auxiliary.rotate((5 * Math.PI) / 180)
+    auxiliary.drawImage(publicImage, -300, -220, 600, 440)
+    auxiliary.restore()
+  }
+}
 let gazeEnabled = true
 document.getElementById("pause-gaze")!.onclick = () => {
   gazeEnabled = !gazeEnabled
@@ -233,11 +264,12 @@ document.getElementById("drop-frames")!.onclick = () => {
   updateEye()
 }
 setInterval(() => {
+  drawPublicFrames()
   const now = performance.now()
   sequence++
   cameras.forEach((camera) => camera.tick(now))
   updateEye()
-  if (gazeEnabled && cameras[0].camera.getSnapshot().frame)
+  if (gazeEnabled && !publicView && cameras[0].camera.getSnapshot().frame)
     session.addEye(
       {
         id: sequence,

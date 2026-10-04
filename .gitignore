@@ -73,3 +73,11 @@ frontend/apps/web/next-env.d.ts
 
 # Generated local speech assets (prepared for dev/build)
 frontend/apps/web/public/voice-runtime/
+
+# Local vision Python bytecode
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Independent viewer verification build
+.next-vision-preview/

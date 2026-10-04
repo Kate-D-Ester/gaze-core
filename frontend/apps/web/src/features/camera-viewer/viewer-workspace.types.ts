@@ -11,7 +11,9 @@ export type ConnectionGuard = {
   role: CameraRole | null
 }
 
+import type { ObjectTracking } from "./object-tracking"
 export type ViewerWorkspaceProps = {
+  objectTracking?: ObjectTracking
   voiceSessionFactory?: VoiceSessionFactory
   gazeSession?: SceneSession
   eyeCamera?: ViewerCamera

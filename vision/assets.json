@@ -1,0 +1,4 @@
+[
+  {"name":"yoloe-26n-seg.pt","url":"https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg.pt","sha256":"1741c1f8da3cea47e2c01829c334a50dc0b9bbd05e685b90a3ce84fae32c8c1b"},
+  {"name":"yoloe-26n-seg-pf.pt","url":"https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg-pf.pt","sha256":"ae805a9ac11c85214588b32da8248d68a516e1d071465e1e86a03cbfadb66ba7"}
+]

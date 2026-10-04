@@ -1,14 +1,17 @@
 # Three-camera viewer
 
-This public trial previews Eye, Scene, and Auxiliary camera feeds independently. It provides static image markers and manual PNG photos. The Eye panel now shares the existing v3 eye tracker and setup session. Static selection does not identify, track, or match an object across cameras.
+This public trial previews Eye, Scene, and Auxiliary camera feeds independently. It provides real Scene-to-Auxiliary visual object matching, manual markers and PNG photos. The Eye panel now shares the existing v3 eye tracker and setup session. Object matching works without Eye; calibrated gaze remains optional.
 
 ## Run
 
-From this worktree's `frontend` folder:
+From this worktree's root:
 
 ```sh
-bun install --frozen-lockfile
-bun run dev
+bun install --cwd frontend --frozen-lockfile
+uv sync --project vision --frozen
+uv run --project vision vision/prepare.py
+# Start the viewer and its owned local vision service:
+bun run --cwd frontend dev
 ```
 
 Open `http://localhost:4001/trial/three-camera-viewer`, or choose Three-camera viewer on the dashboard. The separate auth backend is not needed for this public route. Camera access requires localhost or HTTPS and browser camera permission.
@@ -31,9 +34,13 @@ On a fresh page load, saved source fields, orientation, eye-region/model setting
 
 After calibration, the Scene preview shows a red gaze bubble. It uses the same live mapping, offset and accuracy check as setup. Saved/one-point mappings are marked estimated; stale pupil evidence, disconnected feeds, calibration capture and incompatible setup hide the bubble. This mapping is relative to the scene image, so it is displayed there rather than projected onto unrelated page coordinates.
 
-Static viewer points remain manual; calibration does not turn them into tracked targets or eye-driven selection.
+## Object matching
 
-The Auxiliary panel includes an optional **HUD** cosplay effect. With a fresh live feed, it shows **Simulation · Scanning** and a decorative scan sweep. Clicking that preview places a static point with a pulsing frame labeled **Simulation · Locked point**. `select` confirms the existing point, and `clear` removes it and resumes the scan effect. The HUD toggle hides the decoration without changing camera connections or manual points. It works without an eye tracker, follows only manually placed screen points, and disappears on stale/disconnected frames. Scan and lock are visual effects; there is no person/object tracker, cross-camera acquisition, coordinate output or hardware control.
+Connect Scene and Auxiliary. Click an object in Scene, then press **Select** or say `select` while voice is Listening. If no object box is detected, drag a rectangle around it and Select again. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Without a manual point, a fresh calibrated gaze can choose the Scene point; there is no implicit center fallback.
+
+The third view shows **Searching**, **Ambiguous**, or a cyan box with the match score. A box requires a geometric match score strictly above 80%, at least eight inliers and valid coverage/geometry. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Auxiliary source changes reacquire. Temporary frame loss hides the box and recovery resumes from the same fixed reference.
+
+The web launcher owns a loopback-only local Python service using pinned YOLOE nano models, MPS when available and CPU otherwise. Model preparation downloads ~26.7 MiB of verified weights once; the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
 
 ## Commands
 
@@ -41,8 +48,8 @@ Click a camera's heading to make it active. Click its preview to pin a static im
 
 Typed commands and buttons work in supported modern browsers:
 
-- `select` / `select it` (**Confirm point**): confirm a point clicked in the active preview. Without a current manual marker, ask for a click; never default to the center.
-- `clear` / `clear selection`: remove the active marker.
+- `select` / `select it` (**Select**): in Scene, start matching the clicked/boxed object or a current calibrated gaze point. In Eye/Auxiliary, confirm the manual point. Never implicitly use the center.
+- `clear` / `clear selection`: stop matching and remove the active marker.
 - `switch camera`: cycle Eye → Scene → Auxiliary.
 - `eye camera`, `scene camera`, `auxiliary camera`: choose a feed.
 - `take photo` / `take a photo`: download one PNG from the active fresh transformed frame.
@@ -57,9 +64,34 @@ Tap **Voice off** and allow microphone access. Wait until the button says **List
 
 Development and production builds prepare the pinned WASM assets and a checksum-verified English model (about 40 MB) from the official Vosk model host. The model is cached in this worktree and served from the app's own origin. Preparation requires standard unzip/tar tools. Runtime audio stays on this device; loading the model does not upload audio. Voice stops on microphone/worker errors, page hiding, stop cameras, opening setup and leaving the viewer. Stop also cancels model startup and releases any late microphone stream.
 
-Frames, photos, transcripts, commands, and the supplied reference video are not uploaded by this feature. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. The viewer does not contain object acquisition/tracking, cross-camera matching, hardware-control output, or firing commands.
+Only selected Scene and Auxiliary analysis frames are sent to the authenticated service on this same computer. They stay in bounded memory and are cleared or expired; model predictor caches are also released. Eye frames, audio, photos, transcripts and the supplied reference video are not sent to any external service. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. This feature has no hardware-control output or firing commands. See [vision dependency notice](../vision/NOTICE.md).
 
 ## Verification on this branch
+
+### Real object matching — 2026-10-05
+
+The current implementation passes 769 frontend tests, 12 Python tests, lint, TypeScript checks, Ruff and the production build. Regression tests cover stale source/orientation responses, bounded requests, clear during selection, missing-frame recovery, strict >80% acceptance, ambiguous candidates, reference expiry and release of predictor image caches. Independent review findings were addressed with regression coverage.
+
+Real model acceptance on bundled public samples passed on MPS: rotated/scaled overlapping views matched with 99% geometric scores; blank and different-scene views remained Searching. Median analysis time after warm-up was 87 ms. Browser validation confirmed real match geometry, loss on a blank third feed, automatic reacquisition, Clear, custom rectangles and generated `select` through the real offline decoder. Eye was disconnected. The 390px layout had no horizontal overflow and kept commands visible during scrolling. This does not establish accuracy across unrelated physical camera viewpoints, people or tiny glasses; those remain device-specific checks.
+
+The independently built preview is at `http://127.0.0.1:4016/trial/three-camera-viewer`. Port 4014 was left running after automatic approval review blocked restarting it, so that older process does not contain the final origin-check correction. Restarting that process is the only pending application step.
+
+To reproduce the independent preview from `frontend/apps/web`:
+
+```sh
+GAZE_WEB_DIST_DIR=.next-vision-preview bun run build
+GAZE_WEB_DIST_DIR=.next-vision-preview bun scripts/dev.ts start --hostname 127.0.0.1 --port 4016
+```
+
+To verify with public images and generated speech, from `frontend` run:
+
+```sh
+GAZE_TEST_VIEWER_URL=http://127.0.0.1:4016 bun tests/camera-viewer/browser-smoke-server.ts
+```
+
+Open `http://127.0.0.1:4030`, expand the test controls and choose **Public object views**. Click or drag an object in Scene and Select. **Blank third feed** tests loss and reacquisition. This loopback-only fixture does not open a physical camera or microphone.
+
+### Earlier branch verification
 
 The initial implementation passed 676 frontend tests, lint, typecheck, production build, and `bun audit`. The setup and speech recovery follow-up is verified below. The public production route was inspected at 1280px and 390px CSS widths and tested for command switching, source controls, transform independence and disconnected-frame rejection. Camera/microphone APIs were exercised with controlled platform fixtures in tests; live validation with three physical cameras and a microphone remains outstanding.
 
@@ -101,6 +133,6 @@ Select no longer invents a center point. **Confirm point** and spoken/typed `sel
 Verified with 755 frontend tests, lint, typecheck and production build. Independent review found no remaining Critical/Important issues. Real WASM recognized generated `select` at 48000 Hz, and the complete decoder → voice controller → viewer command flow at 44100 Hz confirmed an off-center clicked point. Browser checks covered the desktop layout and 390×449 scrolling with bounded help and pinned feedback; markers remained independent across cameras. The synthetic fixture replaces microphone input only. Physical microphone quality and physical calibration remain device checks. The preview server was restarted on port 4014; user camera sessions were not reloaded.
 
 
-### Cosplay HUD verification
+### Previous simulated HUD (superseded by real object matching)
 
 The decorative auxiliary HUD passed 757 full-suite frontend tests, lint, typecheck and production build. Review found no Critical/Important issues; its point-preservation test suggestion was addressed and the nine workspace tests passed again. Synthetic browser checks disconnected Eye and Scene, observed the auxiliary scan effect, clicked an off-center auxiliary point, and confirmed it with generated spoken `select` through the real decoder/controller. The 390×844 layout had no horizontal overflow, kept commands pinned, and retained the point across HUD off/on. Only synthetic feed images were saved. The synthetic eye source now implements disconnect by stopping its generated frames, and stopped sources clear their latest frame reference.

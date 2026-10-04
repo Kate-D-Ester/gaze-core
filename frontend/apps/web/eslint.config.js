@@ -16,7 +16,13 @@ const readabilitySyntaxRestrictions = [
 ]
 
 export default defineConfig([
-  globalIgnores(["dist", ".next", "public", "next-env.d.ts"]),
+  globalIgnores([
+    "dist",
+    ".next",
+    ".next-vision-preview",
+    "public",
+    "next-env.d.ts",
+  ]),
   {
     files: ["**/*.{ts,tsx}"],
     extends: [

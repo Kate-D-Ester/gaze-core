@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { Cable, Video, Wifi } from "lucide-react"
 import { useCameraSourcePreferences } from "../eye-tracking/use-camera-source-preferences"
 import { SavedCameraOption } from "../eye-tracking/components/saved-camera-option"
@@ -23,13 +22,15 @@ export function CameraPanel({
   excludedDevices,
   selection,
   gazeSession,
+  tracking,
+  region,
+  onRegion,
   now = 0,
   onActivate,
   onConnect,
   onDisconnect,
   onPoint,
 }: CameraPanelProps) {
-  const [showCosplay, setShowCosplay] = useState(true)
   const { kind, setKind, deviceId, setDeviceId, url, setUrl } =
     useCameraSourcePreferences(
       role === "eye" ? "scene-eye" : role,
@@ -60,18 +61,6 @@ export function CameraPanel({
           )}
         </button>
         <div className="flex items-center gap-1">
-          {role === "auxiliary" && (
-            <button
-              type="button"
-              aria-label="Cosplay HUD"
-              aria-pressed={showCosplay}
-              title="Visual simulation. Click the preview to position its manual lock effect."
-              onClick={() => setShowCosplay((value) => !value)}
-              className="min-h-9 rounded px-2 py-2 text-xs text-muted-foreground aria-pressed:text-cyan-300"
-            >
-              HUD
-            </button>
-          )}
           <details className="relative text-xs">
             <summary className="cursor-pointer rounded px-2 py-2 text-muted-foreground">
               Orientation
@@ -93,7 +82,10 @@ export function CameraPanel({
         state={state}
         selection={selection}
         gazeSession={gazeSession}
-        cosplay={role === "auxiliary" && showCosplay}
+        tracking={tracking}
+        trackingRole={role === "eye" ? undefined : role}
+        region={region}
+        onRegion={onRegion}
         now={now}
         onPoint={onPoint}
       />
