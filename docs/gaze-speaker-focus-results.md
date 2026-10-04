@@ -1,3 +1,27 @@
+# v3 synchronization (2026-10-04)
+
+The speaker-focus branch incorporates v3 commit `4756da0`, including `35164e7`
+(scene calibration retention) and `4756da0` (direct camera streams and layout
+fixes). The four conflicts were resolved by adopting the direct browser camera
+connection, removing the relay implementation/tests, preserving speaker-focus
+scripts and dependencies, and combining the camera and local-inference guidance.
+The feature launcher uses ports **4010 and 4033**; the obsolete feature relay on
+4023 was retired. The calibration identity now uses retained canvas dimensions,
+as in v3, while the guided speaker setup and calibrated focus path remain connected.
+
+Verification passed: **804 frontend tests across 96 files**, frozen-lockfile install,
+formatting, lint, TypeScript and an isolated production build. A scoped merge review
+found no new Critical or Important integration issue. The Python service code was
+not changed by this merge. After a feature-only restart, the test URL returned HTTP
+200, the model reported ready on MPS, and browser setup, reference loading and mouse
+face locking succeeded. Evidence and logs are in ignored
+`speaker-service/data/benchmarks/reference-reliability/v3-sync-*` files.
+
+The existing v3 checkout was not modified, and no branch was pushed or merged back
+into v3. This records compatibility with the fetched v3 tip, not future edits.
+
+---
+
 # Reference playback reliability repair (2026-10-04)
 
 Reference selection now uses the mouse position on the displayed face. Numbered

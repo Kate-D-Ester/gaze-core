@@ -19,7 +19,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Open `http://localhost:4001/trial/screen-eye-tracking`. Camera access requires localhost or HTTPS and browser permission. Eye camera frames are processed locally in the browser. Explicitly starting live speaker focus sends scene JPEG frames and mixed microphone PCM only to the loopback inference service; the auth backend does not receive them. Network camera streams, including ESP32 `.local` URLs, are read through a local relay, so the camera itself does not need CORS support. `bun run dev` starts the relay automatically and reuses it if it is already running. To use a built preview or hosted app, run `bun run camera-relay` from `frontend/apps/web` separately. For a hosted app, set `GAZE_CAMERA_RELAY_ALLOWED_ORIGINS` to its exact origin when starting the relay.
+Open `http://localhost:4001/trial/screen-eye-tracking`. Camera access requires localhost or HTTPS and browser permission. Eye camera frames are processed locally in the browser. Explicitly starting live speaker focus sends scene JPEG frames and mixed microphone PCM only to the loopback inference service; the auth backend does not receive them. Network cameras connect directly from the browser; there is no camera relay service or camera API route. The browser resolves ESP32 `.local` and IP URLs and follows camera redirects. If a local HTTP `/stream` URL on the default port is blocked, the app tries the ESP32 stream port 81 on that same host. Working URLs and custom ports are preserved. The camera must allow CORS so the app can read pixels. Browser local-network and mixed-content restrictions still apply. `bun run dev` starts the app on port 4001; `bun run start` and `bun run preview` require `bun run build` first.
 
 ## Remote eye tracking
 
@@ -91,9 +91,9 @@ bun run dev:speaker-focus
 ```
 
 Open `http://127.0.0.1:4010/trial/speaker-focus`. The single development command
-starts the frontend, local model service on 4033 and a dedicated camera relay on
-4023 with this exact allowed origin. It leaves the original v3 frontend and relay
-on 4001/4022 alone. Stop the command before restarting it. The reference setup
+starts the frontend on 4010 and local model service on 4033 with this exact allowed
+origin. Camera streams use the direct browser connection from v3. Stop the command
+before restarting it. The reference setup
 verifies SHA-256 and keeps the video out of Git; local uploads are also supported.
 
 To try the optional AV-MossFormer2 engine, explicitly prepare its official weights,
@@ -123,13 +123,13 @@ and offers Resume. There is no fixed four-second playback deadline or live
 120-second recording limit.
 An arrival-only network scene stream, including ordinary ESP32 MJPEG, cannot supply
 capture-clock evidence for synchronized extraction; use a USB scene camera or a
-synchronized video. An ESP32 eye stream can still supply gaze through the relay.
+synchronized video. An ESP32 eye stream can still supply gaze through the direct camera connection.
 Physical gaze accuracy and sustained live performance require a hardware trial.
 
-For a built frontend, compile with `NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT=4023` and run
-Next on `127.0.0.1:4010`. Start the service with that exact origin, and the relay with
-`GAZE_CAMERA_RELAY_PORT=4023 GAZE_CAMERA_RELAY_ALLOWED_ORIGINS=http://127.0.0.1:4010`.
-Model downloads are explicit and checksum pinned.
+For a built frontend, run Next on `127.0.0.1:4010` and start the local speaker
+service with that exact allowed origin. Camera streams require the same browser
+CORS and local-network permissions as v3. Model downloads are explicit and checksum
+pinned.
 
 See [speaker service setup](speaker-service/README.md) for configuration/limits and
 [original measurements](docs/gaze-speaker-focus-results.md) for reproducible RTFS

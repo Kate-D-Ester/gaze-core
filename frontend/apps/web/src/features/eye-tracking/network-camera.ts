@@ -3,10 +3,7 @@ import type {
   NetworkCameraBytes,
   NetworkConnectionState,
 } from "./network-camera.types"
-import {
-  CameraRelayUnavailableError,
-  openNetworkSource,
-} from "./network-source"
+import { CameraAccessError, openNetworkSource } from "./network-source"
 import type { NetworkSource } from "./network-source.types"
 export type {
   NetworkCameraFrame,
@@ -28,6 +25,7 @@ export class NetworkCamera {
   private active = false
   private token = 0
   private input = ""
+  private connectionUrl = ""
   private retries = 0
   private sequence = 0
   private state: NetworkConnectionState = "idle"
@@ -39,6 +37,7 @@ export class NetworkCamera {
   private lastArrival = 0
   private healthySince = 0
   private hasFrame = false
+  private hasConnected = false
   private raf = 0
   private videoCallback = 0
   private heartbeat: ReturnType<typeof setInterval> | undefined
@@ -51,6 +50,7 @@ export class NetworkCamera {
   async start(input: string): Promise<void> {
     this.stop()
     this.input = input.trim()
+    this.connectionUrl = this.input
     try {
       const url = new URL(this.input)
       if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -71,6 +71,8 @@ export class NetworkCamera {
   }
   stop(): void {
     this.active = false
+    this.hasConnected = false
+    this.connectionUrl = ""
     this.token++
     clearInterval(this.heartbeat)
     clearTimeout(this.retry)
@@ -102,11 +104,16 @@ export class NetworkCamera {
       )
     }, CONNECTION_TIMEOUT_MS)
     try {
-      const source = await openNetworkSource(this.input, abort.signal)
+      const source = await openNetworkSource(
+        this.connectionUrl,
+        abort.signal,
+        !this.hasConnected
+      )
       if (!this.current(token)) {
         this.disposeSource(source)
         return
       }
+      this.connectionUrl = source.streamUrl
       this.healthySince = performance.now()
       if (source.kind === "video") {
         this.video = source.video
@@ -145,7 +152,8 @@ export class NetworkCamera {
       if (!this.current(token)) {
         return
       }
-      if (error instanceof CameraRelayUnavailableError) {
+      // Fetch cannot distinguish CORS rejection from a temporary network failure.
+      if (error instanceof CameraAccessError && !this.hasConnected) {
         this.fail(error.message)
         return
       }
@@ -168,6 +176,7 @@ export class NetworkCamera {
     clearTimeout(this.deadline)
     this.deadline = undefined
     this.hasFrame = true
+    this.hasConnected = true
     this.lastArrival = timestamp
     if (timestamp - this.healthySince >= 10000) {
       this.retries = 0

@@ -14,9 +14,6 @@ const temporary = resolve(project, ".cache/tmp")
 await mkdir(temporary, { recursive: true })
 const environment = {
   ...process.env,
-  NEXT_PUBLIC_GAZE_CAMERA_RELAY_PORT: "4023",
-  GAZE_CAMERA_RELAY_PORT: "4023",
-  GAZE_CAMERA_RELAY_ALLOWED_ORIGINS: "http://127.0.0.1:4010",
   UV_CACHE_DIR: resolve(project, ".cache/uv"),
   TORCH_EXTENSIONS_DIR: resolve(project, ".cache/torch"),
   TMPDIR: temporary,
