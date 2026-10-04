@@ -44,10 +44,12 @@ function Controls({
   session,
   ready = true,
   disabled = false,
+  previousController = false,
 }: {
   session: SceneSession
   ready?: boolean
   disabled?: boolean
+  previousController?: boolean
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const controller = useCalibrationProfiles({
@@ -60,11 +62,24 @@ function Controls({
       openedLive++
     },
   })
-  return createElement(CalibrationProfileControls, { controller })
+  let visibleController = controller
+  if (previousController) {
+    visibleController = { ...controller, clearError: undefined }
+  }
+  return createElement(CalibrationProfileControls, {
+    controller: visibleController,
+  })
 }
-async function render(session: SceneSession, ready = true, disabled = false) {
+async function render(
+  session: SceneSession,
+  ready = true,
+  disabled = false,
+  previousController = false
+) {
   await act(async () =>
-    root!.render(createElement(Controls, { session, ready, disabled }))
+    root!.render(
+      createElement(Controls, { session, ready, disabled, previousController })
+    )
   )
 }
 async function click(label: string) {
@@ -86,6 +101,7 @@ async function enterProfileName(name: string) {
   const input = host.querySelector<HTMLInputElement>(
     '[aria-label="Calibration profile name"]'
   )!
+  expect(input).not.toBeNull()
   await act(async () => {
     Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
@@ -342,4 +358,25 @@ test("choosing Replace clears a duplicate new-name error and saves the current c
   expect(profiles[0].offset).toEqual([0.04, -0.03])
   expect(session.getSnapshot().calibration).toBe(mapping)
   expect(host.querySelector("form")).toBeNull()
+})
+
+test("Save supports a previous controller without clearError through create, cancel and replace", async () => {
+  const session = calibrate().s
+  await render(session, true, false, true)
+  await saveNamedProfile("Compatible profile")
+  const original = readSceneProfiles().profiles[0]
+  expect(original.name).toBe("Compatible profile")
+
+  await click("Save calibration profile")
+  await click("Cancel saving profile")
+  expect(host.querySelector("form") === null).toBe(true)
+
+  await act(async () => session.setOffset([0.04, -0.03]))
+  await click("Save calibration profile")
+  await chooseSaveDestination(original.id)
+  await click("Replace calibration profile")
+  const saved = readSceneProfiles().profiles
+  expect(saved).toHaveLength(1)
+  expect(saved[0].id).toBe(original.id)
+  expect(saved[0].offset).toEqual([0.04, -0.03])
 })

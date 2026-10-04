@@ -23,11 +23,11 @@ export function CalibrationProfileControls({
     (profile) => profile.id === controller.selectedId
   )
   function startSave() {
-    controller.clearError()
+    controller.clearError?.()
     setDraft({ name: "", profileId: null })
   }
   function chooseSaveDestination(profileId: string) {
-    controller.clearError()
+    controller.clearError?.()
     const profile = controller.profiles.find((item) => item.id === profileId)
     setDraft({
       name: profile?.name ?? "",
@@ -129,7 +129,7 @@ export function CalibrationProfileControls({
                 value={draft.name}
                 disabled={!controller.canSave}
                 onChange={(event) => {
-                  controller.clearError()
+                  controller.clearError?.()
                   setDraft({ ...draft, name: event.target.value })
                 }}
               />
@@ -154,7 +154,7 @@ export function CalibrationProfileControls({
               aria-label="Cancel saving profile"
               data-tooltip="Cancel"
               onClick={() => {
-                controller.clearError()
+                controller.clearError?.()
                 setDraft(null)
               }}
             >
