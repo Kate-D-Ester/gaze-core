@@ -6,6 +6,8 @@
   "scripts": {
     "build": "bun run --cwd apps/web build",
     "dev": "bun run --cwd apps/web dev",
+    "start": "bun run --cwd apps/web start",
+    "preview": "bun run --cwd apps/web preview",
     "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/web lint",
     "format": "bun run --cwd packages/ui format && bun run --cwd apps/web format",
     "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck",

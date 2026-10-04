@@ -1,5 +1,7 @@
 # Worktree-v4 merge handoff for the EIA / integration chat
 
+This is a historical handoff. The current v3 app has since removed the camera relay described below and connects network cameras directly from the browser. Use `frontend/README.md` for current startup and camera permission requirements.
+
 Prepared for Kate on 2026-10-02. This document describes the complete scene-camera work and the behavior to preserve when integrating it into the actual working branch. It is a handoff, not evidence that a merge or deployment has happened.
 
 ## 1. Source and merge scope

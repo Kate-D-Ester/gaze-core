@@ -10,9 +10,18 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Open `http://localhost:4001`. The development command also starts or reuses the
-local network-camera transport on port 4022. No tracking inference runs in that
-transport. USB cameras do not need it.
+Open `http://localhost:4001`. Network cameras connect directly from the browser,
+which resolves the entered mDNS/IP URL and follows HTTP redirects. No separate
+camera service or app camera route is needed. The camera's stream and redirect
+responses must allow CORS for readable pixels. Browser local-network permission
+and mixed-content restrictions still apply; displaying a stream in another tab
+does not establish permission to process its pixels.
+
+For a blocked local HTTP `/stream` URL on the default port, the client also tries
+the ESP32 stream endpoint on port 81 of the same host. This covers `.local` and
+private IPv4 camera URLs whose control server redirects without CORS. It keeps
+the entered URL in preferences and reuses the successful endpoint for automatic
+reconnects. Custom ports, paths and HTTPS URLs are not rewritten.
 
 For mobile HTTPS, set both `GAZE_DEV_TLS_CERT` and `GAZE_DEV_TLS_KEY` to a trusted
 local certificate/key before running `bun run dev`. Keep those files out of Git.
@@ -30,7 +39,7 @@ by default; development origins are not opened to every website.
 - `apps/web/src/features/tracking-ui`: shared tracker branding and Tailwind utilities organized by purpose.
 - `apps/web/src/features/account`: account screen composition and auth/session orchestration.
 - `apps/web/src/hooks`, `src/lib`: auth/API clients and small shared helpers.
-- `apps/web/scripts`: local camera transport, model preparation and synthetic browser fixtures.
+- `apps/web/scripts`: app startup, model preparation and synthetic browser fixtures.
 - `packages/ui/src/components`: reusable UI primitives. This package contains no tracking runtime.
 - `tests`: regression, geometry, lifecycle, persistence and route tests.
 
@@ -67,8 +76,8 @@ bun audit
 The pinned Next.js 16.3.8 build uses Webpack for the existing worker/module-loader
 integration. `typecheck` generates Next route types first, including on a fresh
 checkout. `build` prepares local MediaPipe assets and generates standalone output.
-`start` serves port 4001. A production network-camera setup also needs the local
-transport (`bun run --cwd apps/web camera-relay`).
+`start` serves port 4001. Network cameras use the same direct browser connection
+in development and production, subject to the camera and browser permissions above.
 
 The frontend Dockerfile builds the Next standalone server and runs it as an
 unprivileged user. Set `GAZECORE_BACKEND_URL` in the running container to the

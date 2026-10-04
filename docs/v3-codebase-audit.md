@@ -10,7 +10,7 @@ Explicit App Router pages serve screen, remote and scene tracking. Browser-only 
 
 Webpack is selected explicitly for development and production. The existing workers depend on native dynamic WASM-loader imports and split worker chunks; emitted worker constructors and actual browser execution were verified. Head model/runtime assets are now served locally instead of fetched from remote CDNs. Remote MediaPipe 1.0.1 and head/hand MediaPipe 0.10.32 remain separate pinned runtimes because their loader/WASM APIs differ.
 
-Development retains port **4001** and starts/reuses the local camera transport on **4022**. That transport only connects local network cameras; it performs no eye tracking and is separate from the auth backend. USB tracking is independent of it. Trusted local HTTPS remains available through the existing certificate/key settings.
+Development retains port **4001**. Network cameras now connect directly from the browser with no separate transport service or camera API route. The browser resolves mDNS/IP URLs and follows camera redirects. Camera-side CORS and browser local-network/mixed-content permissions are required for readable pixels. Trusted local HTTPS remains available through the existing certificate/key settings.
 
 The production container now runs the Next standalone server as an unprivileged user. Obsolete Vite, React Router, SPA entry files, Nginx configuration and its shell entrypoint were removed. `/runtime-config.js` exposes only a validated public backend URL. Runtime `GAZECORE_BACKEND_URL` takes precedence, followed by the legacy runtime `VITE_GAZECORE_BACKEND_URL`, then the build-time `NEXT_PUBLIC_GAZECORE_BACKEND_URL` fallback. Private backend variables are never serialized.
 
@@ -57,6 +57,8 @@ The backend remains the separate authentication/API-key service, with health and
 The independent `vision_assistant` Python work was left untouched and is not imported or bundled by the application. This checkout contains no tracked Python application files under that directory; the migration does not claim to package or validate that separate work.
 
 ## Verification
+
+The results below record the original migration checkpoint. The later direct-camera change removes the relay and its startup tests; its current verification is recorded with that change rather than implied by these historical results.
 
 - Final full frontend regression run: **632 tests passed**, no failures, across 74 files, including account/runtime-configuration and calibration recovery regressions. The relay startup test ran with permission to bind a temporary localhost port.
 - Frontend ESLint and Next-generated TypeScript checks: passed. Lint enforces type placement, braces, separate variable declarations, no sequence expressions and no nested ternaries.

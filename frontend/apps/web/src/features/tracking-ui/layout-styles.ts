@@ -114,12 +114,15 @@ export const EyeWorkspaceStyles = `
   overflow-hidden [&[hidden]]:hidden min-[1500px]:[--eye-card-gap:20px] min-[1500px]:[grid-template-columns:minmax(0,_1fr)_320px]
   max-[1150px]:[--eye-card-gap:12px] max-[1150px]:[grid-template-columns:minmax(0,_1fr)_280px] max-[1150px]:[padding-left:3%] max-[1150px]:[padding-right:3%]
   max-[900px]:[--eye-card-gap:10px] max-[900px]:[grid-template-columns:minmax(0,_1fr)_250px] max-[650px]:[--eye-card-gap:8px] max-[650px]:[grid-template-columns:minmax(0,_1fr)_220px]
-  max-[650px]:[padding:0_14px_6px] max-[480px]:[grid-template-columns:minmax(0,_1fr)] max-[480px]:[grid-template-rows:minmax(0,_1fr)_minmax(240px,_35%)] max-[480px]:[gap:6px]
+  max-[650px]:[padding:0_14px_6px] max-[480px]:[grid-template-columns:minmax(0,_1fr)] max-[480px]:[grid-template-rows:minmax(280px,_1fr)_auto]
+  max-[480px]:[gap:6px] max-[480px]:overflow-y-auto
+  max-[480px]:[&>_.eye-controls]:h-auto max-[480px]:[&>_.eye-controls]:min-h-min
+  max-[480px]:[&_.eye-controls-body]:[flex:0_0_auto] max-[480px]:[&_.eye-controls-body]:overflow-visible
   [@media(max-height:_760px)]:[padding-bottom:4px]
 `
 
 export const EyePreviewColumnStyles = `
-  min-w-0 min-h-0 grid [grid-template-columns:minmax(220px,_280px)_minmax(0,_1fr)]
+  min-w-0 min-h-0 overflow-hidden grid [grid-template-columns:minmax(220px,_280px)_minmax(0,_1fr)]
   [grid-template-rows:minmax(0,_1fr)] [column-gap:var(--eye-card-gap)] [row-gap:10px] [@container(max-width:_900px)]:[grid-template-columns:minmax(0,_1fr)]
   [@container(max-width:_900px)]:[grid-template-rows:auto_minmax(0,_1fr)]
 `

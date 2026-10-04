@@ -568,9 +568,7 @@ test("network stream URLs activate the camera pipeline with source dimensions", 
     expect(controller.source?.kind).toBe("network")
     expect(controller.dimensions).toEqual({ width: 640, height: 360 })
     expect(controller.busy).toBe(false)
-    expect(requestedUrl).toBe(
-      "http://127.0.0.1:4022/stream?url=http%3A%2F%2Fcamera.local%2Fstream.mp4"
-    )
+    expect(requestedUrl).toBe("http://camera.local/stream.mp4")
   } finally {
     globalThis.fetch = originalFetch
   }

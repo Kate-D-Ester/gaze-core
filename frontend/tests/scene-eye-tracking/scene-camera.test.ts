@@ -444,7 +444,7 @@ test("abort releases a pending MJPEG response reader", async () => {
   expect(c.getSnapshot().error).toBe("")
 })
 
-test("a missing relay shows a useful error and leaves Connect available", async () => {
+test("a browser camera access failure leaves Connect available", async () => {
   globalThis.fetch = (async () => {
     throw new TypeError("Failed to fetch")
   }) as typeof fetch
@@ -454,7 +454,7 @@ test("a missing relay shows a useful error and leaves Connect available", async 
 
   expect(c.getSnapshot().connection).toBe("error")
   expect(c.getSnapshot().busy).toBe(false)
-  expect(c.getSnapshot().error).toMatch(/camera relay.*bun run dev/i)
+  expect(c.getSnapshot().error).toMatch(/browser.*camera.*CORS.*redirect/i)
   expect(c.getSnapshot().source).toBeNull()
 })
 
