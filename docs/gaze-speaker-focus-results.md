@@ -1,3 +1,46 @@
+# Reference mouse selection repair (2026-10-04)
+
+Physical pointer selection now happens on the stable video surface at press time,
+including clicks beside the small landmark rectangle. A visible 32-pixel-radius
+mouse bubble uses the existing largest face/circle intersection rule. Background
+clicks and equal-coverage cases retain an existing lock; keyboard activation keeps
+explicit face-button selection. Manual region correction remains separate.
+
+The replay state records only successfully painted source samples. Face outlines,
+hit testing and spatial reacquisition use that sample rather than the advancing
+audio cursor. Pending decode results are rejected across playback resets. Choosing
+another face after the clip finishes prepares its location at the first frame;
+focused replay retains the spatial target, while Original replay starts without
+requiring detection.
+
+Verification passed: **813 frontend tests across 97 files**, formatting, lint,
+TypeScript and an isolated production build. New regression tests failed before
+fixes for surface presses, nearby bubble clicks, detection shifts, displayed-frame
+selection, background lock retention, painted frames between audio ticks, focused
+EOF selection/replay and Original EOF independence. Independent review found no
+remaining Critical or Important issue after its painted-frame and Original-mode
+findings were fixed.
+
+A clean-browser check initially exposed a stale development bundle: it combined
+the current controller with the previous void-returning video draw method. A
+feature-only restart and preserved cache backup forced recompilation. The served
+bundle was verified to contain the numeric painted-sample return and no temporary
+diagnostics. The local model then reported ready on MPS at port 4033. Native mouse
+input on the narrow browser selected the right face by its head outside the box,
+retained it on a background click, and prepared a left-face replay from zero after
+the finished clip. Focused right playback reached its end; the observed delay near
+26.8 source seconds was **5.5 seconds**, not a latency requirement or an isolation
+quality score. A subsequent native left-to-middle switch during active focused
+playback selected the middle face at approximately **20.4 source seconds**, kept
+playing intent and buffered the new target. Evidence and logs use the ignored
+`mouse-selection-*` prefix in
+`speaker-service/data/benchmarks/reference-reliability/`.
+
+This repair does not certify human-perceived separation quality or physical
+ESP32/microphone/gaze behavior. The v3 checkout remains clean at `4756da0`.
+
+---
+
 # v3 synchronization (2026-10-04)
 
 The speaker-focus branch incorporates v3 commit `4756da0`, including `35164e7`

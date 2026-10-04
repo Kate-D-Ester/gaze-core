@@ -1,6 +1,7 @@
 import { expect, test, spyOn } from "bun:test"
 import { ReplayController } from "../../apps/web/src/features/speaker-focus/replay-controller"
 import { LivePlayer } from "../../apps/web/src/features/speaker-focus/live-player"
+import { PreviewBuffer } from "../../apps/web/src/features/speaker-focus/preview-buffer"
 import { SpeakerClient } from "../../apps/web/src/features/speaker-focus/client"
 
 function fixture() {
@@ -352,6 +353,299 @@ test("selecting the locked face again does not rewind or interrupt listening", a
     expect(f.seeks).toEqual([])
     expect(f.controller.getSnapshot().selectedId).toBe("old-person")
     expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("a mouse bubble beside a face reacquires that spatial target after detection shifts", async () => {
+  const f = fixture()
+  try {
+    Reflect.get(f.controller, "update").call(f.controller, {
+      selectedId: null,
+      sourceSample: 160000,
+      tracks: [
+        {
+          id: "left",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.1, 0.2, 0.15, 0.3] }],
+        },
+        {
+          id: "right",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.7, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    await f.controller.select([0.775, 0.175], {
+      sourceSample: 160000,
+      radius: [0.05, 32 / 360],
+    })
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        {
+          id: "right-reacquired",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.7, 0.21, 0.15, 0.3] }],
+        },
+        {
+          id: "left-reacquired",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.1, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    await Promise.resolve()
+    expect(f.controller.getSnapshot().selectedId).toBe("right-reacquired")
+    expect(f.controller.getSnapshot().error).toBe("")
+    expect(f.plays()).toBe(1)
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("mouse selection uses the displayed frame instead of a later audio cursor", async () => {
+  const f = fixture()
+  try {
+    f.reply(f.audio())
+    Object.assign(f.context, { currentTime: f.starts[0]! + 1 })
+    Reflect.get(f.controller, "update").call(f.controller, {
+      tracks: [
+        {
+          id: "new-person",
+          manual: false,
+          observations: [
+            { timestamp: 10, box: [0.7, 0.2, 0.15, 0.3] },
+            { timestamp: 11, box: [0.4, 0.2, 0.15, 0.3] },
+          ],
+        },
+      ],
+    })
+    await f.controller.select([0.775, 0.35], { sourceSample: 160000 })
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        {
+          id: "new-person-reacquired",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.7, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    expect(f.seeks).toEqual([160000, 160000])
+    expect(f.controller.getSnapshot().selectedId).toBe("new-person-reacquired")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("clicking background preserves the current audio lock without a selection error", async () => {
+  const f = fixture()
+  try {
+    await f.controller.select([0.5, 0.95], {
+      sourceSample: 160000,
+      radius: [0.05, 32 / 360],
+    })
+    expect(f.controller.getSnapshot().selectedId).toBe("old-person")
+    expect(f.controller.getSnapshot().error).toBe("")
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("reference mouse bubbles choose the most-covered face through reacquisition, independent of array order", async () => {
+  const f = fixture()
+  const larger = {
+    id: "larger",
+    manual: false,
+    observations: [{ timestamp: 10, box: [0.35, 0.4, 0.1, 0.2] }],
+  }
+  const smaller = {
+    id: "smaller",
+    manual: false,
+    observations: [{ timestamp: 10, box: [0.49, 0.48, 0.03, 0.04] }],
+  }
+  try {
+    Reflect.get(f.controller, "update").call(f.controller, {
+      tracks: [smaller, larger],
+    })
+    await f.controller.select([0.5, 0.5], {
+      sourceSample: 160000,
+      radius: [0.2, 0.2],
+    })
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        { ...larger, id: "larger-reacquired" },
+        { ...smaller, id: "smaller-reacquired" },
+      ],
+    })
+    expect(f.controller.getSnapshot().selectedId).toBe("larger-reacquired")
+    expect(f.controller.getSnapshot().error).toBe("")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("face selection and outlines follow the painted preview frame between audio ticks", async () => {
+  const f = fixture()
+  const preview = new PreviewBuffer({
+    decode: async () =>
+      ({ width: 320, height: 180, close() {} }) as ImageBitmap,
+  })
+  preview.reset(2)
+  preview.add(160000, new Blob(["frame at 10 seconds"]), 2)
+  preview.add(161067, new Blob(["next video frame"]), 2)
+  Reflect.set(f.controller, "preview", preview)
+  const canvas = {
+    getContext: () => ({ drawImage() {} }),
+  } as unknown as HTMLCanvasElement
+  try {
+    f.reply(f.audio())
+    Object.assign(f.context, { currentTime: f.starts[0]! + 0.05 })
+    Reflect.get(f.controller, "update").call(f.controller, {
+      sourceSample: 160800,
+      tracks: [
+        {
+          id: "new-person",
+          manual: false,
+          observations: [
+            { timestamp: 10, box: [0.7, 0.2, 0.15, 0.3] },
+            { timestamp: 161067 / 16000, box: [0.4, 0.2, 0.15, 0.3] },
+          ],
+        },
+      ],
+    })
+    await f.controller.draw(canvas)
+    expect(f.controller.getSnapshot().displayedSample).toBe(160000)
+    await f.controller.select([0.775, 0.35])
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        {
+          id: "new-person-reacquired",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.7, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    expect(f.controller.getSnapshot().selectedId).toBe("new-person-reacquired")
+    expect(f.seeks).toEqual([160000, 160000])
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("selecting another person after the clip finishes prepares their spatial target at the start", async () => {
+  const f = fixture()
+  Reflect.set(f.controller, "desired", false)
+  Reflect.get(f.controller, "update").call(f.controller, {
+    status: "ended",
+    sourceSample: 510400,
+    displayedSample: 510400,
+    tracks: [
+      {
+        id: "new-person",
+        manual: false,
+        observations: [{ timestamp: 31.9, box: [0.7, 0.2, 0.15, 0.3] }],
+      },
+    ],
+  })
+  try {
+    await f.controller.select([0.775, 0.35], {
+      sourceSample: 510400,
+      radius: [0.05, 32 / 360],
+    })
+    expect(f.seeks).toEqual([0])
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        {
+          id: "person-at-start",
+          manual: false,
+          observations: [{ timestamp: 0, box: [0.7, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    expect(f.controller.getSnapshot().selectedId).toBe("person-at-start")
+    expect(f.controller.getSnapshot().status).toBe("paused")
+    expect(f.plays()).toBe(0)
+    await f.controller.play()
+    expect(f.plays()).toBe(1)
+    expect(f.controller.getSnapshot().selectedId).toBe("person-at-start")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("replaying a finished clip reacquires the selected location instead of dropping the lock", async () => {
+  const f = fixture()
+  Reflect.set(f.controller, "desired", false)
+  Reflect.get(f.controller, "update").call(f.controller, {
+    status: "ended",
+    sourceSample: 510400,
+    displayedSample: 510400,
+    tracks: [
+      {
+        id: "old-person",
+        manual: false,
+        observations: [{ timestamp: 31.9, box: [0.7, 0.2, 0.15, 0.3] }],
+      },
+    ],
+  })
+  try {
+    await f.controller.play()
+    f.reply({
+      type: "faces",
+      generation: 3,
+      tracks: [
+        {
+          id: "person-at-start",
+          manual: false,
+          observations: [{ timestamp: 0, box: [0.7, 0.2, 0.15, 0.3] }],
+        },
+      ],
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(f.controller.getSnapshot().selectedId).toBe("person-at-start")
+    expect(f.seeks).toEqual([0, 0])
+    expect(f.plays()).toBe(1)
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("Original replay starts at zero without waiting for a face to be detected", async () => {
+  const f = fixture()
+  Reflect.set(f.controller, "desired", false)
+  Reflect.get(f.controller, "update").call(f.controller, {
+    mode: "original",
+    status: "ended",
+    sourceSample: 510400,
+    displayedSample: 510400,
+    tracks: [
+      {
+        id: "old-person",
+        manual: false,
+        observations: [{ timestamp: 31.9, box: [0.7, 0.2, 0.15, 0.3] }],
+      },
+    ],
+  })
+  try {
+    await f.controller.play()
+    expect(f.seeks).toEqual([0])
+    expect(f.plays()).toBe(1)
+    expect(f.controller.getSnapshot().status).toBe("playing")
+    expect(f.controller.getSnapshot().error).toBe("")
   } finally {
     f.controller.dispose()
   }

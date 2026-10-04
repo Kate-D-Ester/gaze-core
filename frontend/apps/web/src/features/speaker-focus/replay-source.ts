@@ -373,12 +373,19 @@ export class ReplaySource {
       await this.capture(sample)
     }
   }
-  drawCurrent(canvas: HTMLCanvasElement): void {
-    if (this.video?.readyState && this.video.readyState >= 2) {
-      canvas.width = this.video.videoWidth
-      canvas.height = this.video.videoHeight
-      canvas.getContext("2d")?.drawImage(this.video, 0, 0)
+  drawCurrent(canvas: HTMLCanvasElement): number | null {
+    const video = this.video
+    if (!video || video.readyState < 2 || video.seeking) {
+      return null
     }
+    const context = canvas.getContext("2d")
+    if (!context) {
+      return null
+    }
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    context.drawImage(video, 0, 0)
+    return Math.round(video.currentTime * 16000)
   }
   dispose(): void {
     this.epoch++

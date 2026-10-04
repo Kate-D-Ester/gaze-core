@@ -2,21 +2,52 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@workspace/ui/components/button"
 import { boxAtTime, imagePoint } from "./selection"
 import type { ImagePoint } from "./selection.types"
+import type { SelectionBubble } from "./bubble-selection.types"
 import type { ReplayStageProps } from "./replay-stage.types"
 export function ReplayStage({ controller, state }: ReplayStageProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const surface = useRef<HTMLDivElement>(null)
   const [marking, setMarking] = useState(false)
   const [anchor, setAnchor] = useState<ImagePoint | null>(null)
-  const time = state.sourceSample / 16000
+  const [pointerBubble, setPointerBubble] = useState<SelectionBubble | null>(
+    null
+  )
+  const displayedSample = state.displayedSample
+  const time = (displayedSample ?? state.sourceSample) / 16000
   const visible = state.tracks.flatMap((track) => {
-    const box = boxAtTime(track, time)
+    const box = displayedSample === null ? null : boxAtTime(track, time)
     return box ? [{ track, box }] : []
   })
+  function mouseBubble(clientPoint: ImagePoint): SelectionBubble | null {
+    if (
+      !canvas.current ||
+      !state.media ||
+      marking ||
+      displayedSample === null
+    ) {
+      return null
+    }
+    const bounds = canvas.current.getBoundingClientRect()
+    const point = imagePoint(
+      clientPoint,
+      bounds,
+      state.media.width,
+      state.media.height
+    )
+    if (!point) {
+      return null
+    }
+    const radiusPx = Math.min(32, bounds.width / 2, bounds.height / 2)
+    return {
+      center: point,
+      radius: [radiusPx / bounds.width, radiusPx / bounds.height],
+      timestamp: time,
+    }
+  }
   useEffect(() => {
     const timer = setInterval(() => {
       if (canvas.current) {
-        controller.draw(canvas.current)
+        void controller.draw(canvas.current)
       }
     }, 40)
     return () => clearInterval(timer)
@@ -25,7 +56,24 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
     <section aria-label="Streaming reference video" className="space-y-3">
       <div
         ref={surface}
-        className="relative overflow-hidden rounded-xl border bg-black"
+        className="relative cursor-pointer overflow-hidden rounded-xl border bg-black"
+        onPointerMove={(event) => {
+          setPointerBubble(mouseBubble([event.clientX, event.clientY]))
+        }}
+        onPointerLeave={() => setPointerBubble(null)}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || marking) {
+            return
+          }
+          const bubble = mouseBubble([event.clientX, event.clientY])
+          if (bubble && displayedSample !== null) {
+            setPointerBubble(bubble)
+            void controller.select(bubble.center, {
+              sourceSample: displayedSample,
+              radius: bubble.radius,
+            })
+          }
+        }}
         style={{
           aspectRatio: state.media
             ? `${state.media.width}/${state.media.height}`
@@ -67,26 +115,13 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
                 height: `${box[3] * 100}%`,
               }}
               onClick={(event) => {
-                let point: ImagePoint = [
-                  box[0] + box[2] / 2,
-                  box[1] + box[3] / 2,
-                ]
-                if (event.detail > 0) {
-                  if (!surface.current || !state.media) {
-                    return
-                  }
-                  const clicked = imagePoint(
-                    [event.clientX, event.clientY],
-                    surface.current.getBoundingClientRect(),
-                    state.media.width,
-                    state.media.height
+                // Pointer selection happens on the stable video surface at press time.
+                if (event.detail === 0 && displayedSample !== null) {
+                  void controller.select(
+                    [box[0] + box[2] / 2, box[1] + box[3] / 2],
+                    { sourceSample: displayedSample }
                   )
-                  if (!clicked) {
-                    return
-                  }
-                  point = clicked
                 }
-                void controller.select(point)
               }}
             >
               {state.selectedId === track.id && (
@@ -96,6 +131,19 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
               )}
             </button>
           ))}
+        {pointerBubble && !marking && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute rounded-full border border-primary/70 bg-primary/5"
+            style={{
+              left: `${pointerBubble.center[0] * 100}%`,
+              top: `${pointerBubble.center[1] * 100}%`,
+              width: `${pointerBubble.radius[0] * 200}%`,
+              height: `${pointerBubble.radius[1] * 200}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        )}
         {marking && (
           <div
             className="absolute inset-0 cursor-crosshair touch-none"

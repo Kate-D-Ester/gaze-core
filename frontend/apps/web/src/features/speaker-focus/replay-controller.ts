@@ -5,10 +5,15 @@ import { PreviewBuffer } from "./preview-buffer"
 import { ReplaySource } from "./replay-source"
 import { StreamConnection } from "./stream-connection"
 import { boxAtTime, selectByPoint } from "./selection"
+import { selectByBubble } from "./bubble-selection"
+import type { SelectionBubble } from "./bubble-selection.types"
 import { packetBytes } from "./stream-protocol"
 import type { ImagePoint } from "./selection.types"
 import type { ListeningMode } from "./playback.types"
-import type { ReplayState } from "./replay-controller.types"
+import type {
+  ReplaySelectionOptions,
+  ReplayState,
+} from "./replay-controller.types"
 import type { StreamReply } from "./stream-connection.types"
 
 export class ReplayController {
@@ -21,6 +26,7 @@ export class ReplayController {
     tracks: [],
     selectedId: null,
     sourceSample: 0,
+    displayedSample: null,
     timing: null,
     health: null,
     serviceError: "",
@@ -39,6 +45,7 @@ export class ReplayController {
   private desired = false
   private anchor = 0
   private pendingPoint: ImagePoint | null = null
+  private pendingBubble: SelectionBubble | null = null
   private acceptedEnd: number | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   getSnapshot = () => this.snapshot
@@ -110,6 +117,7 @@ export class ReplayController {
       tracks: [],
       selectedId: null,
       sourceSample: 0,
+      displayedSample: null,
       timing: null,
       error: "",
       label,
@@ -297,6 +305,7 @@ export class ReplayController {
     this.player?.reset(this.generation)
     this.preview.reset(this.generation)
     this.pendingPoint = null
+    this.pendingBubble = null
     this.acceptedEnd = null
     this.anchor = sample
     this.update({
@@ -304,6 +313,7 @@ export class ReplayController {
       tracks: [],
       selectedId: null,
       sourceSample: sample,
+      displayedSample: null,
       timing: null,
       serviceError: message,
       error: message,
@@ -322,6 +332,7 @@ export class ReplayController {
     this.update({
       status: "failed",
       media: null,
+      displayedSample: null,
       tracks: [],
       selectedId: null,
       timing: null,
@@ -331,7 +342,8 @@ export class ReplayController {
   private async restart(
     sample: number,
     point: ImagePoint | null,
-    play: boolean
+    play: boolean,
+    bubble: SelectionBubble | null = null
   ): Promise<void> {
     const source = this.source
     if (!source) {
@@ -347,10 +359,12 @@ export class ReplayController {
     this.acceptedEnd = null
     this.anchor = sample
     this.pendingPoint = point
+    this.pendingBubble = bubble
     this.update({
       tracks: [],
       selectedId: null,
       sourceSample: sample,
+      displayedSample: null,
       timing: null,
       error: "",
       status: play ? "playing" : "paused",
@@ -408,7 +422,11 @@ export class ReplayController {
         return
       }
       if (this.snapshot.status === "ended") {
-        await this.restart(0, null, true)
+        const point =
+          this.snapshot.mode === "focused"
+            ? this.recoveryPoint(this.snapshot.displayedSample ?? this.cursor())
+            : null
+        await this.restart(0, point, true)
       } else {
         this.desired = true
         await source.play()
@@ -464,18 +482,48 @@ export class ReplayController {
       this.fail(error instanceof Error ? error.message : "Seek failed")
     }
   }
-  async select(point: ImagePoint): Promise<void> {
-    const time = this.cursor() / 16000
-    const valid = selectByPoint(this.snapshot.tracks, point, time)
+  async select(
+    point: ImagePoint,
+    options?: ReplaySelectionOptions
+  ): Promise<void> {
+    const sample =
+      options?.sourceSample ??
+      this.snapshot.displayedSample ??
+      this.snapshot.sourceSample
+    if (
+      !Number.isSafeInteger(sample) ||
+      sample < 0 ||
+      (this.snapshot.media && sample > this.snapshot.media.sampleCount)
+    ) {
+      return
+    }
+    const time = sample / 16000
+    const bubble: SelectionBubble | null = options?.radius
+      ? { center: point, radius: options.radius, timestamp: time }
+      : null
+    const valid = bubble
+      ? selectByBubble(
+          this.snapshot.tracks,
+          bubble,
+          time,
+          this.snapshot.selectedId
+        )
+      : selectByPoint(this.snapshot.tracks, point, time)
     if (!valid) {
-      this.update({ error: "Select a currently visible face" })
+      this.update({
+        error: this.snapshot.selectedId
+          ? ""
+          : "Select a currently visible face",
+      })
       return
     }
     if (valid === this.snapshot.selectedId) {
+      this.update({ error: "" })
       return
     }
     try {
-      await this.restart(this.cursor(), point, this.desired)
+      const startSample = this.snapshot.status === "ended" ? 0 : sample
+      await this.restart(startSample, point, this.desired, bubble)
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Selection failed")
     }
@@ -503,6 +551,7 @@ export class ReplayController {
     box: readonly [number, number, number, number] | null
   ): Promise<void> {
     this.pendingPoint = null
+    this.pendingBubble = null
     this.source?.pause()
     this.desired = false
     this.generation++
@@ -510,7 +559,12 @@ export class ReplayController {
     this.preview.reset(this.generation)
     this.connection?.select(this.generation, null)
     this.connection?.control({ type: "region", box })
-    this.update({ selectedId: null, tracks: [], status: "paused" })
+    this.update({
+      selectedId: null,
+      tracks: [],
+      status: "paused",
+      displayedSample: null,
+    })
   }
   private reply(reply: StreamReply): void {
     if (reply.type === "error") {
@@ -560,8 +614,11 @@ export class ReplayController {
       this.update({ tracks })
       if (this.pendingPoint) {
         const point = this.pendingPoint
-        const match = selectByPoint(tracks, point, this.anchor / 16000)
+        const match = this.pendingBubble
+          ? selectByBubble(tracks, this.pendingBubble, this.anchor / 16000)
+          : selectByPoint(tracks, point, this.anchor / 16000)
         this.pendingPoint = null
+        this.pendingBubble = null
         if (!match) {
           this.update({
             error: "Face was not detected at that position; select again",
@@ -598,16 +655,29 @@ export class ReplayController {
       this.update({ status: "ended" })
     }
   }
-  draw(canvas: HTMLCanvasElement): void {
+  async draw(canvas: HTMLCanvasElement): Promise<void> {
     if (!this.snapshot.media) {
       return
     }
-    if (!this.snapshot.selectedId && this.snapshot.mode === "focused") {
-      this.source?.drawCurrent(canvas)
-    } else {
-      void this.preview
-        .drawAt(canvas, this.cursor(), this.generation)
-        .catch(() => this.fail("Replay preview could not be decoded"))
+    const generation = this.generation
+    const epoch = this.epoch
+    try {
+      const sample =
+        !this.snapshot.selectedId && this.snapshot.mode === "focused"
+          ? (this.source?.drawCurrent(canvas) ?? null)
+          : await this.preview.drawAt(canvas, this.cursor(), generation)
+      if (
+        epoch === this.epoch &&
+        generation === this.generation &&
+        sample !== null &&
+        sample !== this.snapshot.displayedSample
+      ) {
+        this.update({ displayedSample: sample })
+      }
+    } catch {
+      if (epoch === this.epoch && generation === this.generation) {
+        this.fail("Replay preview could not be decoded")
+      }
     }
   }
   private release(): void {
@@ -624,6 +694,7 @@ export class ReplayController {
     this.context = null
     this.preview.reset()
     this.pendingPoint = null
+    this.pendingBubble = null
     this.acceptedEnd = null
     this.anchor = 0
   }

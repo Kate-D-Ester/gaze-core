@@ -33,6 +33,7 @@ const state: ReplayState = {
   ],
   selectedId: "person",
   sourceSample: 0,
+  displayedSample: 0,
   timing: {
     state: "buffering",
     reserveSeconds: 0.2,
@@ -76,29 +77,34 @@ test("streaming reference exposes live controls and silent buffering without pro
       )!
       .click()
   )
-  expect(select).toHaveBeenCalledWith([0.25, 0.4])
+  expect(select).toHaveBeenCalledWith([0.25, 0.4], { sourceSample: 0 })
   expect(host.textContent).not.toContain("Speaker 1")
   expect(host.textContent).toContain("Locked")
   const face = host.querySelector<HTMLButtonElement>(
     'button[aria-label="Select face at 25%, 40%"]'
   )!
-  spyOn(face.parentElement!, "getBoundingClientRect").mockReturnValue({
-    left: 0,
-    top: 0,
-    width: 320,
-    height: 180,
-  } as DOMRect)
+  spyOn(host.querySelector("canvas")!, "getBoundingClientRect").mockReturnValue(
+    {
+      left: 0,
+      top: 0,
+      width: 320,
+      height: 180,
+    } as DOMRect
+  )
   await act(async () =>
     face.dispatchEvent(
-      new MouseEvent("click", {
+      new PointerEvent("pointerdown", {
         bubbles: true,
-        detail: 1,
+        button: 0,
         clientX: 72,
         clientY: 40,
       })
     )
   )
-  expect(select).toHaveBeenLastCalledWith([72 / 320, 40 / 180])
+  expect(select).toHaveBeenLastCalledWith([72 / 320, 40 / 180], {
+    sourceSample: 0,
+    radius: [0.1, 32 / 180],
+  })
 
   await act(async () =>
     host!

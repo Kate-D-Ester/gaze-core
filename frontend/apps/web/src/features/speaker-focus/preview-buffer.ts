@@ -42,9 +42,9 @@ export class PreviewBuffer {
     canvas: HTMLCanvasElement,
     sample: number,
     generation: number
-  ): Promise<void> {
+  ): Promise<number | null> {
     if (generation !== this.generation || this.decoding) {
-      return
+      return null
     }
     while (this.frames.length > 1 && this.frames[1]!.sample <= sample) {
       const removed = this.frames.shift()!
@@ -52,7 +52,7 @@ export class PreviewBuffer {
     }
     const chosen = this.frames[0]
     if (!chosen || chosen.sample > sample) {
-      return
+      return null
     }
     if (chosen !== this.decoded) {
       const epoch = this.epoch
@@ -61,7 +61,7 @@ export class PreviewBuffer {
         const bitmap = await this.decode(chosen.jpeg)
         if (epoch !== this.epoch) {
           bitmap.close()
-          return
+          return null
         }
         this.bitmap?.close()
         this.bitmap = bitmap
@@ -73,8 +73,13 @@ export class PreviewBuffer {
     if (this.bitmap) {
       canvas.width = this.bitmap.width
       canvas.height = this.bitmap.height
-      canvas.getContext("2d")?.drawImage(this.bitmap, 0, 0)
+      const context = canvas.getContext("2d")
+      if (context) {
+        context.drawImage(this.bitmap, 0, 0)
+        return chosen.sample
+      }
     }
+    return null
   }
   dispose(): void {
     this.reset(this.generation + 1)
