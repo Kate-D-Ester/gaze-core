@@ -1,6 +1,8 @@
 import { MAX_FRAME_AGE_MS } from "../scene-eye-tracking/calibration"
 import { drawEyePreviewFrame } from "../eye-tracking/components/eye-preview"
 import { ViewerGazePreview } from "./viewer-gaze-preview"
+import { CosplayHud } from "./cosplay-hud"
+import { hasFreshFrame } from "./selection"
 import { Camera } from "lucide-react"
 import { useEffect, useRef } from "react"
 import type { CameraPreviewProps } from "./camera-preview.types"
@@ -11,6 +13,7 @@ export function CameraPreview({
   state,
   selection,
   gazeSession,
+  cosplay = false,
   now = 0,
   onPoint,
 }: CameraPreviewProps) {
@@ -79,6 +82,9 @@ export function CameraPreview({
       )}
       {gazeSession && live && (
         <ViewerGazePreview session={gazeSession} camera={state} now={now} />
+      )}
+      {cosplay && hasFreshFrame(state, clock) && (
+        <CosplayHud label={label} selection={selection} />
       )}
       {selection && live && (
         <span

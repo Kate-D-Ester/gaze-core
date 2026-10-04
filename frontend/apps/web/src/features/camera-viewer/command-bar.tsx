@@ -128,7 +128,8 @@ export function CommandBar({
             <p>
               Click a preview to mark a point. Select confirms it; clear removes
               it. Enter or Space on a preview marks its center. The gaze dot is
-              a live preview. Each camera has its own manual markers.
+              a live preview. Each camera has its own manual markers. The
+              auxiliary HUD is a cosplay simulation.
             </p>
             <p>
               Commands: eye camera, scene camera, auxiliary camera, select,

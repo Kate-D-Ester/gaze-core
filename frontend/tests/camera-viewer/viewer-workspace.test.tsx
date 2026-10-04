@@ -285,3 +285,76 @@ test("voice state and command outcomes remain visible together in the pinned con
   expect(toggle.textContent).toContain("Voice off")
   expect(!!host.querySelector("[aria-label='Voice feedback']")).toBe(false)
 })
+
+test("auxiliary cosplay effects work without an eye tracker and follow only clicked points", async () => {
+  const camera = new SceneCamera()
+  const snapshot = liveSnapshot()
+  snapshot.frame!.timestamp = performance.now()
+  camera.getSnapshot = () => snapshot
+  await render({ auxiliaryCamera: camera })
+  const hud = () =>
+    host.querySelector("[aria-label='Auxiliary camera cosplay simulation']")
+  expect(hud()?.textContent ?? "").toContain("Scanning")
+  expect(
+    host.querySelectorAll("[aria-label$='cosplay simulation']").length
+  ).toBe(1)
+  const preview = host.querySelector<HTMLButtonElement>(
+    "[aria-label='Choose a point in Auxiliary camera']"
+  )!
+  preview.getBoundingClientRect = () => new DOMRect(0, 0, 200, 100)
+  await act(async () =>
+    preview.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 30, clientY: 70 })
+    )
+  )
+  expect(hud()?.textContent ?? "").toContain("Locked point")
+  const effect = host.querySelector<SVGElement>(
+    "[aria-label='Auxiliary camera simulated manual lock']"
+  )!
+  expect(effect.style.left).toBe("15%")
+  expect(effect.style.top).toBe("70%")
+  await command("select")
+  expect(effect.style.left).toBe("15%")
+  const toggle = host.querySelector<HTMLButtonElement>(
+    "[aria-label='Cosplay HUD']"
+  )!
+  await act(async () => toggle.click())
+  expect(!!hud()).toBe(false)
+  expect(toggle.getAttribute("aria-pressed")).toBe("false")
+  const point = host.querySelector<HTMLElement>(
+    "[aria-label='Auxiliary camera static selection']"
+  )!
+  expect(point.style.left).toBe("15%")
+  expect(point.style.top).toBe("70%")
+  await act(async () => toggle.click())
+  expect(hud()?.textContent ?? "").toContain("Locked point")
+  const restored = host.querySelector<SVGElement>(
+    "[aria-label='Auxiliary camera simulated manual lock']"
+  )!
+  expect(restored.style.left).toBe("15%")
+  expect(restored.style.top).toBe("70%")
+  await command("clear")
+  expect(hud()?.textContent ?? "").toContain("Scanning")
+  expect(
+    !!host.querySelector(
+      "[aria-label='Auxiliary camera simulated manual lock']"
+    )
+  ).toBe(false)
+})
+
+test("cosplay effects disappear on stale frames instead of claiming an active lock", async () => {
+  const camera = new SceneCamera()
+  const snapshot = liveSnapshot()
+  snapshot.frame!.timestamp = performance.now()
+  camera.getSnapshot = () => snapshot
+  await render({ auxiliaryCamera: camera })
+  const visible = () =>
+    !!host.querySelector("[aria-label='Auxiliary camera cosplay simulation']")
+  expect(visible()).toBe(true)
+  snapshot.frame!.timestamp = performance.now() - 2000
+  await command("auxiliary camera")
+  expect(visible()).toBe(false)
+  snapshot.frame!.timestamp = performance.now()
+  await command("switch camera")
+  expect(visible()).toBe(true)
+})

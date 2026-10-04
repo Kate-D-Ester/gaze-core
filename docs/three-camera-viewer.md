@@ -33,6 +33,8 @@ After calibration, the Scene preview shows a red gaze bubble. It uses the same l
 
 Static viewer points remain manual; calibration does not turn them into tracked targets or eye-driven selection.
 
+The Auxiliary panel includes an optional **HUD** cosplay effect. With a fresh live feed, it shows **Simulation · Scanning** and a decorative scan sweep. Clicking that preview places a static point with a pulsing frame labeled **Simulation · Locked point**. `select` confirms the existing point, and `clear` removes it and resumes the scan effect. The HUD toggle hides the decoration without changing camera connections or manual points. It works without an eye tracker, follows only manually placed screen points, and disappears on stale/disconnected frames. Scan and lock are visual effects; there is no person/object tracker, cross-camera acquisition, coordinate output or hardware control.
+
 ## Commands
 
 Click a camera's heading to make it active. Click its preview to pin a static image point, or focus the preview and press Enter/Space to choose its center. The marker stays at that image position and clears from view after reconnecting, changing orientation, or losing fresh frames.
@@ -97,3 +99,8 @@ Verified with 732 frontend tests, lint, typecheck and production build. An initi
 Select no longer invents a center point. **Confirm point** and spoken/typed `select` require a current manually clicked marker, retain its coordinates, and reject stale/disconnected frames. Command results and local voice feedback share the pinned controls. The button displays Voice off, Starting, Listening or Retry voice; supported final speech shows Heard, while rejected final speech gives a short retry hint without executing it.
 
 Verified with 755 frontend tests, lint, typecheck and production build. Independent review found no remaining Critical/Important issues. Real WASM recognized generated `select` at 48000 Hz, and the complete decoder → voice controller → viewer command flow at 44100 Hz confirmed an off-center clicked point. Browser checks covered the desktop layout and 390×449 scrolling with bounded help and pinned feedback; markers remained independent across cameras. The synthetic fixture replaces microphone input only. Physical microphone quality and physical calibration remain device checks. The preview server was restarted on port 4014; user camera sessions were not reloaded.
+
+
+### Cosplay HUD verification
+
+The decorative auxiliary HUD passed 757 full-suite frontend tests, lint, typecheck and production build. Review found no Critical/Important issues; its point-preservation test suggestion was addressed and the nine workspace tests passed again. Synthetic browser checks disconnected Eye and Scene, observed the auxiliary scan effect, clicked an off-center auxiliary point, and confirmed it with generated spoken `select` through the real decoder/controller. The 390×844 layout had no horizontal overflow, kept commands pinned, and retained the point across HUD off/on. Only synthetic feed images were saved. The synthetic eye source now implements disconnect by stopping its generated frames, and stopped sources clear their latest frame reference.

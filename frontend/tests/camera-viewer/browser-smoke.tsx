@@ -59,6 +59,7 @@ const cameras = ["Eye", "Scene", "Auxiliary"].map((name, index) => {
   }
   camera.stop = () => {
     connected = false
+    camera.latest = null
     state = { ...state, connection: "idle", frame: null, source: null }
     listeners.forEach((callback) => callback())
   }
@@ -103,6 +104,7 @@ const cameras = ["Eye", "Scene", "Auxiliary"].map((name, index) => {
   }
 })
 const eyeTracker = createViewerTracker()
+eyeTracker.stop = cameras[0].camera.stop
 eyeTracker.sourceCanvas.current = cameras[0].camera.rawCanvas
 const eyeCamera = new ViewerEyeCamera(eyeTracker)
 const updateEye = () => {
