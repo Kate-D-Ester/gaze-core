@@ -140,6 +140,9 @@ export function useCalibrationProfiles({
       return false
     }
   }
+  function clearError() {
+    setError("")
+  }
   function remove() {
     if (disabled || !selectedId) {
       return
@@ -165,6 +168,7 @@ export function useCalibrationProfiles({
     canSave,
     load,
     save,
+    clearError,
     remove,
   }
 }
