@@ -119,13 +119,12 @@ export function useCalibrationProfiles({
       setError(errorMessage(cause))
     }
   }, [canSave, library.profiles, profileData, selectedId])
-  function save(name: string, createNew: boolean) {
+  function save(name: string, profileId?: string) {
     if (!canSave || !profileData) {
       return false
     }
     try {
-      const id = createNew ? undefined : (selectedId ?? undefined)
-      const profile = saveSceneProfile(name, profileData, setup, id)
+      const profile = saveSceneProfile(name, profileData, setup, profileId)
       selectedMapping.current = state.calibration
       setSelectedId(profile.id)
       setLibrary(readSceneProfiles())

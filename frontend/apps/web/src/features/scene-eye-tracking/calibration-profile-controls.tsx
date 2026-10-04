@@ -1,4 +1,4 @@
-import { Check, Plus, Save, Trash2, X } from "lucide-react"
+import { Save, Trash2, X } from "lucide-react"
 import { useState } from "react"
 import { HelpTip } from "../eye-tracking/components/help-tip"
 import {
@@ -22,12 +22,15 @@ export function CalibrationProfileControls({
   const selected = controller.profiles.find(
     (profile) => profile.id === controller.selectedId
   )
-  function startSave(createNew: boolean) {
-    let name = ""
-    if (!createNew && selected) {
-      name = selected.name
-    }
-    setDraft({ name, createNew })
+  function startSave() {
+    setDraft({ name: "", profileId: null })
+  }
+  function chooseSaveDestination(profileId: string) {
+    const profile = controller.profiles.find((item) => item.id === profileId)
+    setDraft({
+      name: profile?.name ?? "",
+      profileId: profileId || null,
+    })
   }
   return (
     <section
@@ -38,14 +41,16 @@ export function CalibrationProfileControls({
         <span>Calibration profile</span>
         <HelpTip
           label="Calibration profile help"
-          text="Save a completed mapping even if its accuracy check has not passed. Unverified profiles stay unverified when loaded. Profiles and X/Y adjustments stay in this browser. The last selected profile loads after camera setup. Changed camera angle or fit may need recalibration."
+          text="Save opens a choice: create a named profile or replace an existing one with your current calibration. Choosing a save destination does not load its old mapping. Profiles and X/Y adjustments stay in this browser. Unverified calibrations stay unverified when saved or loaded."
         />
       </div>
       <div className={`scene-profile-row ${SceneProfileRowStyles}`}>
         <select
           aria-label="Scene calibration profile"
           value={controller.selectedId ?? ""}
-          disabled={!controller.canLoad || controller.profiles.length === 0}
+          disabled={
+            !controller.canLoad || controller.profiles.length === 0 || !!draft
+          }
           onChange={(event) => controller.load(event.target.value)}
         >
           <option value="" disabled>
@@ -61,28 +66,19 @@ export function CalibrationProfileControls({
           type="button"
           className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Save calibration profile"
-          data-tooltip="Save profile"
-          disabled={!controller.canSave}
-          onClick={() => startSave(false)}
+          data-tooltip="Save calibration"
+          aria-expanded={!!draft}
+          disabled={!controller.canSave || !!draft}
+          onClick={startSave}
         >
           <Save size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
           className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
-          aria-label="Save as new calibration profile"
-          data-tooltip="Save as new"
-          disabled={!controller.canSave}
-          onClick={() => startSave(true)}
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
           aria-label="Delete calibration profile"
           data-tooltip="Delete profile"
-          disabled={!selected || controller.disabled}
+          disabled={!selected || controller.disabled || !!draft}
           onClick={() => {
             if (
               selected &&
@@ -97,43 +93,68 @@ export function CalibrationProfileControls({
       </div>
       {draft && (
         <form
-          className={`scene-profile-row ${SceneProfileRowStyles}`}
+          className="grid gap-2"
+          aria-label="Save scene calibration"
           onSubmit={(event) => {
             event.preventDefault()
-            if (controller.save(draft.name, draft.createNew)) {
+            if (controller.save(draft.name, draft.profileId ?? undefined)) {
               setDraft(null)
             }
           }}
         >
-          <input
-            autoFocus
-            aria-label="Calibration profile name"
-            placeholder="Name"
-            maxLength={60}
-            value={draft.name}
-            disabled={controller.disabled}
-            onChange={(event) =>
-              setDraft({ ...draft, name: event.target.value })
-            }
-          />
-          <button
-            type="submit"
-            className={`eye-button ${EyeButtonStyles} primary eye-action-icon ${EyeActionIconStyles}`}
-            aria-label="Confirm profile name"
-            data-tooltip="Save"
-            disabled={!controller.canSave || !draft.name.trim()}
-          >
-            <Check size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
-            aria-label="Cancel profile name"
-            data-tooltip="Cancel"
-            onClick={() => setDraft(null)}
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
+          <div className={`scene-profile-row ${SceneProfileRowStyles}`}>
+            <select
+              aria-label="Save calibration to"
+              value={draft.profileId ?? ""}
+              disabled={!controller.canSave}
+              onChange={(event) => chooseSaveDestination(event.target.value)}
+            >
+              <option value="">New profile</option>
+              {controller.profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  Replace · {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {!draft.profileId && (
+            <div className={`scene-profile-row ${SceneProfileRowStyles}`}>
+              <input
+                autoFocus
+                aria-label="Calibration profile name"
+                placeholder="Profile name"
+                maxLength={60}
+                value={draft.name}
+                disabled={!controller.canSave}
+                onChange={(event) =>
+                  setDraft({ ...draft, name: event.target.value })
+                }
+              />
+            </div>
+          )}
+          <div className={`scene-profile-row ${SceneProfileRowStyles}`}>
+            <button
+              type="submit"
+              className={`eye-button ${EyeButtonStyles} primary flex-1`}
+              aria-label={
+                draft.profileId
+                  ? "Replace calibration profile"
+                  : "Save new calibration profile"
+              }
+              disabled={!controller.canSave || !draft.name.trim()}
+            >
+              {draft.profileId ? "Replace profile" : "Save profile"}
+            </button>
+            <button
+              type="button"
+              className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
+              aria-label="Cancel saving profile"
+              data-tooltip="Cancel"
+              onClick={() => setDraft(null)}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
         </form>
       )}
       {controller.error && (

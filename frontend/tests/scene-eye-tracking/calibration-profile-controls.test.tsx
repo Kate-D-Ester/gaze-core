@@ -78,6 +78,11 @@ async function click(label: string) {
 
 async function saveNamedProfile(name: string) {
   await click("Save calibration profile")
+  await enterProfileName(name)
+  await click("Save new calibration profile")
+}
+
+async function enterProfileName(name: string) {
   const input = host.querySelector<HTMLInputElement>(
     '[aria-label="Calibration profile name"]'
   )!
@@ -89,7 +94,17 @@ async function saveNamedProfile(name: string) {
     input.dispatchEvent(new Event("input", { bubbles: true }))
     input.dispatchEvent(new Event("change", { bubbles: true }))
   })
-  await click("Confirm profile name")
+}
+
+async function chooseSaveDestination(id: string) {
+  const select = host.querySelector<HTMLSelectElement>(
+    '[aria-label="Save calibration to"]'
+  )
+  expect(select).not.toBeNull()
+  await act(async () => {
+    select!.value = id
+    select!.dispatchEvent(new Event("change", { bubbles: true }))
+  })
 }
 
 test("a completed mapping can be saved when the accuracy check has not passed", async () => {
@@ -149,19 +164,7 @@ test("save remains disabled before fitting and during active capture", async () 
 test("save provides an inline name and keeps offset changes with that user", async () => {
   const session = calibrate().s
   await render(session)
-  await click("Save calibration profile")
-  const input = host.querySelector<HTMLInputElement>(
-    '[aria-label="Calibration profile name"]'
-  )!
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value"
-    )!.set!.call(input, "Kate")
-    input.dispatchEvent(new Event("input", { bubbles: true }))
-    input.dispatchEvent(new Event("change", { bubbles: true }))
-  })
-  await click("Confirm profile name")
+  await saveNamedProfile("Kate")
   expect(readSceneProfiles().profiles[0]?.name).toBe("Kate")
   expect(host.querySelector("form")).toBeNull()
   await act(async () => session.setOffset([0.1, -0.02]))
@@ -216,4 +219,101 @@ test("selecting another user restores their offset and controls are locked durin
       ...host.querySelectorAll<HTMLButtonElement>(".scene-profile-row button"),
     ].every((button) => button.disabled)
   ).toBe(true)
+})
+
+test("Save offers a new profile even when another profile is loaded", async () => {
+  const previous = calibrate().s.getSnapshot()
+  const original = saveSceneProfile(
+    "Kate",
+    { ...previous, calibration: previous.calibration! },
+    setup
+  )
+  const session = new SceneSession()
+  await render(session)
+  await click("Save calibration profile")
+
+  const destination = host.querySelector<HTMLSelectElement>(
+    '[aria-label="Save calibration to"]'
+  )!
+  expect(destination).not.toBeNull()
+  expect(destination.value).toBe("")
+  expect([...destination.options].map((option) => option.value)).toEqual([
+    "",
+    original.id,
+  ])
+  await enterProfileName("New fit")
+  await click("Save new calibration profile")
+
+  const saved = readSceneProfiles()
+  expect(saved.profiles).toHaveLength(2)
+  expect(saved.profiles.find((profile) => profile.id === original.id)).toEqual(
+    original
+  )
+  expect(
+    saved.profiles.find((profile) => profile.name === "New fit")?.id
+  ).not.toBe(original.id)
+})
+
+test("a recalibrated mapping replaces the chosen profile without loading its old mapping", async () => {
+  const previous = calibrate().s.getSnapshot()
+  const kate = saveSceneProfile(
+    "Kate",
+    { ...previous, calibration: previous.calibration!, offset: [0.02, 0] },
+    setup
+  )
+  const alex = saveSceneProfile(
+    "Alex",
+    { ...previous, calibration: previous.calibration!, offset: [-0.1, 0] },
+    setup
+  )
+  const { s, id } = calibrate(false)
+  collectValidation(s, id, () => [0.06, -0.04])
+  s.setOffset([0.07, -0.03])
+  const currentMapping = s.getSnapshot().calibration
+  await render(s)
+  expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("")
+  await click("Save calibration profile")
+  await chooseSaveDestination(kate.id)
+
+  expect(openedLive).toBe(0)
+  expect(s.getSnapshot().calibration).toBe(currentMapping)
+  expect(
+    readSceneProfiles().profiles.find((profile) => profile.id === kate.id)
+  ).toEqual(kate)
+  await click("Replace calibration profile")
+
+  const saved = readSceneProfiles()
+  const replaced = saved.profiles.find((profile) => profile.id === kate.id)!
+  expect(saved.profiles).toHaveLength(2)
+  expect(saved.selectedId).toBe(kate.id)
+  expect(replaced.name).toBe("Kate")
+  expect(replaced.offset).toEqual([0.07, -0.03])
+  expect(replaced.calibration.coefficients).toEqual(
+    currentMapping!.coefficients
+  )
+  expect(replaced.unverified).toBe(true)
+  expect(saved.profiles.find((profile) => profile.id === alex.id)).toEqual(alex)
+  expect(s.getSnapshot().calibration).toBe(currentMapping)
+  expect(host.querySelector("form")).toBeNull()
+})
+
+test("a duplicate new name keeps the save choices open and cancellation preserves profiles", async () => {
+  const previous = calibrate().s.getSnapshot()
+  saveSceneProfile(
+    "Kate",
+    { ...previous, calibration: previous.calibration! },
+    setup
+  )
+  const before = readSceneProfiles()
+  await render(calibrate().s)
+  await saveNamedProfile("kate")
+
+  expect(host.querySelector('[role="alert"]')?.textContent).toMatch(
+    /already exists/i
+  )
+  expect(host.querySelector("form")).not.toBeNull()
+  expect(readSceneProfiles()).toEqual(before)
+  await click("Cancel saving profile")
+  expect(host.querySelector("form")).toBeNull()
+  expect(readSceneProfiles()).toEqual(before)
 })
