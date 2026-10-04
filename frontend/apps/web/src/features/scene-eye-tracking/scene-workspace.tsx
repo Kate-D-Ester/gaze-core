@@ -109,8 +109,16 @@ export function SceneWorkspace({
       state.session.observeHand(hands.hand, performance.now())
     }
   }, [hands.hand, isMarker, markers.marker, state.session])
-  const calibrated = canUseSceneCalibration(state)
+  const calibrated = speakerMode
+    ? !!state.calibration
+    : canUseSceneCalibration(state)
   const accuracyChecked = hasCurrentAccuracyCheck(state)
+  let accuracyHint = "Check 5 fingertip positions to unlock gaze focus."
+  if (accuracyChecked) {
+    accuracyHint = "Accuracy checked"
+  } else if (isMarker) {
+    accuracyHint = "Check 5 marker positions to unlock gaze focus."
+  }
   useEffect(() => {
     onStatus({
       connected: !!scene.source,
@@ -368,9 +376,7 @@ export function SceneWorkspace({
         {active === 2 && speakerMode && !state.capture && (
           <>
             <p className="text-xs" role="status">
-              {hasCurrentAccuracyCheck(state)
-                ? "Accuracy checked"
-                : "Check accuracy before gaze selection"}
+              {accuracyHint}
             </p>
             <button
               className={`eye-button ${EyeButtonStyles} primary`}
@@ -381,7 +387,12 @@ export function SceneWorkspace({
             </button>
             <button
               className={`eye-button ${EyeButtonStyles} primary`}
-              disabled={!hasCurrentAccuracyCheck(state)}
+              disabled={!accuracyChecked}
+              title={
+                accuracyChecked
+                  ? "Open gaze-controlled speaker focus"
+                  : "Pass all 5 accuracy checks first"
+              }
               onClick={() => onStepChange(3)}
             >
               Continue to focus

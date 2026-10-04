@@ -1,3 +1,32 @@
+# Guided accuracy navigation repair (2026-10-04)
+
+The human's saved unverified mapping opened Check accuracy, while that step's
+breadcrumb was disabled. The parent reused the regular scene-gaze readiness flag,
+which excludes an unverified hand/marker mapping. Speaker setup now reports that a
+fitted mapping is present separately from its existing accuracy flag: the mapping
+permits accuracy-step navigation, and current successful validation still gates
+Focus. Regular scene-mode readiness is unchanged. The check panel explains the five
+fingertip/marker positions required; the disabled Continue control explains its gate.
+
+The regression first failed on the disabled accuracy breadcrumb. It uses real saved
+profile restoration, the scene session and five-point validation in the rendered
+workspace, verifies return navigation while unverified, and opens Focus only after
+validation passes. **824 frontend tests across 98 files**, formatting, lint,
+TypeScript and the isolated production build passed. Read-only review found no
+blocking issue. Backend code and services were not changed by this repair.
+
+Native input in the human's existing Chrome camera session reproduced Check accuracy
+starting its five-point collection. It reported Hand not detected and waited for
+fresh hand frames; the test was cancelled without replacing the saved mapping.
+After the code update, Calibrate → Check accuracy navigation worked with both
+cameras still connected. Evidence is saved at
+`speaker-service/data/benchmarks/reference-reliability/guided-accuracy-navigation.png`.
+The physical five-point check was not completed by the agent, so the human's profile
+remains correctly unverified and Focus remains gated until it passes. The primary
+v3 checkout is unchanged at `4756da0`.
+
+---
+
 # Available-input streaming and current picture (2026-10-04)
 
 Kate requested that the reference behave like a real room: the picture must stay
