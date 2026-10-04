@@ -1,3 +1,19 @@
+# Latest v3 integration after optional accuracy (2026-10-04)
+
+Merged local v3 `403bb5c` into the feature branch without conflicts. Its scene
+offset controls and profile-replacement fixes coexist with the optional Focus
+accuracy check. Final verification passed: **852 frontend tests across 101 files**,
+lint, TypeScript, diff checks and an isolated production build. Independent
+read-only integration review found no critical/important issue.
+
+Native Chrome again opened Focus with the current saved calibration and visible
+unverified-accuracy warning. The user's selected MacBook Pro microphone and
+ZEB-DUKE Bluetooth output remained selected. The screenshot artifact above was
+updated after this integration. The network capture-timing limitation remains;
+no listening session was started by the agent. Primary v3 was not changed.
+
+---
+
 # Optional accuracy check in guided Focus (2026-10-04)
 
 The user explicitly chose to use the current fitted scene calibration despite
