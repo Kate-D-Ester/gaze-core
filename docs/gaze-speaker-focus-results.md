@@ -1,3 +1,40 @@
+# Microphone PCM boundary fix (2026-10-05)
+
+The microphone-to-service boundary previously sent finite over-range Float32
+samples unchanged. Full-scale normalized input through the existing FIR resampler
+reproduces peaks of 1.1608 at 44.1 kHz and 1.1741 at 48 kHz; the service correctly
+rejects PCM above 1.01. Capture now uniformly attenuates a complete over-range
+chunk to peak 1 before both Original playback and packet encoding. Ordinary
+levels are unchanged, quiet audio is never boosted, and timestamps, sample counts
+and selection generations are retained. Existing 100 ms packet collection and
+dynamic engine scheduling are unchanged. Differing gains between unusually loud
+adjacent chunks can still cause level changes; no listening-quality improvement
+is claimed from normalization alone.
+
+Nonfinite or malformed microphone data reports a clear error and releases the
+capture stream instead of escaping a message handler or silently stalling. Audio
+worklet processor failures also stop capture and report an actionable error. The
+backend's finite/normalized PCM validation remains unchanged.
+
+Nine real-capture boundary regressions produced seven failures before the fix
+and now pass, covering waveform-preserving attenuation, actual resampler
+overshoot, unchanged ordinary levels, invalid data, processor failure, generation
+filtering and sample/clock metadata. Independent read-only review found no
+critical/important issue. Final verification passed **866 frontend tests across
+102 files**, types, lint, diff checks and the isolated production build. An
+existing head-calibration mirror test initially exceeded its 5-second timeout
+while build/tests ran together; its individual 8-test run and the complete suite
+both passed when rerun without the build workload.
+
+Synthetic loud capture packets from 16, 44.1 and 48 kHz input were decoded by the
+real Python protocol and accepted by the running MPS live service, followed by a
+control acknowledgement and clean close. These tests used no room microphone
+recording or speaker playback. The served development bundle contains the fix,
+with no backend restart. Native browser verification found the configured ESP32
+scene stream reconnecting, so no physical Focus listening result is claimed.
+
+---
+
 # Network listening and gaze return fixes (2026-10-05)
 
 ESP32/network scene capture now supports the separately selected microphone after

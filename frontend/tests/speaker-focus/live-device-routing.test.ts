@@ -57,9 +57,10 @@ test.each(["camera", "network"] as const)(
         return { connect() {}, disconnect() {} }
       }
     } as unknown as typeof AudioContext
-    globalThis.AudioWorkletNode = class {
+    globalThis.AudioWorkletNode = class extends EventTarget {
       port = { postMessage() {}, onmessage: null }
       constructor() {
+        super()
         capturePort = this.port as unknown as MessagePort
       }
       connect() {}

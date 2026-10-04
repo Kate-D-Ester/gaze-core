@@ -5,6 +5,7 @@ import type {
 } from "./capture.types"
 export { PcmResampler } from "./resampler"
 import { packetBytes } from "./stream-protocol"
+import { normalizeMicrophonePcm } from "./microphone-pcm"
 export { packetBytes } from "./stream-protocol"
 export async function startMicrophone(
   options: MicrophoneOptions
@@ -68,10 +69,17 @@ export async function startCapture(
     options.signal.removeEventListener("abort", stop)
     if (node) {
       node.port.onmessage = null
+      node.removeEventListener("processorerror", handleProcessorError)
       node.disconnect()
     }
     source?.disconnect()
     stream.getTracks().forEach((track) => track.stop())
+  }
+  function handleProcessorError() {
+    stop()
+    options.onError(
+      "The microphone audio processor failed. Start listening again or choose another microphone."
+    )
   }
   options.signal.addEventListener("abort", stop, { once: true })
   try {
@@ -87,25 +95,35 @@ export async function startCapture(
       channelCountMode: "explicit",
       numberOfOutputs: 1,
     })
+    node.addEventListener("processorerror", handleProcessorError)
     let generation = options.generation()
     node.port.postMessage({ generation })
     node.port.onmessage = (event: MessageEvent<CaptureMessage>) => {
       if (stopped || event.data.generation !== options.generation()) {
         return
       }
-      const timestamp = origin + event.data.timestamp
-      const pcm = new Float32Array(event.data.pcm)
-      const sampleStart = Math.round(origin * 16000) + event.data.sampleStart
-      options.onPcm(pcm, sampleStart, timestamp, event.data.generation)
-      options.onPacket(
-        packetBytes(
+      try {
+        const timestamp = origin + event.data.timestamp
+        const pcm = new Float32Array(event.data.pcm)
+        normalizeMicrophonePcm(pcm)
+        const sampleStart = Math.round(origin * 16000) + event.data.sampleStart
+        const packet = packetBytes(
           1,
           event.data.generation,
           sampleStart,
           timestamp,
           event.data.pcm
         )
-      )
+        options.onPcm(pcm, sampleStart, timestamp, event.data.generation)
+        options.onPacket(packet)
+      } catch (error) {
+        stop()
+        options.onError(
+          error instanceof Error
+            ? error.message
+            : "The microphone returned invalid audio"
+        )
+      }
     }
     source.connect(node)
     node.connect(options.context.destination)
