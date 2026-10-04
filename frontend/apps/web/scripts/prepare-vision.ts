@@ -17,6 +17,7 @@ const result = await Bun.build({
   entrypoints: [
     path.join(root, "src/features/scene-eye-tracking/hand.worker.ts"),
     path.join(root, "src/features/speaker-focus/audio-capture.worklet.ts"),
+    path.join(root, "src/features/speaker-focus/scene-face.worker.ts"),
   ],
   target: "browser",
   format: "iife",

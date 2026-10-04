@@ -1,3 +1,40 @@
+# Audio device selection and live face preview (2026-10-04)
+
+Focus now provides separate Microphone and Speaker / headphones selectors, with
+browser-local remembered choices. The chosen microphone is requested by exact
+device ID and feeds the existing capture/stream/isolation engine. Focused audio
+uses the chosen Web Audio sink; changing output during listening preserves the
+capture stream and selected face. A microphone change invalidates alignment.
+Permission probes are explicit and immediately stop their tracks. Missing devices
+and output-routing failures are visible rather than silently selecting another
+physical device. Browsers without AudioContext.setSinkId show system-output guidance.
+
+A pinned local MediaPipe worker detects faces independently of microphone capture.
+The current scene shows clickable detected-face boxes and a Locked outline before
+listening starts, alongside the existing verified gaze bubble. Preview identities
+use mutual spatial matches, reject ambiguous collisions, and map to engine tracks
+by location with the configured video timing offset. Manual region correction
+crops both detectors, preserves physical overlay coordinates, survives listening
+restart/detector retry, and resets with camera source/orientation. Startup and
+buffered drain cannot accidentally advance audio generations through preview
+selection or correction.
+
+Verification: **842 frontend tests across 101 files**, lint, TypeScript, diff checks
+and an isolated production build passed. Real-controller regressions exercise
+chosen input/output routing, -500 ms alignment, reordered engine tracks, output
+switching and preserved drain intervals. Native browser verification rendered the
+actual Focus component with the existing recorded debate clip, detected three
+faces and locked a face by mouse before microphone capture. Screenshot:
+`speaker-service/data/benchmarks/reference-reliability/devices-overlay-preview.png`.
+Independent read-only review found no remaining critical/important issue.
+
+The recorded-scene verification did not capture physical room audio or verify
+separation quality through physical headphones. Network cameras without capture
+timestamps remain blocked for live isolation; the existing warning is unchanged.
+Backend code/services and primary v3 were not changed.
+
+---
+
 # Visible failed accuracy results (2026-10-04)
 
 After collecting five physical points, the human's accuracy result was **60.2 px

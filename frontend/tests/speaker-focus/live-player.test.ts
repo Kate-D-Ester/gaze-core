@@ -126,3 +126,28 @@ test("a running output clock may lag the wall clock without interrupting valid s
   expect(f.sources[0]!.stopped).toBe(false)
   expect(f.sources[1]!.when).toBeCloseTo(when + 1, 6)
 })
+
+test("changing headphones routes the active output without flushing selected speech", async () => {
+  const f = fixture()
+  let sink = ""
+  Object.assign(f.context, {
+    setSinkId: async (id: string) => {
+      sink = id
+    },
+  })
+  f.player.audio(f.chunk(0, 10))
+  await f.player.setOutputDevice("headphones")
+  expect(sink).toBe("headphones")
+  expect(f.sources[0]!.stopped).toBe(false)
+  expect(f.player.audio(f.chunk(16000, 11))).toBe(true)
+  expect(f.sources[1]!.when).toBeCloseTo(f.sources[0]!.when + 1, 6)
+  f.player.dispose()
+})
+test("unsupported browsers reject a specific speaker and keep system output usable", async () => {
+  const f = fixture()
+  await expect(f.player.setOutputDevice("headphones")).rejects.toThrow(
+    "browser"
+  )
+  await expect(f.player.setOutputDevice("")).resolves.toBeUndefined()
+  f.player.dispose()
+})

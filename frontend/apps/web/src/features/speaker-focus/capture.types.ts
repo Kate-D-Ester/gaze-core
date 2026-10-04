@@ -2,6 +2,7 @@ import type { SceneCamera } from "../scene-eye-tracking/scene-camera"
 export type MicrophoneOptions = {
   source: "camera" | "network"
   syncVerified: boolean
+  deviceId?: string
   signal?: AbortSignal
   getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>
 }

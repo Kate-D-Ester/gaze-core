@@ -184,3 +184,120 @@ test("changing gaze coordinates publish the displayed bubble atomically and comp
     rectangle.mockRestore()
   }
 })
+
+test("Focus exposes both device selectors and keeps the current camera preview visible", async () => {
+  const camera = {
+    latest: null,
+    rawCanvas: document.createElement("canvas"),
+  } as unknown as SceneCamera
+  host = document.createElement("div")
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host!)
+    root.render(
+      createElement(LiveSpeakerPanel, {
+        camera,
+        frame: null,
+        measurement: null,
+        source: null,
+        identity: "devices",
+        verified: false,
+        guided: true,
+        active: true,
+      })
+    )
+  })
+  expect(host.querySelector('select[aria-label="Microphone"]')).not.toBeNull()
+  expect(
+    host.querySelector('select[aria-label="Speaker / headphones"]')
+  ).not.toBeNull()
+  expect(
+    host.querySelector('[aria-label="Current scene for speaker selection"]')
+  ).not.toBeNull()
+  expect(host.textContent).toContain("Enable audio devices")
+})
+
+test("changing the chosen microphone requires a new alignment check before capture", async () => {
+  const mediaDescriptor = Object.getOwnPropertyDescriptor(
+    navigator,
+    "mediaDevices"
+  )
+  const saved = localStorage.getItem("gazecore.speaker-focus.audio-devices.v1")
+  localStorage.removeItem("gazecore.speaker-focus.audio-devices.v1")
+  const media = new EventTarget()
+  Object.assign(media, {
+    enumerateDevices: async () =>
+      ["mic-a", "mic-b"].map((deviceId) => ({
+        kind: "audioinput",
+        deviceId,
+        label: deviceId,
+        groupId: "",
+        toJSON() {},
+      })),
+  })
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: media,
+  })
+  const camera = {
+    latest: null,
+    rawCanvas: document.createElement("canvas"),
+    subscribe: () => () => {},
+  } as unknown as SceneCamera
+  host = document.createElement("div")
+  document.body.append(host)
+  try {
+    await act(async () => {
+      root = createRoot(host!)
+      root.render(
+        createElement(LiveSpeakerPanel, {
+          camera,
+          frame: {
+            id: 1,
+            generation: 1,
+            width: 640,
+            height: 480,
+            timestamp: performance.now(),
+          },
+          measurement: null,
+          source: { kind: "camera", key: "test", name: "Camera" },
+          identity: "mic-alignment",
+          verified: false,
+          guided: true,
+          active: true,
+        })
+      )
+    })
+    const check = host.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]'
+    )!
+    const start = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Start live microphone"]'
+    )!
+    await act(async () => check.click())
+    expect(check.checked).toBe(true)
+    expect(start.disabled).toBe(false)
+    await act(async () => {
+      const select = host!.querySelector<HTMLSelectElement>(
+        'select[aria-label="Microphone"]'
+      )!
+      select.value = "mic-b"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(check.checked).toBe(false)
+    expect(start.disabled).toBe(true)
+  } finally {
+    await act(async () => root?.unmount())
+    root = null
+    if (mediaDescriptor) {
+      Object.defineProperty(navigator, "mediaDevices", mediaDescriptor)
+    } else {
+      Reflect.deleteProperty(navigator, "mediaDevices")
+    }
+    if (saved) {
+      localStorage.setItem("gazecore.speaker-focus.audio-devices.v1", saved)
+    } else {
+      localStorage.removeItem("gazecore.speaker-focus.audio-devices.v1")
+    }
+  }
+})

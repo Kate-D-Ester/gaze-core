@@ -1,3 +1,7 @@
+import { matchFaceLocation } from "./face-locations"
+import { boxAtTime } from "./face-geometry"
+import type { AudioDeviceSelection } from "./audio-devices.types"
+import type { Box, FaceTrack } from "./client.types"
 import { verifiedGazePoint } from "./gaze-evidence"
 import { SpeakerClient } from "./client"
 import { startCapture, startMicrophone } from "./capture"
@@ -36,6 +40,10 @@ export class LiveController {
   private connection: StreamConnection | null = null
   private acceptedEnd: number | null = null
   private player: LivePlayer | null = null
+  private serviceTracks: FaceTrack[] = []
+  private audioTargetId: string | null = null
+  private videoOffsetSeconds = 0
+  private correction: Box | null = null
   private captureStop: (() => void) | null = null
   private epoch = 0
   private generation = 0
@@ -79,7 +87,16 @@ export class LiveController {
     ])
     if (this.sourceIdentity && identity !== this.sourceIdentity) {
       this.displayedGaze = null
-      this.stop("Scene source or orientation changed; restart live capture")
+      this.correction = null
+      const capturing = ["starting", "live", "draining"].includes(
+        this.snapshot.status
+      )
+      this.stop(
+        capturing
+          ? "Scene source or orientation changed; restart live capture"
+          : ""
+      )
+      this.update({ tracks: [] })
     }
     this.sourceIdentity = identity
     this.evidence = evidence
@@ -89,9 +106,13 @@ export class LiveController {
     this.displayedGaze = gaze
     this.observe()
   }
+  setPreviewTracks(tracks: FaceTrack[]): void {
+    this.update({ tracks })
+    this.observe()
+  }
   private observe(): void {
     const evidence = this.evidence
-    if (!evidence || this.snapshot.status !== "live") {
+    if (!evidence || this.snapshot.status === "draining") {
       return
     }
     const now = performance.now()
@@ -114,22 +135,43 @@ export class LiveController {
     previous: SelectionState,
     next: SelectionState
   ): void {
-    if (next.generation !== previous.generation) {
-      this.generation++
-      this.player?.reset(this.generation)
-      this.acceptedEnd = null
-      this.send({
-        type: "target",
-        generation: this.generation,
-        target_id:
-          next.paused || this.snapshot.mode === "original"
-            ? null
-            : next.selectedId,
-      })
-    }
     this.update({ selection: next })
+    this.syncAudioTarget(next.generation !== previous.generation)
+  }
+  private syncAudioTarget(force = false): void {
+    if (!this.connection || this.snapshot.status !== "live") {
+      return
+    }
+    const timestamp = (this.evidence?.frame?.timestamp ?? 0) / 1000
+    const selected = this.snapshot.tracks.find(
+      (track) => track.id === this.snapshot.selection.selectedId
+    )
+    const box = selected ? boxAtTime(selected, timestamp) : null
+    const target =
+      box && !this.snapshot.selection.paused && this.snapshot.mode === "focused"
+        ? matchFaceLocation(
+            box,
+            this.serviceTracks,
+            timestamp + this.videoOffsetSeconds
+          )
+        : null
+    if (!force && target === this.audioTargetId) {
+      return
+    }
+    this.audioTargetId = target
+    this.generation++
+    this.player?.reset(this.generation)
+    this.acceptedEnd = null
+    this.send({
+      type: "target",
+      generation: this.generation,
+      target_id: target,
+    })
   }
   select(point: ImagePoint): void {
+    if (this.snapshot.status === "draining") {
+      return
+    }
     const previous = this.adapter.state
     const next = this.adapter.click(point, performance.now())
     this.selectionChanged(previous, next)
@@ -157,8 +199,23 @@ export class LiveController {
     }
   }
 
-  async start(syncVerified: boolean, offsetMs: number): Promise<void> {
+  async start(
+    syncVerified: boolean,
+    offsetMs: number,
+    devices?: AudioDeviceSelection
+  ): Promise<void> {
+    const selected = this.snapshot.tracks.find(
+      (track) => track.id === this.snapshot.selection.selectedId
+    )
+    const box =
+      selected && this.evidence?.frame
+        ? boxAtTime(selected, this.evidence.frame.timestamp / 1000)
+        : null
     this.stop()
+    if (box) {
+      this.observe()
+      this.select([box[0] + box[2] / 2, box[1] + box[3] / 2])
+    }
     const evidence = this.evidence
     if (
       !evidence?.source ||
@@ -191,11 +248,12 @@ export class LiveController {
       })
       return
     }
+    this.videoOffsetSeconds = offsetMs / 1000
     const epoch = this.epoch
     const abort = new AbortController()
     this.abort = abort
     this.generation = 0
-    this.update({ status: "starting", error: "", tracks: [] })
+    this.update({ status: "starting", error: "" })
     try {
       const context = new AudioContext({ sampleRate: 16000 })
       this.player = new LivePlayer({
@@ -203,7 +261,9 @@ export class LiveController {
         onError: (message) => this.stop(message),
       })
       this.player.reset(0)
-      this.update({ status: "starting", error: "", tracks: [] })
+      this.update({ status: "starting", error: "" })
+      await this.player.setOutputDevice(devices?.outputId ?? "")
+      abort.signal.throwIfAborted()
       await context.resume()
       const health = await this.client.health(abort.signal)
       if (!health.ready || !health.live) {
@@ -213,6 +273,7 @@ export class LiveController {
       const stream = await startMicrophone({
         source: evidence.source.kind,
         syncVerified,
+        deviceId: devices?.microphoneId,
         signal: abort.signal,
       })
       // Permission can take arbitrarily long; reserve a live session only after
@@ -247,6 +308,9 @@ export class LiveController {
         abort.signal
       )
       abort.signal.throwIfAborted()
+      if (this.correction) {
+        this.send({ type: "region", box: this.correction })
+      }
       this.player.setWarmTimings(ready.warm_timings)
       this.update({ device: ready.device })
       this.captureStop = await startCapture(stream, {
@@ -260,7 +324,7 @@ export class LiveController {
             if (
               view.getUint8(4) === 1 &&
               this.snapshot.mode === "focused" &&
-              this.snapshot.selection.selectedId &&
+              this.audioTargetId &&
               !this.snapshot.selection.paused
             ) {
               this.acceptedEnd =
@@ -291,7 +355,9 @@ export class LiveController {
         this.captureStop()
         return
       }
-      this.update({ status: "live", selection: this.adapter.clear() })
+      this.update({ status: "live" })
+      this.observe()
+      this.syncAudioTarget()
     } catch (error) {
       if (epoch === this.epoch) {
         this.stop(
@@ -313,6 +379,7 @@ export class LiveController {
         generation: this.generation,
         target_id: null,
       })
+      this.audioTargetId = null
       this.update({ selection: this.adapter.clear(), error: reply.message })
       return
     }
@@ -326,7 +393,7 @@ export class LiveController {
       this.player?.flushEnd(reply.source_end_sample)
     }
     if (reply.type === "faces") {
-      this.update({ tracks: reply.tracks })
+      this.serviceTracks = reply.tracks
       this.observe()
     }
     if (reply.type === "audio" && this.snapshot.mode === "focused") {
@@ -337,18 +404,33 @@ export class LiveController {
       })
     }
   }
+  async setOutputDevice(deviceId: string): Promise<void> {
+    const player = this.player
+    const epoch = this.epoch
+    if (!player) {
+      return
+    }
+    await player.setOutputDevice(deviceId)
+    if (epoch !== this.epoch || player !== this.player) {
+      throw new Error(
+        "Listening changed while switching output. Select your speaker again."
+      )
+    }
+  }
   listen(mode: ListeningMode): void {
-    this.generation++
-    this.player?.reset(this.generation)
-    this.acceptedEnd = null
     this.update({ mode, error: "" })
-    this.send({
-      type: "target",
-      generation: this.generation,
-      target_id: mode === "focused" ? this.snapshot.selection.selectedId : null,
-    })
+    this.syncAudioTarget(true)
   }
   correct(box: readonly [number, number, number, number] | null): void {
+    if (["starting", "draining"].includes(this.snapshot.status)) {
+      return
+    }
+    this.correction = box ? [...box] : null
+    if (!this.connection) {
+      return
+    }
+    this.serviceTracks = []
+    this.audioTargetId = null
     this.generation++
     this.player?.reset(this.generation)
     this.acceptedEnd = null
@@ -374,12 +456,14 @@ export class LiveController {
     this.captureStop = null
     this.connection?.close()
     this.connection = null
+    this.serviceTracks = []
+    this.audioTargetId = null
+    this.videoOffsetSeconds = 0
     this.acceptedEnd = null
     this.player?.dispose()
     this.player = null
     this.update({
       status: error ? "failed" : "idle",
-      tracks: [],
       selection: this.adapter.clear(),
       error,
       inferenceSeconds: null,
@@ -389,6 +473,7 @@ export class LiveController {
   }
   dispose(): void {
     this.displayedGaze = null
+    this.correction = null
     this.stop()
     this.disposed = true
     if (this.timer) {

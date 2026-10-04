@@ -266,3 +266,41 @@ test("pending microphone permission does not open an idle live session", async (
     }
   }
 })
+
+test("live capture requests the chosen microphone exactly, without falling back", async () => {
+  let requested: MediaStreamConstraints | null = null
+  const stream = { getTracks: () => [] } as unknown as MediaStream
+  const result = await startMicrophone({
+    source: "camera",
+    syncVerified: true,
+    deviceId: "usb-mic",
+    getUserMedia: async (constraints) => {
+      requested = constraints
+      return stream
+    },
+  })
+  expect(result).toBe(stream)
+  expect(requested).toEqual({
+    video: false,
+    audio: {
+      deviceId: { exact: "usb-mic" },
+      channelCount: 1,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  })
+  let attempts = 0
+  await expect(
+    startMicrophone({
+      source: "camera",
+      syncVerified: true,
+      deviceId: "unplugged",
+      getUserMedia: async () => {
+        attempts++
+        throw new DOMException("Missing", "OverconstrainedError")
+      },
+    })
+  ).rejects.toThrow("selected microphone")
+  expect(attempts).toBe(1)
+})

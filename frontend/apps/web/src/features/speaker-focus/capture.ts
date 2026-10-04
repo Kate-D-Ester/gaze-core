@@ -26,13 +26,24 @@ export async function startMicrophone(
     stream = await request({
       video: false,
       audio: {
+        ...(options.deviceId ? { deviceId: { exact: options.deviceId } } : {}),
         channelCount: 1,
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
       },
     })
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      ["NotFoundError", "OverconstrainedError", "NotReadableError"].includes(
+        error.name
+      )
+    ) {
+      throw new Error(
+        "The selected microphone is unavailable. Connect it or choose another microphone."
+      )
+    }
     throw new Error(
       "Allow the separate microphone, then start live capture again"
     )

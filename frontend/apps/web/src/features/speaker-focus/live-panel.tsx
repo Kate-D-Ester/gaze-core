@@ -1,6 +1,10 @@
+import { AudioDevices } from "./audio-devices"
+import { AudioDeviceControls } from "./audio-device-controls"
+import { SceneFacePreview } from "./scene-face-preview"
 import type { GazeBubbleOverlaySnapshot } from "../gaze-bubble/gaze-bubble-overlay.types"
 import { visibleSelectionBubble } from "./bubble-selection"
 import {
+  useMemo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -17,6 +21,19 @@ import type { SceneSpeakerPanelProps } from "./scene-panel.types"
 
 export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   const [controller] = useState(() => new LiveController())
+  const [devices] = useState(() => new AudioDevices())
+  const audioDevices = useSyncExternalStore(
+    devices.subscribe,
+    devices.getSnapshot
+  )
+  const preview = useMemo(
+    () => new SceneFacePreview(props.camera),
+    [props.camera]
+  )
+  const facePreview = useSyncExternalStore(
+    preview.subscribe,
+    preview.getSnapshot
+  )
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot
@@ -47,12 +64,15 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     props.frame?.width,
     props.frame?.height,
     offset,
+    audioDevices.selection.microphoneId,
   ])
   const verified = verifiedIdentity === syncIdentity
   const busy =
     state.status === "starting" ||
     state.status === "live" ||
     state.status === "draining"
+  const sourceKey = props.source?.key
+  const drawing = marking && state.status === "live"
   const arrivalOnly = props.source?.kind === "network"
   const time = (props.frame?.timestamp ?? 0) / 1000
   const frameFresh =
@@ -70,13 +90,16 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   if (verified) {
     status = "Start listening, then look at or click a face."
   }
+  if (selected >= 0 && !busy) {
+    status = "Face locked · start listening when ready"
+  }
   if (busy) {
     status = "Look at a face for 0.5 s, or click to select."
     if (!props.verified) {
       status = "Click a face. Check gaze accuracy to use gaze selection."
     }
     if (selected >= 0) {
-      status = `Speaker ${selected + 1} locked · ${state.timing?.state === "playing" ? "Listening" : "Buffering"}`
+      status = `Face locked · ${state.timing?.state === "playing" ? "Listening" : "Buffering"}`
       if (
         state.timing?.delaySeconds !== null &&
         state.timing?.delaySeconds !== undefined
@@ -88,6 +111,29 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
       status = "Face lost · select it again"
     }
   }
+  if (state.status === "draining") {
+    status = "Finishing buffered audio · stop to select another face"
+  }
+  useEffect(() => {
+    void devices.mount()
+    return () => devices.dispose()
+  }, [devices])
+  useEffect(() => {
+    if (active && sourceKey) {
+      preview.start()
+    }
+    return () => preview.dispose()
+  }, [active, preview, sourceKey])
+  useEffect(() => {
+    controller.setPreviewTracks(active ? facePreview.tracks : [])
+  }, [active, controller, facePreview.tracks])
+  useEffect(() => {
+    if (busy && (audioDevices.inputMissing || audioDevices.outputMissing)) {
+      controller.stop(
+        "The selected audio device disconnected. Reconnect it or choose another device."
+      )
+    }
+  }, [audioDevices.inputMissing, audioDevices.outputMissing, busy, controller])
   useEffect(() => {
     controller.mount()
     return () => controller.dispose()
@@ -113,6 +159,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
   useEffect(() => {
     if (!active) {
       controller.stop()
+      controller.correct(null)
     }
   }, [active, controller])
   useEffect(() => {
@@ -141,8 +188,9 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
       {!props.guided && <h3 className="font-semibold">Speaker focus</h3>}
       <div
         ref={surface}
-        className="relative overflow-hidden rounded-xl border bg-black"
+        className="relative mx-auto overflow-hidden rounded-xl border bg-black"
         style={{
+          width: `min(100%, calc(48vh * ${props.frame ? props.frame.width / props.frame.height : 4 / 3}))`,
           aspectRatio: props.frame
             ? `${props.frame.width}/${props.frame.height}`
             : "4/3",
@@ -158,7 +206,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             Connect a scene camera
           </div>
         )}
-        {!marking &&
+        {!drawing &&
           state.tracks.map((track, index) => {
             const box = boxAtTime(track, time)
             if (!box || !frameFresh) {
@@ -171,6 +219,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
                 key={track.id}
                 aria-label={`Select live speaker ${index + 1}`}
                 aria-pressed={locked}
+                disabled={state.status === "draining"}
                 className={`absolute rounded border-2 ${locked ? "border-primary bg-primary/10" : "border-white/60"}`}
                 style={{
                   left: `${box[0] * 100}%`,
@@ -183,8 +232,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
                 }
               >
                 <span className="absolute -top-6 left-0 rounded bg-black/80 px-2 py-1 text-xs">
-                  {index + 1}
-                  {locked && " · locked"}
+                  {locked ? "Locked" : "Select face"}
                 </span>
               </button>
             )
@@ -204,7 +252,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             onSnapshot={handleBubbleSnapshot}
           />
         )}
-        {marking && (
+        {drawing && (
           <div
             role="application"
             aria-label="Draw live face correction"
@@ -243,6 +291,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
                   Math.abs(end[1] - anchor[1]),
                 ] as const
                 if (box[2] > 0.02 && box[3] > 0.02) {
+                  preview.correct(box)
                   controller.correct(box)
                 }
               }
@@ -256,6 +305,26 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           />
         )}
       </div>
+      <AudioDeviceControls
+        devices={devices}
+        snapshot={audioDevices}
+        listening={busy}
+        active={active}
+        onOutput={(id) => controller.setOutputDevice(id)}
+      />
+      {facePreview.status === "loading" && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Detecting faces…
+        </p>
+      )}
+      {facePreview.error && (
+        <div className="flex items-center gap-2 text-xs text-amber-200">
+          <p role="alert">{facePreview.error}</p>
+          <Button size="sm" variant="outline" onClick={() => preview.start()}>
+            Retry face detection
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p role="status" className="text-xs">
           {status}
@@ -265,6 +334,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             <>
               <Button
                 size="sm"
+                disabled={state.status !== "live"}
                 aria-pressed={state.mode === "original"}
                 variant={state.mode === "original" ? "default" : "outline"}
                 onClick={() => controller.listen("original")}
@@ -273,6 +343,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
               </Button>
               <Button
                 size="sm"
+                disabled={state.status !== "live"}
                 aria-pressed={state.mode === "focused"}
                 variant={state.mode === "focused" ? "default" : "outline"}
                 onClick={() => controller.listen("focused")}
@@ -290,9 +361,21 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           ) : (
             <Button
               aria-label="Start live microphone"
-              disabled={!active || !props.source || !verified || arrivalOnly}
+              disabled={
+                !active ||
+                !props.source ||
+                !verified ||
+                arrivalOnly ||
+                audioDevices.inputMissing ||
+                audioDevices.outputMissing ||
+                audioDevices.busy
+              }
               onClick={() => {
-                void controller.start(verified, offset)
+                setMarking(false)
+                setAnchor(null)
+                void controller
+                  .start(verified, offset, audioDevices.selection)
+                  .then(() => devices.refresh())
               }}
             >
               {state.status === "paused"
@@ -362,6 +445,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             <Button
               variant="outline"
               size="sm"
+              disabled={state.status !== "live"}
               onClick={() => setMarking(!marking)}
             >
               {marking ? "Cancel region" : "Correct face region"}
@@ -369,7 +453,11 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => controller.correct(null)}
+              disabled={state.status !== "live"}
+              onClick={() => {
+                preview.correct(null)
+                controller.correct(null)
+              }}
             >
               Clear correction
             </Button>

@@ -1,3 +1,4 @@
+import { routeAudioOutput } from "./audio-output"
 import { AdaptiveJitter } from "./adaptive-jitter"
 import type {
   LivePlayerOptions,
@@ -27,6 +28,9 @@ export class LivePlayer {
       options.warmTimings
     )
     options.context.addEventListener("statechange", this.stateChanged)
+  }
+  async setOutputDevice(deviceId: string): Promise<void> {
+    await routeAudioOutput(this.options.context, deviceId)
   }
   setWarmTimings(timings: number[]): void {
     this.jitter = new AdaptiveJitter(
