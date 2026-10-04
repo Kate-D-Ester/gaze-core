@@ -23,9 +23,11 @@ export function CalibrationProfileControls({
     (profile) => profile.id === controller.selectedId
   )
   function startSave() {
+    controller.clearError()
     setDraft({ name: "", profileId: null })
   }
   function chooseSaveDestination(profileId: string) {
+    controller.clearError()
     const profile = controller.profiles.find((item) => item.id === profileId)
     setDraft({
       name: profile?.name ?? "",
@@ -126,9 +128,10 @@ export function CalibrationProfileControls({
                 maxLength={60}
                 value={draft.name}
                 disabled={!controller.canSave}
-                onChange={(event) =>
+                onChange={(event) => {
+                  controller.clearError()
                   setDraft({ ...draft, name: event.target.value })
-                }
+                }}
               />
             </div>
           )}
@@ -150,7 +153,10 @@ export function CalibrationProfileControls({
               className={`eye-button ${EyeButtonStyles} secondary eye-action-icon ${EyeActionIconStyles}`}
               aria-label="Cancel saving profile"
               data-tooltip="Cancel"
-              onClick={() => setDraft(null)}
+              onClick={() => {
+                controller.clearError()
+                setDraft(null)
+              }}
             >
               <X size={16} aria-hidden="true" />
             </button>

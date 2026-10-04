@@ -317,3 +317,29 @@ test("a duplicate new name keeps the save choices open and cancellation preserve
   expect(host.querySelector("form")).toBeNull()
   expect(readSceneProfiles()).toEqual(before)
 })
+
+test("choosing Replace clears a duplicate new-name error and saves the current calibration", async () => {
+  const previous = calibrate().s.getSnapshot()
+  const saved = saveSceneProfile(
+    "Ester",
+    { ...previous, calibration: previous.calibration! },
+    setup
+  )
+  const session = calibrate().s
+  session.setOffset([0.04, -0.03])
+  const mapping = session.getSnapshot().calibration
+  await render(session)
+  await saveNamedProfile("ester")
+  expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/already/i)
+
+  await chooseSaveDestination(saved.id)
+  expect(host.querySelector('[role="alert"]') === null).toBe(true)
+  await click("Replace calibration profile")
+
+  const profiles = readSceneProfiles().profiles
+  expect(profiles).toHaveLength(1)
+  expect(profiles[0].id).toBe(saved.id)
+  expect(profiles[0].offset).toEqual([0.04, -0.03])
+  expect(session.getSnapshot().calibration).toBe(mapping)
+  expect(host.querySelector("form")).toBeNull()
+})

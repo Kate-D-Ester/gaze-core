@@ -269,12 +269,14 @@ export function FingerControls({
       ? `camera-spinner ${CameraSpinnerStyles}`
       : undefined
   const retryIndex = state.fitFailure?.retryIndex
-  const retryHold = retryIndex != null ? state.fitFailure?.holds[retryIndex] : null
+  const retryHold =
+    retryIndex != null ? state.fitFailure?.holds[retryIndex] : null
   let calibrationActionLabel = state.calibration ? "Recalibrate" : "Calibrate"
   if (retryHold) {
     calibrationActionLabel = `Retry ${sceneRegionLabel(retryHold.region).toLowerCase()}`
   }
   const CalibrationActionIcon = retryHold ? RefreshCw : Crosshair
+  const dimensions = state.calibration?.holds[0]?.pairs[0]
   return (
     <>
       <CalibrationMethodControls
@@ -282,6 +284,16 @@ export function FingerControls({
         onChange={(method) => session.setMethod(method)}
         disabled={!!state.capture}
       />
+      {dimensions &&
+        !state.capture &&
+        (!state.validation || state.validation.passed) && (
+          <GazeOffsetControls
+            offset={state.offset}
+            width={dimensions.width}
+            height={dimensions.height}
+            onChange={(offset) => session.setOffset(offset)}
+          />
+        )}
       <div
         className={`scene-calibration-instruction ${SceneCalibrationInstructionStyles}`}
       >
