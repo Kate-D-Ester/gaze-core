@@ -34,7 +34,7 @@ export async function captureCameraPhoto(
   } catch (error) {
     if (error instanceof DOMException && error.name === "SecurityError") {
       throw new Error(
-        "This stream does not allow image capture. Check the local camera relay."
+        "This stream does not allow image capture. Enable CORS on the camera stream."
       )
     }
     throw error

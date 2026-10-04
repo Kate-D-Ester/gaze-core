@@ -211,7 +211,7 @@ test("failed connections back off and disconnect cancels the next attempt", asyn
   expect(timers.size).toBe(0)
 })
 
-test("an unavailable relay reports its cause and releases the connection controls", async () => {
+test("a browser camera access failure releases the connection controls", async () => {
   globalThis.fetch = (async () => {
     throw new TypeError("Failed to fetch")
   }) as typeof fetch
@@ -220,9 +220,78 @@ test("an unavailable relay reports its cause and releases the connection control
 
   expect(status).toBe("error")
   expect(errors).toHaveLength(1)
-  expect(errors[0]).toMatch(/camera relay.*bun run dev/i)
+  expect(errors[0]).toMatch(/browser.*camera.*CORS.*redirect/i)
   expect(latest).toBeNull()
   expect(timers.size).toBe(0)
+})
+
+test("a working camera retries temporary browser fetch failures after a stream drop", async () => {
+  const workingFetch = globalThis.fetch
+  await camera.start("http://esp32.local/stream")
+  expect(status).toBe("live")
+
+  let failNextRequest = true
+  globalThis.fetch = (async (...argumentsList) => {
+    if (failNextRequest) {
+      failNextRequest = false
+      fetches++
+      throw new TypeError("Failed to fetch")
+    }
+    return workingFetch(...argumentsList)
+  }) as typeof fetch
+  streams[0].error(new Error("The camera connection dropped."))
+  await flush()
+
+  for (const delay of [1000, 2000]) {
+    expect(status).toBe("reconnecting")
+    expect(errors).toEqual([])
+    const retry = [...timers.entries()].find(
+      ([, timer]) => timer.delay === delay
+    )!
+    expect(retry).toBeDefined()
+    timers.delete(retry[0])
+    retry[1].callback()
+    await flush()
+  }
+
+  expect(fetches).toBe(3)
+  expect(status).toBe("live")
+  expect(latest).not.toBeNull()
+  expect(errors).toEqual([])
+})
+
+test("ESP32 recovery reuses the successful direct endpoint instead of the blocked redirect", async () => {
+  const workingFetch = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = (async (input, options) => {
+    const url = String(input)
+    requests.push(url)
+    if (url === "http://esp32.local/stream") {
+      throw new TypeError("Redirect blocked by CORS")
+    }
+    if (url === "http://esp32.local:81/stream") {
+      return workingFetch(input, options)
+    }
+    throw new Error("Unexpected camera destination")
+  }) as typeof fetch
+
+  await camera.start("http://esp32.local/stream")
+  expect(status).toBe("live")
+  streams[0].error(new Error("Connection dropped"))
+  await flush()
+  const retry = [...timers.entries()].find(([, timer]) => timer.delay === 1000)!
+  expect(retry).toBeDefined()
+  timers.delete(retry[0])
+  retry[1].callback()
+  await flush()
+
+  expect(status).toBe("live")
+  expect(requests).toEqual([
+    "http://esp32.local/stream",
+    "http://esp32.local:81/stream",
+    "http://esp32.local:81/stream",
+  ])
+  expect(errors).toEqual([])
 })
 
 test("persistent camera failures stop retrying and retain the actual error", async () => {
@@ -230,8 +299,7 @@ test("persistent camera failures stop retrying and retain the actual error", asy
     fetches++
     return Response.json(
       {
-        error:
-          "The camera relay could not reach the camera: DNS lookup failed.",
+        error: "Camera stream unavailable.",
       },
       { status: 502 }
     )
@@ -250,8 +318,6 @@ test("persistent camera failures stop retrying and retain the actual error", asy
 
   expect(fetches).toBe(5)
   expect(status).toBe("error")
-  expect(errors).toEqual([
-    "The camera relay could not reach the camera: DNS lookup failed.",
-  ])
+  expect(errors).toEqual(["Camera stream unavailable."])
   expect(timers.size).toBe(0)
 })
