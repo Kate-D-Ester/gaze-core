@@ -23,6 +23,6 @@ export type CalibrationProfilesController = {
   canSave: boolean
   load: (id: string) => void
   save: (name: string, profileId?: string) => boolean
-  clearError: () => void
+  clearError?: () => void
   remove: () => void
 }
