@@ -20,6 +20,22 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 test("guided Focus accepts an unchecked or failed mapping without falsifying accuracy", async () => {
   localStorage.clear()
+  let now = 1000
+  const clock = spyOn(performance, "now").mockImplementation(() => now)
+  const rectangle = spyOn(
+    HTMLElement.prototype,
+    "getBoundingClientRect"
+  ).mockReturnValue({
+    x: 0,
+    y: 0,
+    width: 800,
+    height: 450,
+    top: 0,
+    left: 0,
+    bottom: 450,
+    right: 800,
+    toJSON() {},
+  })
   const { s } = calibrate()
   saveSceneProfile(
     "Unchecked mapping",
@@ -159,7 +175,21 @@ test("guided Focus accepts an unchecked or failed mapping without falsifying acc
     ).toBeNull()
     await act(async () => {
       installed!.startCapture("validation")
-      collectValidation(installed!, 0, () => [0.08, -0.06])
+      const result = collectValidation(installed!, 0, () => [0.08, -0.06])
+      now = result.time + 50
+      frame.id = result.id + 1
+      frame.timestamp = now
+      installed!.addEye(
+        {
+          id: frame.id,
+          timestamp: now,
+          feature: [0, 0],
+          confidence: 0.95,
+          valid: true,
+        },
+        now
+      )
+      installed!.measure(frame, now, true)
     })
     expect(installed!.getSnapshot().validation?.passed).toBe(false)
     expect(steps()[6]!.disabled).toBe(false)
@@ -175,7 +205,35 @@ test("guided Focus accepts an unchecked or failed mapping without falsifying acc
     ).not.toBeNull()
     expect(host.textContent).toContain("Accuracy not verified")
     expect(installed!.getSnapshot().validation).toBe(failedValidation)
+    expect(host.querySelector(".gaze-bubble")).not.toBeNull()
+    const originalTimestamp = installed!.getSnapshot().measurement!.timestamp
     await act(async () => steps()[5]!.click())
+    await act(async () => {
+      const adjustment = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Gaze offset X (pixels)"]'
+      )!
+      adjustment.value = "25.6"
+      adjustment.dispatchEvent(new Event("input", { bubbles: true }))
+      now += 10
+      installed!.measure(frame, now)
+    })
+    expect(installed!.getSnapshot().offset[0]).toBeCloseTo(0.04)
+    await act(async () => steps()[6]!.click())
+    const bubble = host.querySelector<HTMLElement>(".gaze-bubble")!
+    expect(bubble).not.toBeNull()
+    expect(parseFloat(bubble.style.left)).toBeCloseTo(54)
+    expect(installed!.getSnapshot().measurement?.timestamp).toBe(
+      originalTimestamp
+    )
+    expect(installed!.getSnapshot().validation).toBe(failedValidation)
+    await act(async () => steps()[5]!.click())
+    await act(async () => {
+      const adjustment = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Gaze offset X (pixels)"]'
+      )!
+      adjustment.value = "0"
+      adjustment.dispatchEvent(new Event("input", { bubbles: true }))
+    })
     const recovery = host.querySelector(".scene-validation-recovery")!
     expect(recovery).not.toBeNull()
     expect(recovery.closest("details")?.open).toBe(true)
@@ -207,6 +265,8 @@ test("guided Focus accepts an unchecked or failed mapping without falsifying acc
   } finally {
     await act(async () => root.unmount())
     host.remove()
+    clock.mockRestore()
+    rectangle.mockRestore()
     restoreSpy.mockRestore()
     handHook.mockRestore()
     cameraHook.mockRestore()

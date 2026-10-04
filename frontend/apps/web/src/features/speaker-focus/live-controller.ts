@@ -224,6 +224,8 @@ export class LiveController {
     if (
       !evidence?.source ||
       !evidence.frame ||
+      !Number.isFinite(evidence.frame.timestamp) ||
+      performance.now() < evidence.frame.timestamp ||
       performance.now() - evidence.frame.timestamp > 150
     ) {
       this.update({
@@ -241,14 +243,6 @@ export class LiveController {
         status: "failed",
         error:
           "Check camera/microphone alignment and synchronization offset first",
-      })
-      return
-    }
-    if (evidence.source.kind === "network") {
-      this.update({
-        status: "failed",
-        error:
-          "Network camera capture timestamps are unavailable; use a USB camera or synchronized clip",
       })
       return
     }
@@ -305,7 +299,7 @@ export class LiveController {
       this.connection = connection
       const ready = await connection.open(
         {
-          source: "camera",
+          source: evidence.source.kind,
           video_offset_ms: offsetMs,
           client_time: performance.now() / 1000,
         },

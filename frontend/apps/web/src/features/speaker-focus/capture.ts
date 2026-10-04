@@ -12,11 +12,6 @@ export async function startMicrophone(
   if (!options.syncVerified) {
     throw new Error("Check camera/microphone synchronization before starting")
   }
-  if (options.source === "network") {
-    throw new Error(
-      "Network camera capture timestamps are unavailable; use a USB camera or synchronized clip"
-    )
-  }
   options.signal?.throwIfAborted()
   const request =
     options.getUserMedia ??

@@ -118,12 +118,15 @@ test("downsampling suppresses microphone frequencies above the 16 kHz Nyquist li
   expect(rms).toBeLessThan(0.02)
 })
 
-test("regular arrival timestamps cannot authorize a drifting network camera", async () => {
+test("network capture still rejects stale or future frame evidence", async () => {
   const { LiveController } =
     await import("../../apps/web/src/features/speaker-focus/live-controller")
   const controller = new LiveController()
   try {
-    for (const arrival of [performance.now(), performance.now() + 10]) {
+    for (const arrival of [
+      performance.now() - 1000,
+      performance.now() + 1000,
+    ]) {
       controller.setEvidence({
         camera: {} as never,
         frame: {
@@ -145,26 +148,29 @@ test("regular arrival timestamps cannot authorize a drifting network camera", as
       })
       await controller.start(true, 0)
       expect(controller.getSnapshot().status).toBe("failed")
-      expect(controller.getSnapshot().error).toContain("capture timestamps")
+      expect(controller.getSnapshot().error).toContain("fresh scene")
     }
   } finally {
     controller.dispose()
   }
 })
 
-test("arrival-only network capture never requests a microphone even after manual checking", async () => {
-  let requested = false
-  await expect(
-    startMicrophone({
-      source: "network",
-      syncVerified: true,
-      getUserMedia: async () => {
-        requested = true
-        throw new Error("unexpected request")
-      },
-    })
-  ).rejects.toThrow("capture timestamps")
-  expect(requested).toBe(false)
+test("aligned network video uses the separately selected microphone", async () => {
+  let requested: MediaStreamConstraints | null = null
+  const stream = { getTracks: () => [] } as unknown as MediaStream
+  const result = await startMicrophone({
+    source: "network",
+    syncVerified: true,
+    deviceId: "room-mic",
+    getUserMedia: async (constraints) => {
+      requested = constraints
+      return stream
+    },
+  })
+  expect(result).toBe(stream)
+  expect((requested!.audio as MediaTrackConstraints).deviceId).toEqual({
+    exact: "room-mic",
+  })
 })
 
 test("pending microphone permission does not open an idle live session", async () => {

@@ -122,14 +122,16 @@ Results and limitations are in `../docs/gaze-speaker-focus-results.md`. Separati
 quality is experimental and uneven; do not interpret model inference as guaranteed
 clean isolation or mistake clip throughput for a live latency measurement.
 
-Live mode reuses the scene camera and requests a separate mono microphone only
-when **Start live microphone** is pressed. USB camera mode requires an alignment check with a clap/visible
-speech and video offset; changing source, orientation, dimensions or
-offset invalidates that manual check. Arrival-only network sources are rejected even after a manual alignment
-check: changing upstream latency cannot be detected from reception timestamps.
-Use USB camera mode or a synchronized recording until capture-clock provenance
-and a monitored mapping are available. The UI rejects stale frames, more than 150 ms residual skew and clock
-discontinuity. Use headphones to avoid microphone feedback. Protocol v3 carries
+Live mode reuses the scene camera and requests the selected separate mono
+microphone only when **Start listening** is pressed. Camera mode requires a manual
+alignment check with a clap/visible speech and a video offset. Changing source,
+orientation, dimensions, microphone or offset invalidates that check. Network
+camera mode uses frame arrival times with the same manual offset and is explicitly
+marked as estimated timing: it cannot measure or compensate for changing upstream
+camera latency. It supports ESP32 video with a separate selected microphone, but
+lip alignment and separation quality depend on the stream's latency and jitter.
+The UI rejects stale frames and clock discontinuities; model input still requires
+sufficient mouth frames for the audio being processed. Use headphones to avoid microphone feedback. Protocol v3 carries
 source sample indices separately from capture-clock spans; old clients are
 rejected with a version message. The picture follows current capture, independently of delayed audio. The adaptive reserve uses warmed speed, device latency and recent arrival
 variation, grows after an underrun, and has no fixed delay cutoff. It preserves

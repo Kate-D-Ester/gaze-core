@@ -372,7 +372,6 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
                 !active ||
                 !props.source ||
                 !verified ||
-                arrivalOnly ||
                 audioDevices.inputMissing ||
                 audioDevices.outputMissing ||
                 audioDevices.busy
@@ -398,9 +397,9 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
         </p>
       )}
       {arrivalOnly && (
-        <p role="alert" className="text-xs text-amber-200">
-          This network camera has no capture timestamps. Use a USB scene camera
-          or test a synchronized video for focused audio.
+        <p role="status" className="text-xs text-amber-200">
+          Network camera timing is estimated. Check alignment below and adjust
+          the offset if the picture arrives after the sound.
         </p>
       )}
       <details className="space-y-3 text-xs" open={!verified && !busy}>
@@ -426,7 +425,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
           <input
             type="checkbox"
             checked={verified}
-            disabled={busy || arrivalOnly}
+            disabled={busy}
             onChange={(event) =>
               setVerifiedIdentity(event.target.checked ? syncIdentity : null)
             }

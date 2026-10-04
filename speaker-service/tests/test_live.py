@@ -37,7 +37,7 @@ def config(**changes):
         {"audio": False},
         {"sync_verified": False},
         {"sample_rate": 48000},
-        {"source": "network"},
+        {"source": "unknown"},
         {"video_offset_ms": float("inf")},
     ],
 )
@@ -59,7 +59,8 @@ def test_stream_owner_reserves_worker_from_batch_jobs(tmp_path):
         store.close()
 
 
-def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source", ["camera", "network", "replay"])
+def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkeypatch, source):
     monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
     settings = Settings(data_dir=tmp_path, max_duration=0.001)
     store = Store(settings, start_worker=False, load_model=False)
@@ -72,7 +73,7 @@ def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkey
             with client.websocket_connect(
                 "ws://127.0.0.1/live", headers={"origin": settings.origin}
             ) as socket:
-                socket.send_json(config())
+                socket.send_json(config(source=source, video_offset_ms=-250))
                 ready = socket.receive_json()
                 assert ready.get("protocol_version") == 3, ready
                 assert "playout_seconds" not in ready

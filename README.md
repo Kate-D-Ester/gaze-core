@@ -114,16 +114,18 @@ measured Mac performance and limitations.
 
 Live listening requests a microphone explicitly and requires a camera/microphone
 alignment check. Playback delay adapts to warmed inference speed, arrival jitter
-and audio-device latency, with one selected target. AV-MossFormer2 uses 3 seconds
-of context and a 1.8-second stride; RTFS uses 2 seconds / 1 second. Faster hardware
-reduces processing delay but does not remove the model context. Continuous RNNoise
+and audio-device latency, with one selected target. Both engines process newly
+available audio when the worker is free, using recent context instead of waiting
+for a complete fixed analysis window. Faster hardware reduces processing delay. Continuous RNNoise
 suppresses environmental noise after separation. On overload, reference input
 pauses without dropping source samples; live capture stops, drains accepted audio
 and offers Resume. There is no fixed four-second playback deadline or live
 120-second recording limit.
-An arrival-only network scene stream, including ordinary ESP32 MJPEG, cannot supply
-capture-clock evidence for synchronized extraction; use a USB scene camera or a
-synchronized video. An ESP32 eye stream can still supply gaze through the direct camera connection.
+ESP32 MJPEG scene streams can be used with a separately selected microphone after
+a manual camera/microphone alignment check. Network timing uses frame arrival
+times and the chosen offset; it is explicitly estimated and cannot compensate
+for changing upstream camera latency. An ESP32 eye stream can still supply gaze
+through the direct camera connection.
 Physical gaze accuracy and sustained live performance require a hardware trial.
 
 For a built frontend, run Next on `127.0.0.1:4010` and start the local speaker

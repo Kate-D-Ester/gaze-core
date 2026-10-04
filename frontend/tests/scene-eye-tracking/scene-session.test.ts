@@ -877,3 +877,68 @@ test("Focus can use a failed mapping as an estimate while preserving validation 
   )
   expect(s.getSnapshot().measurement).toBeNull()
 })
+
+test("returning to Focus after a coordinate adjustment reprojects the current pupil without refreshing its timestamp", () => {
+  const { s, id, time } = calibrate(false)
+  s.cancelCapture()
+  const eye = {
+    id: id + 1,
+    timestamp: time + 50,
+    feature: [0, 0] as [number, number],
+    confidence: 0.95,
+    valid: true,
+  }
+  const scene = handAt(eye.id, eye.timestamp).scene
+  s.addEye(eye)
+  s.measure(scene, eye.timestamp, true)
+  const original = s.getSnapshot().measurement!
+  expect(original.valid).toBe(true)
+  s.measure(scene, eye.timestamp + 10)
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+  expect(s.getSnapshot().measurement?.preview).toBe(true)
+  s.setOffset([0.04, -0.03])
+  expect(s.getSnapshot().measurement).toBeNull()
+  s.measure(scene, eye.timestamp + 20, true)
+  const adjusted = s.getSnapshot().measurement!
+  expect(adjusted.valid).toBe(true)
+  expect(adjusted.position![0]).toBeCloseTo(original.position![0] + 0.04)
+  expect(adjusted.position![1]).toBeCloseTo(original.position![1] - 0.03)
+  expect(adjusted.timestamp).toBe(original.timestamp)
+  expect(adjusted.eyeTimestamp).toBe(original.eyeTimestamp)
+  s.measure(
+    { ...scene, id: scene.id + 1, timestamp: eye.timestamp + 30 },
+    eye.timestamp + 30,
+    true
+  )
+  expect(s.getSnapshot().measurement).toBe(adjusted)
+  s.measure(
+    { ...scene, id: scene.id + 2, timestamp: eye.timestamp + 500 },
+    eye.timestamp + 500,
+    true
+  )
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+})
+
+test("temporary scene loss cannot refresh the first measurement time of a reused pupil", () => {
+  const { s, id, time } = calibrate()
+  const eyeTime = time + 50
+  const scene = handAt(id + 1, eyeTime).scene
+  s.addEye({
+    id: id + 1,
+    timestamp: eyeTime,
+    feature: [0, 0],
+    confidence: 0.95,
+    valid: true,
+  })
+  s.measure(scene, eyeTime + 10)
+  const original = s.getSnapshot().measurement!
+  s.measure(null, eyeTime + 20)
+  expect(s.getSnapshot().measurement?.position).toBeNull()
+  s.measure(scene, eyeTime + 30)
+  const recovered = s.getSnapshot().measurement!
+  expect(recovered.valid).toBe(true)
+  expect(recovered.timestamp).toBe(original.timestamp)
+  s.setOffset([0.02, 0])
+  s.measure(scene, eyeTime + 40)
+  expect(s.getSnapshot().measurement?.timestamp).toBe(original.timestamp)
+})

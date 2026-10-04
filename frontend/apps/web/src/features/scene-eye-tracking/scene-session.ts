@@ -73,6 +73,7 @@ export class SceneSession {
   private listeners = new Set<() => void>()
   private lastHandId = -1
   private lastMeasuredEyeId = -1
+  private lastMeasuredTimestamp = -1
   private continuityAfter = -Infinity
   private lastGoodEyeTimestamp = -Infinity
   private pendingHands: ReferenceObservation[] = []
@@ -165,6 +166,7 @@ export class SceneSession {
     this.eyes = []
     this.lastHandId = -1
     this.lastMeasuredEyeId = -1
+    this.lastMeasuredTimestamp = -1
     this.continuityAfter = -Infinity
     this.lastGoodEyeTimestamp = -Infinity
     this.pendingHands = []
@@ -663,13 +665,6 @@ export class SceneSession {
     if (!position && !reason) {
       reason = "Invalid gaze feature"
     }
-    // Repainting/new scene frames must not refresh already-used pupil evidence.
-    if (position && eye?.id === this.lastMeasuredEyeId) {
-      return
-    }
-    if (position && eye) {
-      this.lastMeasuredEyeId = eye.id
-    }
     const inFrame = !!position && position.every((v) => v >= 0 && v <= 1)
     if (position && !inFrame) {
       reason = "Gaze outside the scene camera view"
@@ -691,13 +686,33 @@ export class SceneSession {
         reason = "Accuracy not verified · using current calibration"
       }
     }
+    const valid = inFrame && (verified || estimated) && !this.snapshot.capture
+    const previous = this.snapshot.measurement
+    const repeatedEye = !!eye && eye.id === this.lastMeasuredEyeId
+    // Reproject after an offset/policy change, retaining the pupil's original time.
+    // Ordinary scene repainting must not refresh already-used pupil evidence.
+    if (
+      position &&
+      repeatedEye &&
+      previous?.position?.every((value, i) => value === position[i]) &&
+      previous.valid === valid &&
+      previous.estimated === estimated &&
+      previous.preview === preview
+    ) {
+      return
+    }
+    const timestamp = position && repeatedEye ? this.lastMeasuredTimestamp : now
+    if (position && eye && !repeatedEye) {
+      this.lastMeasuredEyeId = eye.id
+      this.lastMeasuredTimestamp = timestamp
+    }
     const extrapolated =
       !!mapped &&
       mapped.some(
         (v, i) => v < calibration.bounds.min[i] || v > calibration.bounds.max[i]
       )
     const measurement: GazeMeasurement = {
-      timestamp: now,
+      timestamp,
       eyeId: eye?.id ?? null,
       sceneId: scene?.id ?? null,
       eyeTimestamp: eye?.timestamp ?? null,
@@ -708,7 +723,7 @@ export class SceneSession {
         position && scene
           ? [position[0] * scene.width, position[1] * scene.height]
           : null,
-      valid: inFrame && (verified || estimated) && !this.snapshot.capture,
+      valid,
       estimated,
       preview,
       reason,

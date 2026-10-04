@@ -1,3 +1,36 @@
+# Network listening and gaze return fixes (2026-10-05)
+
+ESP32/network scene capture now supports the separately selected microphone after
+an explicit alignment check. The checkbox and Start listening no longer have a
+blanket network-source block. The real live transport identifies the source as
+`network`, carries the selected offset, and retains exact microphone selection
+and output routing. Timing is explicitly estimated from frame arrival: a manual
+check cannot detect changing upstream camera latency. Source, orientation,
+dimensions, microphone and offset changes still invalidate that check; stale
+frames, clock problems, resource bounds and pupil freshness remain enforced.
+
+The scene session now reprojects the current pupil when coordinate offsets or
+Focus's estimate policy change. Returning from Check accuracy to Focus immediately
+measures the current pair, so the adjusted gaze bubble resumes without waiting for
+a different pupil frame. Reprojection and recovery from scene loss retain the
+pupil's first measurement time rather than making old evidence appear fresh.
+Independent review found and verified the interrupted-measurement timestamp fix.
+
+Verification: **856 frontend tests across 101 files**, **168 backend tests with
+4 optional model tests skipped**, lint, types, Ruff and an isolated production
+build passed. Regression coverage exercises the real guided route's Back → X
+coordinate adjustment → Focus bubble, unchanged validation status and timestamps,
+network alignment controls, chosen input/output routing and source-aware live
+handshakes. The running AV-MossFormer2 service accepted an aligned network session
+on MPS using protocol 3 and available-input processing. The session was stopped
+without recording room audio. The feature services run separately on 4010/4033.
+
+Physical browser verification was interrupted by the Mac being locked; no new
+physical microphone isolation or headphone quality result is claimed. Primary v3
+was not edited. Earlier sections below record previous implementations and tests.
+
+---
+
 # Latest v3 integration after optional accuracy (2026-10-04)
 
 Merged local v3 `403bb5c` into the feature branch without conflicts. Its scene

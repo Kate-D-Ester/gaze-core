@@ -40,6 +40,7 @@ export function useSceneSession(
       session.measure(camera.latest, now, allowUnverifiedGaze)
       session.checkCaptureFreshness(now)
     }
+    measure()
     const unsubscribe = camera.subscribe(measure)
     const timer = setInterval(measure, 100)
     return () => {
