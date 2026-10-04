@@ -84,3 +84,23 @@ def test_overlapping_faces_with_distinct_landmarks_remain_ambiguous(monkeypatch)
     faces.detect(np.zeros((100, 100, 3), np.uint8), 0)
     assert len(faces.tracks) == 2
     faces.close()
+
+
+def test_face_evidence_covers_accepted_backlog_until_audio_consumes_it(monkeypatch):
+    faces = LiveFaces()
+    faces.detector = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(
+        faces,
+        "_observe",
+        lambda image, timestamp, region: [observation(timestamp, (0.2, 0.2, 0.2, 0.4))],
+    )
+    image = np.zeros((100, 100, 3), np.uint8)
+    try:
+        for timestamp in np.arange(0, 6.01, 0.2):
+            faces.detect(image, float(timestamp), retain_from=0)
+        track = next(iter(faces.tracks.values()))
+        assert track.observations[0].timestamp == 0
+        faces.detect(image, 6.2, retain_from=5)
+        assert track.observations[0].timestamp >= 2.7
+    finally:
+        faces.close()

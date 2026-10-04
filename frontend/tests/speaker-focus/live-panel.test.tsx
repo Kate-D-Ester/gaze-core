@@ -47,11 +47,7 @@ test("leaving the focus workspace stops microphone capture and returns to a safe
     expect(
       host.querySelector('[aria-label="Current scene for speaker selection"]')
     ).not.toBeNull()
-    expect(
-      host.querySelector(
-        '[aria-label="Video synchronized with delayed live audio"]'
-      )
-    ).toBeNull()
+    expect(host.querySelector('[aria-label="Current scene video"]')).toBeNull()
     await act(async () => {
       root!.render(createElement(LiveSpeakerPanel, { ...props, active: false }))
     })

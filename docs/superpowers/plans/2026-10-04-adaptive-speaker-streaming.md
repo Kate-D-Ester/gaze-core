@@ -12,6 +12,17 @@
 
 **Execution:** Implement here with `superpowers:executing-plans`, then independent whole-change review. Kate already selected this method; do not ask her to choose again.
 
+## Authorized correction: available input and current picture
+
+Kate explicitly requested implementation of this correction. It supersedes the earlier fixed-context, replay-backpressure and picture/audio synchronization steps below. Execution remains inline with independent review as already approved.
+
+- [x] Reproduce the three-second collection wait and delayed-picture behavior in regression tests.
+- [x] Add `available_buffer.py` for minimum supported input, retained past context, and processing all available new audio when the single worker is free. Add `available_overlap.py` for a short unpublished boundary and exact final drain.
+- [x] Use available input in `live_session.py`/`stream_processor.py`; warm short model input in `jobs.py`. Negotiate protocol 3 with explicit available-input metadata in `live.py`/frontend schema and connection. Preserve GSP2 binary layout and whole-file profiles.
+- [x] Run `ReplaySource` on native 1× video time, with independent PCM dispatch and asynchronous frame encoding. Render current reference/camera frames. Switch current spatial face targets without rewinding or pausing the source.
+- [x] Run all frontend/backend checks, a paced real-model debate/noise benchmark, and native mouse-selection/video-clock verification. Save exact sample conservation, model/input provenance, arrival delay, quality limitations, and evidence.
+- [x] Obtain independent review, resolve findings, activate feature services, release test connections, and commit the feature worktree only.
+
 ## Global Constraints
 
 - Work only in `/Users/kate/Desktop/Codex-projects/gaze-speaker-focus`, branch `codex/gaze-speaker-focus`; do not merge, push, or publish.

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
+from .available_overlap import AvailableOverlap
 from .faces import prepare_frames
 from .live_overlap import LiveOverlap
 from .media import DecodedMedia
@@ -23,6 +24,8 @@ class StreamProcessor:
         self.separator = separator
         self.profile = profile
         self.overlap = LiveOverlap(profile)
+        self.available_overlap = AvailableOverlap()
+        self.available = False
         self.noise = noise_factory()
         self.generation = -1
         self.captures = []
@@ -31,6 +34,8 @@ class StreamProcessor:
     def reset(self, generation):
         self.generation = generation
         self.overlap.reset()
+        self.available_overlap.reset()
+        self.available = False
         self.noise.reset()
         self.captures.clear()
         self.finished = False
@@ -61,7 +66,14 @@ class StreamProcessor:
     def process(self, window, track, generation):
         if generation != self.generation or self.finished:
             raise ValueError("stream generation must be reset before processing")
-        self._remember(window.captures)
+        self.available = window.emit_start_sample is not None
+        captures = window.captures
+        if self.available:
+            captures = capture_spans_between(
+                captures, window.emit_start_sample, window.emit_start_sample + window.emit_samples
+            )
+        self._remember(captures)
+        duration = window.audio.size / 16000
         begin = perf_counter()
         media = DecodedMedia(
             Path("."),
@@ -70,19 +82,22 @@ class StreamProcessor:
             window.timestamps,
             window.frames[0].shape[1],
             window.frames[0].shape[0],
-            self.profile.duration,
+            duration,
         )
-        frames = prepare_frames(
-            media, track, window.start, self.profile.duration, self.separator.engine_key
-        )
+        frames = prepare_frames(media, track, window.start, duration, self.separator.engine_key)
         prepared = perf_counter()
         focused = self.separator.extract(window.audio, frames)
         extracted = perf_counter()
-        spans = self.overlap.push(
-            window.start_sample,
-            focused,
-            source_end_sample=window.start_sample + window.valid_samples,
-        )
+        if self.available:
+            spans = self.available_overlap.push(
+                window.start_sample, focused, window.emit_start_sample, window.emit_samples
+            )
+        else:
+            spans = self.overlap.push(
+                window.start_sample,
+                focused,
+                source_end_sample=window.start_sample + window.valid_samples,
+            )
         blended = perf_counter()
         enhanced = [item for span in spans for item in self.noise.process(span)]
         done = perf_counter()
@@ -101,7 +116,11 @@ class StreamProcessor:
         if self.finished:
             return []
         begin = perf_counter()
-        tails = self.overlap.flush(source_end_sample)
+        tails = (
+            self.available_overlap.flush(source_end_sample)
+            if self.available
+            else self.overlap.flush(source_end_sample)
+        )
         spans = [item for tail in tails for item in self.noise.process(tail)]
         spans += self.noise.flush()
         self.finished = True

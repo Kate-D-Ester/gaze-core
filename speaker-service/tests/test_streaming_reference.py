@@ -71,7 +71,7 @@ async def test_paced_report_preserves_server_failure_and_marks_partial_audio(tmp
             pass
 
         async def recv(self):
-            return json.dumps({"type": "ready", "window_samples": 48000})
+            return json.dumps({"type": "ready", "engine": "av-mossformer2"})
 
         async def send(self, data):
             if self.closed:
@@ -130,3 +130,16 @@ async def test_paced_report_preserves_server_failure_and_marks_partial_audio(tmp
     assert any(error["message"] == "real input failure" for error in report["errors"])
     assert (tmp_path / "result" / "report.json").exists()
     assert report["output_sample_count"] == 0
+
+
+def test_cli_rejects_an_incomplete_benchmark_instead_of_reporting_success(monkeypatch):
+    import gaze_speaker.streaming_reference as benchmark
+
+    async def incomplete(*_):
+        return {"complete": False}
+
+    monkeypatch.setattr(benchmark, "replay", incomplete)
+    monkeypatch.setattr("sys.argv", ["benchmark", "--input", "input.mp4", "--output", "output"])
+    with pytest.raises(SystemExit) as error:
+        benchmark.main()
+    assert error.value.code == 1

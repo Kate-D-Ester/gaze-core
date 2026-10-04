@@ -94,6 +94,9 @@ export const healthSchema = z
     max_upload_bytes: number.int().positive(),
     max_duration: number.positive(),
     queued: number.int(),
+    live_analysis_mode: z.literal("available").optional(),
+    live_minimum_seconds: number.positive().optional(),
+    live_history_seconds: number.nonnegative().optional(),
     window_seconds: number.positive(),
     stride_seconds: number.positive(),
   })

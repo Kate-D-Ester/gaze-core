@@ -86,5 +86,8 @@ class HealthView(DTO):
     max_upload_bytes: int
     max_duration: float
     queued: int
+    live_analysis_mode: Literal["available"] = "available"
+    live_minimum_seconds: float = 0.12
+    live_history_seconds: float = 0.4
     window_seconds: float = 2
     stride_seconds: float = 1

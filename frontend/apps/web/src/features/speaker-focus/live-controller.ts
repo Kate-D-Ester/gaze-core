@@ -4,7 +4,6 @@ import { startCapture, startMicrophone } from "./capture"
 import { LivePlayer } from "./live-player"
 import { decodeAudio } from "./live-schema"
 import { StreamConnection } from "./stream-connection"
-import { PreviewBuffer } from "./preview-buffer"
 import { SceneSelectionAdapter } from "./scene-adapter"
 import type {
   DisplayedGaze,
@@ -35,13 +34,11 @@ export class LiveController {
   private sourceIdentity = ""
   private abort: AbortController | null = null
   private connection: StreamConnection | null = null
-  private preview = new PreviewBuffer()
   private acceptedEnd: number | null = null
   private player: LivePlayer | null = null
   private captureStop: (() => void) | null = null
   private epoch = 0
   private generation = 0
-  private offset = 0
   private disposed = false
   private timer: ReturnType<typeof setInterval> | null = null
   getSnapshot = () => this.snapshot
@@ -120,7 +117,6 @@ export class LiveController {
     if (next.generation !== previous.generation) {
       this.generation++
       this.player?.reset(this.generation)
-      this.preview.reset(this.generation)
       this.acceptedEnd = null
       this.send({
         type: "target",
@@ -198,7 +194,6 @@ export class LiveController {
     const epoch = this.epoch
     const abort = new AbortController()
     this.abort = abort
-    this.offset = offsetMs / 1000
     this.generation = 0
     this.update({ status: "starting", error: "", tracks: [] })
     try {
@@ -253,7 +248,6 @@ export class LiveController {
       )
       abort.signal.throwIfAborted()
       this.player.setWarmTimings(ready.warm_timings)
-      this.preview.reset(0)
       this.update({ device: ready.device })
       this.captureStop = await startCapture(stream, {
         camera: evidence.camera,
@@ -291,17 +285,6 @@ export class LiveController {
             })
           }
         },
-        onFrame: (jpeg, sampleStart, generation) => {
-          try {
-            this.preview.add(
-              sampleStart + Math.round(this.offset * 16000),
-              jpeg,
-              generation
-            )
-          } catch (error) {
-            this.stop(error instanceof Error ? error.message : "Preview failed")
-          }
-        },
         onError: (message) => this.stop(message),
       })
       if (abort.signal.aborted || epoch !== this.epoch) {
@@ -324,7 +307,6 @@ export class LiveController {
       }
       this.generation = Math.max(this.generation, reply.generation) + 1
       this.player?.reset(this.generation)
-      this.preview.reset(this.generation)
       this.acceptedEnd = null
       this.send({
         type: "target",
@@ -358,7 +340,6 @@ export class LiveController {
   listen(mode: ListeningMode): void {
     this.generation++
     this.player?.reset(this.generation)
-    this.preview.reset(this.generation)
     this.acceptedEnd = null
     this.update({ mode, error: "" })
     this.send({
@@ -370,19 +351,20 @@ export class LiveController {
   correct(box: readonly [number, number, number, number] | null): void {
     this.generation++
     this.player?.reset(this.generation)
-    this.preview.reset(this.generation)
     this.acceptedEnd = null
     this.update({ selection: this.adapter.clear(), tracks: [] })
     this.send({ type: "target", generation: this.generation, target_id: null })
     this.send({ type: "region", box })
   }
   draw(canvas: HTMLCanvasElement): void {
-    const sample = this.player?.sourceSample()
-    if (sample !== null && sample !== undefined) {
-      void this.preview
-        .drawAt(canvas, sample, this.generation)
-        .catch(() => this.stop("Preview decoding failed"))
+    const camera = this.evidence?.camera
+    const context = canvas.getContext("2d")
+    if (!camera?.latest || !context) {
+      return
     }
+    canvas.width = camera.rawCanvas.width
+    canvas.height = camera.rawCanvas.height
+    context.drawImage(camera.rawCanvas, 0, 0)
   }
   stop(error = ""): void {
     this.epoch++
@@ -392,7 +374,6 @@ export class LiveController {
     this.captureStop = null
     this.connection?.close()
     this.connection = null
-    this.preview.reset(this.generation + 1)
     this.acceptedEnd = null
     this.player?.dispose()
     this.player = null

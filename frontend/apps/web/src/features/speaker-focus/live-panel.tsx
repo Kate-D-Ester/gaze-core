@@ -26,7 +26,7 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
     evidence.current = props
   }, [props])
   const current = useRef<HTMLCanvasElement>(null)
-  const delayed = useRef<HTMLCanvasElement>(null)
+  const currentPreview = useRef<HTMLCanvasElement>(null)
   const surface = useRef<HTMLDivElement>(null)
   const [verifiedIdentity, setVerifiedIdentity] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
@@ -130,8 +130,8 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
         }
         canvas.getContext("2d")?.drawImage(source, 0, 0)
       }
-      if (delayed.current) {
-        controller.draw(delayed.current)
+      if (currentPreview.current) {
+        controller.draw(currentPreview.current)
       }
     }, 50)
     return () => clearInterval(timer)
@@ -350,13 +350,13 @@ export function LiveSpeakerPanel(props: SceneSpeakerPanelProps) {
             Listening preview &amp; tracking
           </summary>
           <p>
-            Preview follows the audio being played. Select faces in the current
-            scene above.
+            The picture stays current while focused audio is processed. Select
+            faces in the scene above.
           </p>
           <canvas
-            ref={delayed}
+            ref={currentPreview}
             className="aspect-video w-full rounded border bg-black"
-            aria-label="Video synchronized with delayed live audio"
+            aria-label="Current scene video"
           />
           <div className="flex gap-2">
             <Button

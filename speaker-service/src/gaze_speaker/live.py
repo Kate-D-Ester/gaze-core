@@ -10,6 +10,7 @@ from fastapi import WebSocket
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketDisconnect
 
+from .available_buffer import HISTORY_SAMPLES, MAX_INPUT_SAMPLES, MINIMUM_SAMPLES
 from .jobs import ServiceError, Store
 from .live_session import LiveSession
 from .noise import NoiseSuppressor
@@ -18,7 +19,7 @@ from .noise import NoiseSuppressor
 class LiveConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     type: Literal["configure"]
-    protocol_version: Literal[2]
+    protocol_version: Literal[3]
     sample_rate: Literal[16000]
     audio: Literal[True]
     source: Literal["camera", "network", "replay"]
@@ -88,9 +89,12 @@ async def serve_live(socket: WebSocket):
                 "type": "ready",
                 "generation": 0,
                 "device": owner.separator.device,
-                "protocol_version": 2,
-                "window_samples": session.profile.window_samples,
-                "stride_samples": session.profile.stride_samples,
+                "protocol_version": 3,
+                "analysis_mode": "available",
+                "engine": owner.settings.engine,
+                "minimum_samples": MINIMUM_SAMPLES,
+                "history_samples": HISTORY_SAMPLES,
+                "maximum_input_samples": MAX_INPUT_SAMPLES,
                 "noise_processor": NoiseSuppressor.name,
                 "warm_timings": owner.warm_timings,
             }

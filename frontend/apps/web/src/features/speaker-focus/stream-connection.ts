@@ -43,7 +43,7 @@ export class StreamConnection {
       socket.onopen = () =>
         this.control({
           type: "configure",
-          protocol_version: 2,
+          protocol_version: 3,
           sample_rate: 16000,
           audio: true,
           sync_verified: true,
@@ -62,7 +62,11 @@ export class StreamConnection {
           }
           const reply = liveReplySchema.parse(JSON.parse(event.data))
           if (reply.type === "ready") {
-            if (ready || reply.stride_samples >= reply.window_samples) {
+            if (
+              ready ||
+              reply.minimum_samples + reply.history_samples >
+                reply.maximum_input_samples
+            ) {
               throw new Error("Invalid streaming profile")
             }
             ready = true
@@ -88,7 +92,10 @@ export class StreamConnection {
       socket.onerror = () => fail("Local streaming connection failed")
       socket.onclose = () => {
         if (this.socket === socket) {
-          fail(serviceError ?? "Local streaming connection closed; reconnect to listen")
+          fail(
+            serviceError ??
+              "Local streaming connection closed; reconnect to listen"
+          )
           this.options.onDisconnect?.()
         }
       }

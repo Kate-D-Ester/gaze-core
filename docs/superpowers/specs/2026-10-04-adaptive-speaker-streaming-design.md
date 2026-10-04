@@ -2,7 +2,7 @@
 
 Date: 2026-10-04
 Branch: `codex/gaze-speaker-focus`
-Status: approved by Kate on 2026-10-04; implementation not started.
+Status: approved by Kate on 2026-10-04; available-input/live-picture correction explicitly authorized by “go ahead do it.”
 
 ## Intended outcome
 
@@ -26,11 +26,11 @@ The installed AV-MossFormer2 model is not a stateful causal model. Each inferenc
 | 1.2 s | 0.627 s |
 | 2.0 s | 0.945 s |
 
-These are three warm timing repetitions after one warm-up per shape. They establish neither short-window separation quality nor sustained microphone-to-ear performance. Smaller windows will not be selected merely because the model accepts their shapes. The existing three-second / 1.8-second AV clip schedule has saved outputs and measured inference performance; it is the initial quality-oriented streaming profile.
+These are three warm timing repetitions after one warm-up per shape. They establish neither short-window separation quality nor sustained microphone-to-ear performance. Smaller windows will not be selected merely because the model accepts their shapes. The existing three-second / 1.8-second schedule remains a whole-file extraction profile. Live/reference input must not wait for that future context; short-input timing and quality require separate measurements.
 
 ## Selected approach and alternatives
 
-Keep the installed visual target extractor, generalize its overlap assembly, add stateful local noise suppression after extraction, and replace the fixed playback offset with an adaptive output queue. Use a quality-validated model context profile; adapt scheduling to real computation and arrival jitter rather than shrinking context whenever the processor is busy.
+Keep the installed visual target extractor, generalize its overlap assembly, add stateful local noise suppression after extraction, and replace the fixed playback offset with an adaptive output queue. Process available captured input as soon as the worker is free, retaining past samples as context. Retained context must not add an intentional collection wait. Measure quality and throughput; do not claim a causal or millisecond-grade model merely because scheduling is faster.
 
 A new causal target extractor could reduce model context delay, but the researched audio-conditioned alternatives need voice enrollment and a reliable association between each voice and visible person. That changes initial acquisition and is outside this extension. Merely enlarging the current fixed buffer would not provide incremental reference playback, noise suppression, or sustainable operation when processing is slower than input.
 
@@ -40,7 +40,7 @@ The shared pipeline is:
 
 `timestamped mixed PCM + timestamped scene frames -> selected-face extraction -> weighted overlap assembly -> stateful noise suppression -> adaptive playback`
 
-Use the existing single inference worker and engine-specific face preparation. Generalize `LiveBuffer` and `LiveOverlap` to explicit window and stride values. Each output declares its exact source interval and sample count. Initial profiles are AV three seconds / 1.8 seconds, and the existing RTFS two seconds / one second. No fixed four-second playout value is negotiated. Profile values, engine, noise processor, and measured processing time are visible through capabilities/status.
+Use the existing single inference worker and engine-specific face preparation. Generalize `LiveBuffer` and `LiveOverlap` to explicit window and stride values. Each output declares its exact source interval and sample count. Live processing uses a minimum 1,920 samples (120 ms, three visual frames), 6,400 samples of retained past context, and at most one active inference. Each next call consumes the currently available new audio, aligned to the visual frame quantum; only newly captured samples are emitted. Model input is zero-padded to a finite set of shapes spaced 200 ms apart (plus its 120 ms minimum); common shapes up to two seconds are prewarmed. Padding repeats only the last captured visual frame and never postpones collection until those padded samples exist. Unused MPS allocator buffers are released after warm-up. The supported 128,000-sample model input maximum is a shape/resource bound, not a playback deadline. A 160-sample unpublished boundary is blended between calls. The former fixed schedules remain available for whole-file processing. No fixed four-second playout value is negotiated. Profile values, engine, noise processor, and measured processing time are visible through capabilities/status.
 
 Version the streaming protocol so an older client fails clearly instead of silently assuming fixed durations. Packets carry both a source presentation/sample clock and a client capture/dispatch clock; replies identify the source sample interval. Use the source clock for audio/video alignment and the client clock for transport freshness. A paused replay keeps its source position and sends heartbeat/control messages; it does not pretend that source time continued. Live capture uses a shared audio/video origin and still checks actual clock drift.
 
@@ -70,7 +70,7 @@ Report actual source-to-scheduled-playback delay from the current output cursor.
 
 There is no product hard cap on acceptable playback delay. Resource limits still protect memory and session ownership. Track queue bytes and sample counts instead of tying validity to a four-second wall-clock deadline. Keep one running inference and a bounded waiting queue, plus bounded encoded frame and PCM retention. Surface any resource limit honestly.
 
-A larger buffer can absorb jitter but cannot make a permanently slow processor keep up with continuous input. Report both current delay and a rolling processing-to-emitted-audio ratio. For sustained overload, the reference feeder pauses source advancement and resumes when the pipeline has capacity, preserving every source sample. Real microphone input cannot pause the conversation: finish accepted queued audio, show that live capture cannot keep up on this device, stop accepting new capture at the resource boundary, and require an explicit resume. Do not silently discard microphone speech or present an increasing backlog as healthy live listening.
+A larger buffer can absorb jitter but cannot make a permanently slow processor keep up with continuous input. Report both current delay and a rolling processing-to-emitted-audio ratio. Reference input follows native video playback at normal speed, independently of the processor. Sustained overload must not pause or rewind the picture to make the demonstration appear live. Real microphone input cannot pause the conversation: finish accepted queued audio, show that live capture cannot keep up on this device, stop accepting new capture at the resource boundary, and require an explicit resume. Do not silently discard microphone speech or present an increasing backlog as healthy live listening.
 
 Overload control is separate from malformed packet, camera/microphone drift, and source-staleness checks. Replay pause/resume rebases transport timing without inventing new source timestamps. Existing session ownership, local-origin checks, upload/resource limits, and cancellation protections remain authoritative. Active live listening ends on explicit stop or a real failure, rather than inheriting the uploaded-clip duration limit; pause/heartbeat ownership and memory remain bounded.
 
@@ -78,9 +78,9 @@ Overload control is separate from malformed packet, camera/microphone drift, and
 
 Add a replay source adapter to the existing live transport, rather than using a clip extraction job. Feed decoded original mixed PCM and corresponding video frames only as the source clock advances. The separation worker must not receive the remaining file, precomputed focused output, future face observations, or clean stems. Reuse the actual server live face detector, target IDs, selected-generation handling, extraction, enhancement, and playback queue.
 
-Use a separate input media element and visible playback surface. Focused reference frames follow the actual played-audio source cursor, so lip movement and audio remain synchronized as delay changes. Face overlays use observations for the displayed frame; a click can select only an identity still present in the current tracker. The live-camera overlay remains current so gaze locks the person in front of the user, while a small delay indicator explains delayed listening.
+Use a separate input media element and visible playback surface. Focused reference frames follow the current input video, never the delayed audio cursor. The reference simulates a real room: its picture stays current while delayed focused audio becomes audible as soon as the worker and audio output can deliver it. Face overlays use observations for the displayed frame; a click can select only an identity still present in the current tracker. The live-camera overlay remains current so gaze locks the person in front of the user, while a small delay indicator explains delayed listening.
 
-Provide explicit Play/Pause, Original/Focused, person selection, and a small status/delay line. In Focused mode, show Buffering until focused PCM is available; raw mixed audio is only played in the clearly selected Original mode. Original comparison uses the corresponding source time and never plays alongside focused audio. Seeking, changing sources, stopping, returning to setup, or changing targets flushes obsolete output and resets source/playback ownership. End of file drains accepted output and returns to a decoded first frame for replay.
+Provide explicit Play/Pause, Original/Focused, person selection, and a small status/delay line. In Focused mode, show Buffering until focused PCM is available; raw mixed audio is only played in the clearly selected Original mode. Original comparison uses the corresponding source time and never plays alongside focused audio. Seeking, changing sources, stopping, returning to setup, or changing targets flushes obsolete output. A normal target change selects a current spatial face directly without pausing, seeking, or resetting the advancing source clock. End of file drains accepted output and returns to a decoded first frame for replay.
 
 Keep any whole-file export workflow separate and label it as file processing; it is not the default reference test and cannot satisfy streaming acceptance. Follow the existing minimal UI conventions and keyboard-accessible speaker controls.
 

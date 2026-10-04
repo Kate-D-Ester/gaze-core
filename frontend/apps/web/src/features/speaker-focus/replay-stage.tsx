@@ -84,7 +84,7 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
           ref={canvas}
           className="block h-full w-full"
           tabIndex={state.media ? 0 : -1}
-          aria-label="Video synchronized with focused reference audio"
+          aria-label="Current reference video"
           onKeyDown={(event) => {
             if (event.code === "Space" && state.media) {
               event.preventDefault()

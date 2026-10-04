@@ -153,7 +153,7 @@ export async function startCapture(
             return
           }
           const sampleStart = Math.round(timestamp * 16000)
-          options.onFrame(blob, sampleStart, capturedGeneration)
+          options.onFrame?.(blob, sampleStart, capturedGeneration)
           void blob
             .arrayBuffer()
             .then((bytes) => {

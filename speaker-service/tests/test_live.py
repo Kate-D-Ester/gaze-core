@@ -18,7 +18,7 @@ from gaze_speaker.stream_protocol import encode_packet
 def config(**changes):
     data = dict(
         type="configure",
-        protocol_version=2,
+        protocol_version=3,
         sample_rate=16000,
         audio=True,
         source="replay",
@@ -74,7 +74,7 @@ def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkey
             ) as socket:
                 socket.send_json(config())
                 ready = socket.receive_json()
-                assert ready.get("protocol_version") == 2, ready
+                assert ready.get("protocol_version") == 3, ready
                 assert "playout_seconds" not in ready
                 socket.send_json({"type": "pause"})
                 socket.send_json({"type": "heartbeat"})
@@ -198,7 +198,8 @@ def test_stream_warmup_excludes_cold_call_and_preserves_file_capability_on_failu
     calls = []
     store.separator = SimpleNamespace(extract=lambda audio, frames: calls.append((audio, frames)))
     store._warm_streaming()
-    assert len(calls) == 4
+    assert len(calls) == 14
+    assert {call[0].size for call in calls} == {1920, *range(3200, 32001, 3200)}
     assert np.any(calls[0][0] != 0)
     assert len(store.warm_timings) == 3
     assert store.streaming_ready
@@ -454,4 +455,86 @@ async def test_transport_cancellation_holds_the_lease_until_native_cleanup_finis
         await asyncio.gather(task, return_exceptions=True)
         if not finished.is_set() and sessions:
             await close(sessions[0])
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_live_batches_only_available_input_without_pausing_capture(tmp_path):
+    from gaze_speaker.faces import FaceTrack
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+    session.faces.tracks["face"] = FaceTrack("face")
+    session.select(TargetConfig(type="target", generation=1, target_id="face"))
+    try:
+        for start in [0, 1920, 3840]:
+            for sample in range(start, start + 1920, 640):
+                session.buffer.frame(sample, np.zeros((8, 8, 3), np.uint8))
+            session.buffer.audio(start, 10 + start / 16000, np.zeros(1920, np.float32))
+            session.pump()
+        assert session.pending == 1
+        assert store.queue.qsize() == 1
+        assert session.buffer.sample_count == 3840
+        assert not session.flow_paused
+        replies = [session.replies.get_nowait() for _ in range(session.replies.qsize())]
+        assert not any(r["type"] == "flow" and r["action"] == "pause" for r in replies)
+    finally:
+        await session.close()
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_audio_capacity_stops_new_capture_without_cancelling_accepted_audio(tmp_path):
+    from gaze_speaker.faces import FaceTrack
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+    session.faces.tracks["face"] = FaceTrack("face")
+    session.select(TargetConfig(type="target", generation=1, target_id="face"))
+    session.pending = 1
+    session.buffer.max_pcm_bytes = 1920 * 4
+    try:
+        for sample in range(0, 1920, 640):
+            session.buffer.frame(sample, np.zeros((8, 8, 3), np.uint8))
+        await session.packet(encode_packet(1, 1, 0, 10, np.zeros(1920, "<f4").tobytes()))
+        await session.packet(encode_packet(1, 1, 1920, 10.12, np.zeros(640, "<f4").tobytes()))
+        assert session.accepted_end == 1920
+        assert session.end_sample == 1920
+        assert session.buffer.sample_count == 1920
+        assert not session.cancel.is_set()
+        replies = [session.replies.get_nowait() for _ in range(session.replies.qsize())]
+        assert any(r["type"] == "flow" and r["reason"] == "device_cannot_keep_up" for r in replies)
+    finally:
+        await session.close()
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_scene_changes_during_drain_do_not_cancel_previously_accepted_speech(
+    tmp_path, monkeypatch
+):
+    from gaze_speaker.faces import FaceObservation, FaceTrack
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+    observed = FaceObservation(0, (0.2, 0.2, 0.2, 0.4), np.zeros((5, 2)), np.zeros(2))
+    session.faces.tracks["face"] = FaceTrack("face", [observed])
+    session.select(TargetConfig(type="target", generation=1, target_id="face"))
+    session.pending = 1
+    for sample in range(0, 1920, 640):
+        session.buffer.frame(sample, np.zeros((8, 8, 3), np.uint8))
+    session.buffer.audio(0, 10, np.zeros(1920, np.float32))
+    session.accepted_end = 1920
+    session.end(1920)
+    monkeypatch.setattr(
+        "gaze_speaker.live_session.decode_frame", lambda _: np.zeros((8, 8, 3), np.uint8)
+    )
+    monkeypatch.setattr(session.faces, "detect", lambda *_: session.faces.tracks.clear())
+    try:
+        await session.packet(encode_packet(2, 1, 4000, 10.25, b"jpeg"))
+        assert session.generation == 1
+        assert session.buffer.sample_count == 1920
+        assert session.drain_track.observations[0] is observed
+    finally:
+        await session.close()
         store.close()

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { ReplaySource } from "../../apps/web/src/features/speaker-focus/replay-source"
 
-test("slow frame encoding delays replay without skipping the selected person's video", async () => {
+test("reference reaches native EOF while encoding is pending and drains every mixed sample", async () => {
   let currentTime = 0
   let callback: VideoFrameRequestCallback | null = null
   const video = Object.assign(new EventTarget(), {
@@ -98,8 +98,11 @@ test("slow frame encoding delays replay without skipping the selected person's v
         setTimeout(() => reject(new Error("Replay did not finish")), 2000)
       ),
     ])
-    for (let index = 1; index < frames.length; index++) {
-      expect(frames[index]! - frames[index - 1]!).toBeLessThanOrEqual(1600)
+    expect(frames.at(-1)).toBe(6418)
+    let cursor = 0
+    for (const packet of packets) {
+      expect(packet.start).toBe(cursor)
+      cursor += packet.count
     }
     expect(packets.reduce((count, packet) => count + packet.count, 0)).toBe(
       6419

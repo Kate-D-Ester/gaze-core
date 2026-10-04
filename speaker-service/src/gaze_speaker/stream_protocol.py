@@ -67,10 +67,16 @@ class LiveWindow:
     timestamps: np.ndarray
     captures: list[CaptureSpan]
     valid_samples: int
+    emit_start_sample: int | None = None
+    emit_samples: int | None = None
 
     @property
     def start(self):
         return self.start_sample / SAMPLE_RATE
+
+
+class InputCapacityError(ValueError):
+    """Valid input reached a memory bound; stop accepting and drain its existing samples."""
 
 
 class LiveBuffer:
@@ -100,7 +106,7 @@ class LiveBuffer:
         if pcm.ndim != 1 or not pcm.size or not np.isfinite(pcm).all():
             raise ValueError("Invalid source audio")
         if self.pcm.nbytes + pcm.nbytes > self.max_pcm_bytes:
-            raise ValueError("Audio source capacity reached; processing cannot keep up")
+            raise InputCapacityError("Audio source capacity reached; processing cannot keep up")
         if self.start_sample is None:
             self.start_sample = sample_start
         self.next_audio = sample_start + pcm.size
@@ -125,7 +131,7 @@ class LiveBuffer:
         if self.frames and sample_start <= self.frames[-1][0]:
             raise ValueError("Video source sample discontinuity")
         if self.frame_bytes + image.nbytes > self.max_frame_bytes:
-            raise ValueError("Video source capacity reached; processing cannot keep up")
+            raise InputCapacityError("Video source capacity reached; processing cannot keep up")
         self.frames.append((sample_start, image))
         self.frame_bytes += image.nbytes
 

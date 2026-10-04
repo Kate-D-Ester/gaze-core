@@ -19,7 +19,6 @@ test("reference connection never requests uploaded-file analysis or extraction",
   }
 })
 
-
 test("reference click rejects overlapping face identities before restarting", async () => {
   const controller = new ReplayController()
   const tracks = ["one", "two"].map((id) => ({
@@ -28,7 +27,10 @@ test("reference click rejects overlapping face identities before restarting", as
     observations: [{ timestamp: 0, box: [0, 0, 1, 1] }],
   }))
   Reflect.get(controller, "update").call(controller, { tracks })
-  const restart = spyOn(controller as never, "restart" as never).mockResolvedValue(undefined as never)
+  const restart = spyOn(
+    controller as never,
+    "restart" as never
+  ).mockResolvedValue(undefined as never)
   try {
     await controller.select([0.5, 0.5])
     expect(restart).not.toHaveBeenCalled()
@@ -50,7 +52,9 @@ test("reference reacquisition rejects ambiguous faces instead of choosing the fi
   }))
   try {
     Reflect.get(controller, "reply").call(controller, {
-      type: "faces", generation: 0, tracks,
+      type: "faces",
+      generation: 0,
+      tracks,
     })
     expect(controller.getSnapshot().selectedId).toBeNull()
     expect(controller.getSnapshot().error).toContain("select again")
@@ -60,8 +64,10 @@ test("reference reacquisition rejects ambiguous faces instead of choosing the fi
 })
 
 test("service connection failure retains decoded reference for Original comparison", async () => {
-  const { ReplaySource } = await import("../../apps/web/src/features/speaker-focus/replay-source")
-  const { StreamConnection } = await import("../../apps/web/src/features/speaker-focus/stream-connection")
+  const { ReplaySource } =
+    await import("../../apps/web/src/features/speaker-focus/replay-source")
+  const { StreamConnection } =
+    await import("../../apps/web/src/features/speaker-focus/stream-connection")
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "AudioContext")
   class ReferenceAudioContext extends EventTarget {
     sampleRate = 16000
@@ -71,21 +77,24 @@ test("service connection failure retains decoded reference for Original comparis
     async resume() {}
   }
   Object.defineProperty(globalThis, "AudioContext", {
-    configurable: true, value: ReferenceAudioContext,
+    configurable: true,
+    value: ReferenceAudioContext,
   })
   const media = { width: 320, height: 180, duration: 1, sampleCount: 16000 }
   const load = spyOn(ReplaySource.prototype, "load").mockResolvedValue(media)
   const seek = spyOn(ReplaySource.prototype, "seek").mockResolvedValue()
-  const open = spyOn(StreamConnection.prototype, "open").mockImplementation(async function () {
-    Reflect.get(this, "options").onError("service offline")
-    throw new Error("service offline")
-  })
+  const open = spyOn(StreamConnection.prototype, "open").mockImplementation(
+    async function () {
+      Reflect.get(this, "options").onError("service offline")
+      throw new Error("service offline")
+    }
+  )
   const controller = new ReplayController()
   try {
     await controller.loadReference()
     expect(controller.getSnapshot().media).toEqual(media)
     expect(controller.getSnapshot().serviceError).toContain("offline")
-    expect(seek).toHaveBeenCalledTimes(1)
+    expect(seek).not.toHaveBeenCalled()
     expect(controller.getSnapshot().mode).toBe("focused")
     await controller.listen("original")
     expect(controller.getSnapshot().media).toEqual(media)
@@ -121,8 +130,12 @@ test("denied audio resume keeps the reference available for a retry", async () =
     },
   })
   Reflect.set(controller, "source", {
-    position: 0, pause() {}, dispose,
-    play: async () => { starts++ },
+    position: 0,
+    pause() {},
+    dispose,
+    play: async () => {
+      starts++
+    },
   })
   const media = { width: 320, height: 180, duration: 1, sampleCount: 16000 }
   Reflect.get(controller, "update").call(controller, { media, status: "ready" })

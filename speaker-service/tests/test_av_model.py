@@ -273,7 +273,7 @@ async def test_live_av_uses_112_face_frames_and_discards_changed_generation(tmp_
         LiveConfig.model_validate(
             {
                 "type": "configure",
-                "protocol_version": 2,
+                "protocol_version": 3,
                 "sample_rate": 16000,
                 "audio": True,
                 "source": "replay",

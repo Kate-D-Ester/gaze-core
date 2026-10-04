@@ -1,3 +1,78 @@
+# Available-input streaming and current picture (2026-10-04)
+
+Kate requested that the reference behave like a real room: the picture must stay
+current while selected-person audio arrives after processing. This supersedes the
+picture/audio synchronization and fixed collection windows described in earlier
+entries below. Reference video now plays natively at 1×. Current frames drive face
+outlines and mouse selection; asynchronous JPEG encoding and local inference do
+not rewind, slow or pause that picture. Changing the visible target flushes obsolete
+audio and starts its new generation at the current source position.
+
+The shared live/reference processor starts from the minimum supported 120 ms input,
+then consumes available new audio whenever its one worker is free. It retains 400 ms
+of already captured context without waiting for it to accumulate. Zero padding to
+200 ms shape increments reduces repeated GPU setup; it contains no future speech.
+Common shapes through two seconds are warmed before readiness; larger supported
+shapes initialize when used. A 10 ms unpublished boundary smooths contiguous output,
+followed by stateful RNNoise suppression. Adaptive browser reserve responds to
+measured arrival variation. There is no three-second analysis collection wait or
+fixed playback-delay cutoff. Model shape, capture integrity and byte limits remain
+resource/correctness constraints. Slow processing alone is not a clock error.
+
+Overload stops accepting focused input and drains accepted samples while the
+reference picture and current scene tracking continue. The accepted selected face's
+history is frozen for that drain, so later face disappearance cannot cancel it.
+Switching back from Original to Focused resumes capture in a new generation without
+seeking. Actual missing captured frames still produce a camera-timing error; relaxing
+processing lateness does not invent lip evidence that was never captured.
+
+Four complete native-speed runs used only elapsed original mixed PCM and detected
+faces from the degraded debate. The fourth adds reproducible hiss, hum and transients
+to that same complete mixture. All accepted and emitted exactly **510,976 samples**,
+with no source pause, flow event, error, dropped interval or future input. Reports
+retain input/model/native-library hashes in the ignored
+`speaker-service/data/benchmarks/available-input/final-*` directories.
+
+| Run | Median processing per result | p95 processing | p95 audio arrival delay | Total run |
+| --- | --- | --- | --- | --- |
+| final-left | 0.73 s | 0.96 s | 1.91 s | 33.45 s |
+| final-middle | 0.73 s | 0.98 s | 2.00 s | 33.42 s |
+| final-right | 0.74 s | 1.12 s | 2.29 s | 33.56 s |
+| final-noisy-middle | 0.73 s | 0.88 s | 1.81 s | 32.93 s |
+
+Arrival delay ends when output reaches the benchmark client. It excludes browser
+playback reserve and physical device delay, so these are not microphone-to-ear
+latency measurements. Native browser runs showed **about 3.2–3.6 seconds** of focused
+playback delay while the current picture continued. Physical mouse input selected
+the middle face, then a right-to-middle switch advanced the source from **145,600 to
+155,200 samples in 0.527 seconds** without rewinding or pausing. The selected outline
+showed Locked. Screenshot evidence is saved as
+`data/benchmarks/reference-reliability/available-current-picture.png` inside the
+speaker service. After the final feature-only restart, the page returned HTTP 200
+and the model reported ready on MPS with protocol-3 available-input metadata. A
+fresh physical click again locked the middle face during current-picture playback
+(`available-activated.png`, approximately 3.2 s displayed delay). Test ownership was
+released afterward; the reference tester was left without a loaded processing session.
+
+Verification: **823 frontend tests across 97 files** and **166 backend tests**
+passed; four model-marked unit tests were excluded. Actual installed AV-MossFormer2
+and native RNNoise were exercised by the four separate complete paced benchmarks.
+Python lint/formatting, frontend formatting/lint/types, and an isolated production
+build passed. Read-only independent review found no remaining
+correctness blocker after accepted-history drain and current-picture recovery fixes.
+
+This does **not** achieve the requested 200–500 ms listening experience. The installed
+model is noncausal, and millisecond scheduling does not eliminate model computation,
+required visual evidence or playback continuity reserve. No clean individual voice
+stems exist for this clip, so exact sample conservation and timing do not certify
+perceptual isolation quality. Physical ESP32/camera, calibrated gaze, room microphone
+and headphone performance were not validated in these checks. Earlier experimental
+shape/warm-up reports remain preserved; the final table uses only the final profile.
+The feature worktree remains separate from v3; no merge, push or publication is part
+of this correction.
+
+---
+
 # Reference connection conflict repair (2026-10-04)
 
 The human reported no rectangles and rejected mouse clicks despite the earlier

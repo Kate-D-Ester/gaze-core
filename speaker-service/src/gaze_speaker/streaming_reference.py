@@ -1,4 +1,4 @@
-"""Actual timestamp-paced v2 replay. Latency is measured, never a pass threshold."""
+"""Actual timestamp-paced available-input replay. Latency is measured, never a pass threshold."""
 
 import argparse
 import asyncio
@@ -112,12 +112,8 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
     generation = 0
     ledger = None
     selected = asyncio.Event()
-    gate = asyncio.Event()
-    gate.set()
     done = asyncio.Event()
     fault = asyncio.Event()
-    paused_at = None
-    paused_seconds = 0
     peak = 0
     begin = monotonic()
     async with connect("ws://127.0.0.1:4033/live", origin=origin, max_size=1024 * 1024) as socket:
@@ -125,7 +121,7 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
             json.dumps(
                 {
                     "type": "configure",
-                    "protocol_version": 2,
+                    "protocol_version": 3,
                     "sample_rate": 16000,
                     "audio": True,
                     "source": "replay",
@@ -140,7 +136,7 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
             raise RuntimeError(ready)
         report["ready"] = ready
         report["model_hashes"] = (
-            AV_ASSET_HASHES if ready["window_samples"] == 48000 else ASSET_HASHES
+            AV_ASSET_HASHES if ready["engine"] == "av-mossformer2" else ASSET_HASHES
         )
         if region:
             await socket.send(json.dumps({"type": "region", "box": regions[speaker]}))
@@ -151,7 +147,7 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
         begin = monotonic()
 
         async def receive():
-            nonlocal generation, ledger, paused_at, paused_seconds, peak
+            nonlocal generation, ledger, peak
             async for message in socket:
                 reply = json.loads(message)
                 if pid:
@@ -188,14 +184,11 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
                 elif reply["type"] == "flow" and reply["generation"] == generation:
                     report["flow_events"].append({**reply, "elapsed_seconds": monotonic() - begin})
                     if reply["action"] == "pause":
-                        if paused_at is None:
-                            paused_at = monotonic()
-                        gate.clear()
-                    else:
-                        if paused_at is not None:
-                            paused_seconds += monotonic() - paused_at
-                            paused_at = None
-                        gate.set()
+                        report["errors"].append(
+                            {"code": "capture_overload", "message": reply["reason"]}
+                        )
+                        fault.set()
+                        done.set()
                 elif reply["type"] == "audio" and ledger:
                     ledger.audio(reply, monotonic())
                 elif reply["type"] == "drained" and ledger and reply["generation"] == generation:
@@ -204,7 +197,6 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
                 elif reply["type"] == "error":
                     report["errors"].append(reply)
                     fault.set()
-                    gate.set()
                     done.set()
 
         async def heartbeat():
@@ -239,8 +231,7 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
             events.sort(key=lambda item: (item[0], -item[1]))
             for timestamp, kind, index in events:
                 while not fault.is_set():
-                    await gate.wait()
-                    remaining = begin + timestamp + paused_seconds - monotonic()
+                    remaining = begin + timestamp - monotonic()
                     if remaining <= 0:
                         break
                     await asyncio.sleep(min(0.05, remaining))
@@ -253,11 +244,11 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
                     ledger.accept(index, pcm.size)
                     payload = pcm.tobytes()
                     sample = index
-                    capture = monotonic() - pcm.size / 16000
+                    capture = begin + sample / 16000
                 else:
                     payload = jpeg(index)
                     sample = round(timestamp * 16000)
-                    capture = monotonic()
+                    capture = begin + timestamp
                 await socket.send(encode_packet(kind, generation, sample, capture, payload))
             if not fault.is_set():
                 await socket.send(
@@ -279,8 +270,8 @@ async def replay(source: Path, output: Path, origin: str, speaker="left", pid=No
     report.update(
         {
             "elapsed_seconds": monotonic() - begin,
-            "source_pause_seconds": paused_seconds,
-            "peak_server_rss_bytes": peak,
+            "source_pause_seconds": 0,
+            "peak_server_rss_bytes": peak if pid is not None else None,
             "outputs": ledger.outputs if ledger else [],
             "accepted_sample_count": ledger.accepted_sample_count if ledger else 0,
             "output_sample_count": ledger.output_sample_count if ledger else 0,
@@ -340,7 +331,7 @@ def main():
     parser.add_argument("--server-pid", type=int)
     parser.add_argument("--automatic-faces", action="store_true")
     args = parser.parse_args()
-    asyncio.run(
+    report = asyncio.run(
         replay(
             args.input,
             args.output,
@@ -350,6 +341,8 @@ def main():
             not args.automatic_faces,
         )
     )
+    if not report["complete"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

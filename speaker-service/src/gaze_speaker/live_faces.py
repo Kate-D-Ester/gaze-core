@@ -78,7 +78,7 @@ class LiveFaces:
             )
             self.detector = mp.tasks.vision.FaceLandmarker.create_from_options(options)
 
-    def detect(self, image: np.ndarray, timestamp: float):
+    def detect(self, image: np.ndarray, timestamp: float, retain_from: float | None = None):
         if timestamp - self.last_detection < 0.18:
             return
         self.initialize()
@@ -111,9 +111,13 @@ class LiveFaces:
         self.tracks = {
             key: track for key, track in self.tracks.items() if key in self.associator.last_seen
         }
+        oldest = timestamp - 3.5
+        if retain_from is not None:
+            oldest = min(oldest, retain_from - 0.35)
         for track in self.tracks.values():
+            # Covers the bounded 4 MiB source queue (65.5 s), plus context, at >=180 ms/fit.
             track.observations = list(
-                deque((o for o in track.observations if timestamp - o.timestamp <= 3.5), maxlen=24)
+                deque((o for o in track.observations if o.timestamp >= oldest), maxlen=384)
             )
 
     def _observe(self, image, timestamp, region):

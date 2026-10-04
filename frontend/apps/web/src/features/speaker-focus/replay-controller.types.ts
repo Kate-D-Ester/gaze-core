@@ -5,7 +5,14 @@ import type { ReplayMedia } from "./replay-source.types"
 import type { ImagePoint } from "./selection.types"
 export type ReplayState = {
   status:
-    "empty" | "loading" | "ready" | "playing" | "paused" | "ended" | "failed"
+    | "empty"
+    | "loading"
+    | "ready"
+    | "playing"
+    | "paused"
+    | "draining"
+    | "ended"
+    | "failed"
   mode: ListeningMode
   media: ReplayMedia | null
   label: string

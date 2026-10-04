@@ -13,7 +13,6 @@ import {
   type Root,
 } from "../../apps/web/node_modules/react-dom/client"
 import { ReplayController } from "../../apps/web/src/features/speaker-focus/replay-controller"
-import { PreviewBuffer } from "../../apps/web/src/features/speaker-focus/preview-buffer"
 import { ReplayStage } from "../../apps/web/src/features/speaker-focus/replay-stage"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -29,16 +28,11 @@ afterEach(async () => {
 test("pressing the video beside a face selects it before a moving overlay can lose the click", async () => {
   controller = new ReplayController()
   const active = controller
-  const preview = new PreviewBuffer({
-    decode: async () =>
-      ({ width: 320, height: 180, close() {} }) as ImageBitmap,
-  })
-  Reflect.set(active, "preview", preview)
   Reflect.set(active, "source", {
     position: 160000,
     pause() {},
     dispose() {},
-    drawCurrent() {},
+    drawCurrent: () => 160000,
     async seek() {},
   })
   Reflect.set(active, "anchor", 160000)
@@ -91,16 +85,15 @@ test("pressing the video beside a face selects it before a moving overlay can lo
         generation: 1,
         tracks: [
           {
-            id: "person-reacquired",
+            id: "person",
             manual: false,
             observations: [{ timestamp: 10, box: [0.7, 0.21, 0.15, 0.3] }],
           },
         ],
       })
-      preview.add(160000, new Blob(["fresh frame"]), 2)
       await active.draw(canvas)
     })
-    expect(active.getSnapshot().selectedId).toBe("person-reacquired")
+    expect(active.getSnapshot().selectedId).toBe("person")
     expect(host.querySelector('button[aria-pressed="true"]')).not.toBeNull()
     expect(host.textContent).toContain("Locked")
   } finally {

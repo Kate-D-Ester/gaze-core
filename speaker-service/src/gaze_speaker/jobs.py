@@ -152,21 +152,28 @@ class Store:
     def _warm_streaming(self):
         from time import perf_counter
 
+        from .available_buffer import MINIMUM_SAMPLES, WARM_INPUT_SHAPES
         from .noise import NoiseSuppressor
-        from .stream_profile import profile_for
 
         try:
             noise = NoiseSuppressor()
             noise.close()
-            profile = profile_for(self.settings.engine)
             width = 112 if self.settings.engine == "av-mossformer2" else 88
-            audio = (0.02 * np.sin(np.arange(profile.window_samples) * 0.13)).astype(np.float32)
-            frames = np.full((round(profile.duration * 25), width, width), 0.1, np.float32)
-            for iteration in range(4):
-                begin = perf_counter()
-                self.separator.extract(audio, frames)
-                if iteration:
-                    self.warm_timings.append(perf_counter() - begin)
+            # Precompile common model shapes before accepting live input.
+            # Padding to a warm shape never waits for future microphone samples.
+            for size in WARM_INPUT_SHAPES:
+                audio = (0.02 * np.sin(np.arange(size) * 0.13)).astype(np.float32)
+                frames = np.full((size // 640, width, width), 0.1, np.float32)
+                repetitions = 4 if size == MINIMUM_SAMPLES else 1
+                for iteration in range(repetitions):
+                    begin = perf_counter()
+                    self.separator.extract(audio, frames)
+                    if size == MINIMUM_SAMPLES and iteration:
+                        self.warm_timings.append(perf_counter() - begin)
+                if getattr(self.separator, "device", None) == "mps":
+                    import torch
+
+                    torch.mps.empty_cache()
             self.streaming_ready = True
         except Exception as exc:
             self.streaming_error = str(exc)

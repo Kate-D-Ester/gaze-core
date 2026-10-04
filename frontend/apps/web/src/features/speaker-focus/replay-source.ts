@@ -1,7 +1,7 @@
 import type { ReplayMedia, ReplaySourceOptions } from "./replay-source.types"
 const MAX_BYTES = 120 * 1024 * 1024
 const FRAME_RATE = 15
-const AUDIO_DISPATCH_SAMPLES = 1600
+const AUDIO_DISPATCH_SAMPLES = 320
 export class ReplaySource {
   private video: HTMLVideoElement | null = null
   private canvas: HTMLCanvasElement | null = null
@@ -9,17 +9,27 @@ export class ReplaySource {
   private url: string | null = null
   private epoch = 0
   private cursor = 0
-  private advanced = 0
   private desired = false
-  private flow = false
-  private pumping = false
   private timer: ReturnType<typeof setTimeout> | null = null
-  private wake: (() => void) | null = null
+  private capturePending: Promise<void> | null = null
+  private clockOrigin = 0
+  private ending = false
+  private sourceEnded = false
+  private ended = (): void => {
+    this.sourceEnded = true
+    this.tick()
+  }
   private lastFrame = -1
   private removeAbort: (() => void) | null = null
   private readonly now: () => number
   get position(): number {
-    return this.advanced
+    if (!this.video || !this.pcm) {
+      return this.cursor
+    }
+    if (this.sourceEnded) {
+      return this.pcm.length
+    }
+    return Math.min(this.pcm.length, Math.round(this.video.currentTime * 16000))
   }
   constructor(private readonly options: ReplaySourceOptions) {
     this.now = options.now ?? (() => performance.now() / 1000)
@@ -86,6 +96,7 @@ export class ReplaySource {
       video.preload = "auto"
       this.url = (this.options.createUrl ?? URL.createObjectURL)(blob)
       video.src = this.url
+      video.addEventListener("ended", this.ended)
       video.load()
       if (video.readyState < 2) {
         await this.waitVideo("loadeddata", signal)
@@ -135,6 +146,7 @@ export class ReplaySource {
         throw new Error("Video contains invalid mixed audio")
       }
       this.pcm = pcm
+      this.clockOrigin = this.now()
       await this.capture(0)
       return {
         width: video.videoWidth,
@@ -184,19 +196,17 @@ export class ReplaySource {
       return
     }
     const end = Math.min(this.pcm.length, Math.max(this.cursor, sample))
-    const clock = this.now()
     while (this.cursor < end) {
       const start = this.cursor
       const count = Math.min(3200, end - start)
       this.options.onAudio({
         startSample: start,
-        captureTime: clock - (end - start) / 16000,
+        captureTime: this.clockOrigin + start / 16000,
         generation: this.options.generation(),
         pcm: this.pcm.slice(start, start + count),
       })
       this.cursor += count
     }
-    this.advanced = end
   }
   private async capture(sample: number): Promise<void> {
     const video = this.video
@@ -214,6 +224,8 @@ export class ReplaySource {
       throw new Error("Video frame capture is unavailable")
     }
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const capturedAt = this.clockOrigin + sample / 16000
+    this.lastFrame = sample
     const jpeg = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (blob) =>
@@ -225,26 +237,11 @@ export class ReplaySource {
     if (epoch !== this.epoch || generation !== this.options.generation()) {
       return
     }
-    this.lastFrame = sample
     await this.options.onFrame({
       sample,
-      captureTime: this.now(),
+      captureTime: capturedAt,
       generation,
       jpeg,
-    })
-  }
-  private wait(seconds: number): Promise<void> {
-    return new Promise((resolve) => {
-      const done = () => {
-        if (this.timer) {
-          clearTimeout(this.timer)
-        }
-        this.timer = null
-        this.wake = null
-        resolve()
-      }
-      this.wake = done
-      this.timer = setTimeout(done, Math.max(0, seconds * 1000))
     })
   }
   private async positionVideo(sample: number): Promise<void> {
@@ -259,97 +256,88 @@ export class ReplaySource {
       await seeked
     }
   }
-  private startPump(): void {
-    if (this.pumping || !this.desired || this.flow || !this.pcm) {
+  private fail(error: unknown, epoch: number): void {
+    if (epoch !== this.epoch) {
       return
     }
-    this.pumping = true
-    const epoch = this.epoch
-    const generation = this.options.generation()
-    void this.pump(epoch, generation)
-      .catch((error: unknown) => {
-        if (epoch === this.epoch && generation === this.options.generation()) {
-          this.desired = false
-          this.options.onError(
-            error instanceof Error ? error.message : "Replay failed"
-          )
-        }
-      })
-      .finally(() => {
-        this.pumping = false
-        if (this.desired && !this.flow) {
-          this.startPump()
-        }
-      })
+    this.pause()
+    this.options.onError(
+      error instanceof Error ? error.message : "Replay failed"
+    )
   }
-  private async pump(epoch: number, generation: number): Promise<void> {
-    let due = this.now()
-    while (
-      this.pcm &&
-      this.desired &&
-      !this.flow &&
-      epoch === this.epoch &&
-      generation === this.options.generation()
-    ) {
-      const nextIndex =
-        Math.floor(((this.lastFrame + 0.5) * FRAME_RATE) / 16000) + 1
-      const sample = Math.min(
-        this.pcm.length - 1,
-        Math.round((nextIndex * 16000) / FRAME_RATE)
-      )
-      const interval = (sample - this.lastFrame) / 16000
-      due = Math.max(due + interval, this.now())
-      await this.wait(due - this.now())
-      if (
-        !this.desired ||
-        this.flow ||
-        epoch !== this.epoch ||
-        generation !== this.options.generation()
-      ) {
-        return
-      }
-      await this.positionVideo(sample)
-      if (epoch !== this.epoch || generation !== this.options.generation()) {
-        return
-      }
-      await this.capture(sample)
-      if (
-        !this.pcm ||
-        !this.desired ||
-        this.flow ||
-        epoch !== this.epoch ||
-        generation !== this.options.generation()
-      ) {
-        return
-      }
-      if (sample >= this.pcm.length - 1) {
-        this.advance(this.pcm.length)
-        this.desired = false
-        this.options.onEnd(this.pcm.length)
-        return
-      }
-      if (sample - this.cursor >= AUDIO_DISPATCH_SAMPLES) {
-        this.advance(sample)
-      }
+  private tick = (): void => {
+    const video = this.video
+    const pcm = this.pcm
+    if (!this.desired || !video || !pcm || this.ending) {
+      return
     }
+    const epoch = this.epoch
+    const sample = this.position
+    if (sample - this.cursor >= AUDIO_DISPATCH_SAMPLES) {
+      this.advance(sample)
+    }
+    if (sample >= pcm.length) {
+      this.ending = true
+      void this.finish(epoch).catch((error: unknown) => this.fail(error, epoch))
+      return
+    }
+    if (!this.capturePending && sample - this.lastFrame >= 16000 / FRAME_RATE) {
+      const pending = this.capture(sample)
+      this.capturePending = pending
+      void pending
+        .catch((error: unknown) => this.fail(error, epoch))
+        .finally(() => {
+          if (this.capturePending === pending) {
+            this.capturePending = null
+          }
+        })
+    }
+  }
+  private async finish(epoch: number): Promise<void> {
+    await this.capturePending
+    if (epoch !== this.epoch || !this.desired || !this.pcm) {
+      return
+    }
+    await this.capture(this.pcm.length - 1)
+    if (epoch !== this.epoch || !this.desired || !this.pcm) {
+      return
+    }
+    const end = this.pcm.length
+    this.advance(end)
+    this.pause()
+    this.options.onEnd(end)
   }
   async play(): Promise<void> {
-    if (!this.video || !this.pcm) {
+    const video = this.video
+    if (!video || !this.pcm) {
       throw new Error("Load a reference video first")
     }
+    if (this.desired) {
+      return
+    }
     this.desired = true
-    this.startPump()
+    this.ending = false
+    this.clockOrigin = this.now() - video.currentTime
+    const epoch = this.epoch
+    try {
+      video.playbackRate = 1
+      await video.play()
+      if (epoch === this.epoch && this.desired) {
+        this.timer = setInterval(this.tick, 20)
+      }
+    } catch (error) {
+      if (epoch === this.epoch) {
+        this.pause()
+      }
+      throw error
+    }
   }
   pause(): void {
     this.desired = false
     this.video?.pause()
-    this.wake?.()
-  }
-  setFlow(paused: boolean): void {
-    this.flow = paused
-    this.wake?.()
-    if (!paused && this.desired) {
-      this.startPump()
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
     }
   }
   async seek(sample: number): Promise<void> {
@@ -364,11 +352,12 @@ export class ReplaySource {
     }
     this.pause()
     const epoch = ++this.epoch
-    this.flow = false
     this.cursor = sample
-    this.advanced = sample
     this.lastFrame = -1
     await this.positionVideo(sample)
+    this.clockOrigin = this.now() - sample / 16000
+    this.ending = false
+    this.sourceEnded = false
     if (epoch === this.epoch) {
       await this.capture(sample)
     }
@@ -393,6 +382,7 @@ export class ReplaySource {
     this.removeAbort?.()
     this.removeAbort = null
     if (this.video) {
+      this.video.removeEventListener("ended", this.ended)
       this.video.removeAttribute("src")
       this.video.load()
     }
@@ -404,8 +394,8 @@ export class ReplaySource {
     this.canvas = null
     this.pcm = null
     this.cursor = 0
-    this.advanced = 0
     this.lastFrame = -1
-    this.flow = false
+    this.sourceEnded = false
+    this.capturePending = null
   }
 }

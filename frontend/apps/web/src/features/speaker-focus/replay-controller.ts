@@ -1,7 +1,6 @@
 import { SpeakerClient } from "./client"
 import { decodeAudio } from "./live-schema"
 import { LivePlayer } from "./live-player"
-import { PreviewBuffer } from "./preview-buffer"
 import { ReplaySource } from "./replay-source"
 import { StreamConnection } from "./stream-connection"
 import { boxAtTime, selectByPoint } from "./selection"
@@ -36,7 +35,6 @@ export class ReplayController {
   private source: ReplaySource | null = null
   private player: LivePlayer | null = null
   private context: AudioContext | null = null
-  private preview = new PreviewBuffer()
   private connection: StreamConnection | null = null
   private abort: AbortController | null = null
   private generation = 0
@@ -47,6 +45,7 @@ export class ReplayController {
   private pendingPoint: ImagePoint | null = null
   private pendingBubble: SelectionBubble | null = null
   private acceptedEnd: number | null = null
+  private captureStopped = false
   private timer: ReturnType<typeof setInterval> | null = null
   getSnapshot = () => this.snapshot
   subscribe = (listener: () => void) => {
@@ -127,10 +126,9 @@ export class ReplayController {
       this.context = context
       this.player = new LivePlayer({
         context,
-        onError: (message, sample) => this.pauseForOutput(message, sample),
+        onError: (message) => this.pauseForOutput(message),
       })
       this.player.reset(0)
-      this.preview.reset(0)
       const source = new ReplaySource({
         generation: () => this.generation,
         onAudio: (event) => {
@@ -152,6 +150,7 @@ export class ReplayController {
             })
           } else if (
             this.snapshot.selectedId &&
+            !this.captureStopped &&
             this.connection?.packet(
               packetBytes(
                 1,
@@ -170,7 +169,6 @@ export class ReplayController {
           if (epoch !== this.epoch || event.generation !== this.generation) {
             return
           }
-          this.preview.add(event.sample, event.jpeg, event.generation)
           this.connection?.packet(
             packetBytes(
               2,
@@ -185,6 +183,8 @@ export class ReplayController {
           if (epoch !== this.epoch) {
             return
           }
+          this.desired = false
+          this.update({ status: "draining" })
           if (this.snapshot.mode === "original") {
             this.player?.flushEnd(end)
           } else if (this.acceptedEnd !== null) {
@@ -272,59 +272,32 @@ export class ReplayController {
     const box = track ? boxAtTime(track, sample / 16000) : null
     return box ? [box[0] + box[2] / 2, box[1] + box[3] / 2] : null
   }
-  private pauseForOutput(
-    message: string,
-    playedSample: number | null = null
-  ): void {
-    const sample = playedSample ?? this.cursor()
-    const point = this.recoveryPoint(sample)
-    const epoch = this.epoch
-    const generation = this.generation + 1
-    void this.restart(sample, point, false)
-      .then(() => {
-        if (epoch === this.epoch && generation === this.generation) {
-          this.update({ status: "paused", error: message })
-        }
-      })
-      .catch((error: unknown) => {
-        if (epoch === this.epoch && generation === this.generation) {
-          this.fail(
-            error instanceof Error ? error.message : "Playback reset failed"
-          )
-        }
-      })
-  }
-  private streamUnavailable(message: string): void {
-    const sample = this.cursor()
-    this.desired = false
-    this.source?.pause()
-    this.source?.setFlow(false)
-    this.connection?.close()
-    this.connection = null
+  private resetAudioTarget(message: string): void {
     this.generation++
     this.player?.reset(this.generation)
-    this.preview.reset(this.generation)
+    this.acceptedEnd = null
+    this.captureStopped = false
     this.pendingPoint = null
     this.pendingBubble = null
-    this.acceptedEnd = null
-    this.anchor = sample
+    this.connection?.select(this.generation, null)
     this.update({
-      status: "paused",
-      tracks: [],
       selectedId: null,
-      sourceSample: sample,
-      displayedSample: null,
+      sourceSample: this.cursor(),
       timing: null,
-      serviceError: message,
       error: message,
     })
-    const generation = this.generation
-    void this.source?.seek(sample).catch((error: unknown) => {
-      if (generation === this.generation) {
-        this.fail(
-          error instanceof Error ? error.message : "Reference seek failed"
-        )
-      }
+  }
+  private pauseForOutput(message: string): void {
+    this.resetAudioTarget(message)
+  }
+  private streamUnavailable(message: string): void {
+    this.connection?.close()
+    this.connection = null
+    this.resetAudioTarget(message)
+    this.update({
+      tracks: [],
+      serviceError: message,
+      status: this.desired ? "playing" : "paused",
     })
   }
   private fail(message: string): void {
@@ -355,8 +328,8 @@ export class ReplayController {
     this.generation++
     const generation = this.generation
     this.player?.reset(generation)
-    this.preview.reset(generation)
     this.acceptedEnd = null
+    this.captureStopped = false
     this.anchor = sample
     this.pendingPoint = point
     this.pendingBubble = bubble
@@ -396,13 +369,16 @@ export class ReplayController {
       this.update({ status: play ? "playing" : "paused" })
     }
   }
-  private cursor(): number {
+  private atSourceEnd(): boolean {
     return (
-      this.player?.sourceSample() ??
-      (this.snapshot.selectedId
-        ? this.anchor
-        : (this.source?.position ?? this.snapshot.sourceSample))
+      this.snapshot.status === "ended" ||
+      Boolean(
+        this.snapshot.media && this.cursor() >= this.snapshot.media.sampleCount
+      )
     )
+  }
+  private cursor(): number {
+    return this.source?.position ?? this.snapshot.sourceSample
   }
   async play(): Promise<void> {
     if (this.snapshot.mode === "focused" && this.snapshot.serviceError) {
@@ -425,7 +401,7 @@ export class ReplayController {
       ) {
         return
       }
-      if (this.snapshot.status === "ended") {
+      if (this.atSourceEnd()) {
         const point =
           this.snapshot.mode === "focused"
             ? this.recoveryPoint(this.snapshot.displayedSample ?? this.cursor())
@@ -525,13 +501,23 @@ export class ReplayController {
       })
       return
     }
-    if (valid === this.snapshot.selectedId) {
+    if (valid === this.snapshot.selectedId && !this.captureStopped) {
       this.update({ error: "" })
       return
     }
     try {
-      const startSample = this.snapshot.status === "ended" ? 0 : sample
-      await this.restart(startSample, point, this.desired, bubble)
+      if (this.atSourceEnd()) {
+        await this.restart(0, point, this.desired, bubble)
+        return
+      }
+      this.generation++
+      this.player?.reset(this.generation)
+      this.acceptedEnd = null
+      this.pendingPoint = null
+      this.pendingBubble = null
+      this.captureStopped = false
+      this.connection?.select(this.generation, valid)
+      this.update({ selectedId: valid, timing: null, error: "" })
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Selection failed")
     }
@@ -540,21 +526,26 @@ export class ReplayController {
     if (mode === this.snapshot.mode) {
       return
     }
-    const cursor = this.cursor()
-    const point = this.recoveryPoint(cursor)
-    this.update({ mode })
-    try {
-      await this.restart(
-        cursor,
-        mode === "focused" ? point : null,
-        this.desired
-      )
-    } catch (error) {
-      this.fail(
-        error instanceof Error ? error.message : "Listening switch failed"
-      )
+    this.generation++
+    this.player?.reset(this.generation)
+    this.acceptedEnd = null
+    this.captureStopped = false
+    const selected = this.snapshot.tracks.some(
+      (track) => track.id === this.snapshot.selectedId
+    )
+      ? this.snapshot.selectedId
+      : null
+    this.connection?.select(
+      this.generation,
+      mode === "focused" ? selected : null
+    )
+    if (this.atSourceEnd()) {
+      this.desired = false
+      this.update({ status: "ended" })
     }
+    this.update({ mode, selectedId: selected, timing: null, error: "" })
   }
+
   async correct(
     box: readonly [number, number, number, number] | null
   ): Promise<void> {
@@ -564,7 +555,6 @@ export class ReplayController {
     this.desired = false
     this.generation++
     this.player?.reset(this.generation)
-    this.preview.reset(this.generation)
     this.connection?.select(this.generation, null)
     this.connection?.control({ type: "region", box })
     this.update({
@@ -579,25 +569,19 @@ export class ReplayController {
       if (reply.generation < this.generation) {
         return
       }
-      const sample = this.cursor()
-      this.generation = reply.generation
-      const generation = this.generation + 1
-      const epoch = this.epoch
-      void this.restart(sample, null, false).catch((error: unknown) => {
-        if (epoch === this.epoch && generation === this.generation) {
-          this.fail(
-            error instanceof Error ? error.message : "Reference reset failed"
-          )
-        }
-      })
-      this.update({ error: reply.message })
+      this.generation = Math.max(this.generation, reply.generation)
+      this.resetAudioTarget(reply.message)
       return
     }
     if (reply.generation !== this.generation) {
       return
     }
-    if (reply.type === "flow") {
-      this.source?.setFlow(reply.action === "pause")
+    if (reply.type === "flow" && reply.action === "pause") {
+      this.captureStopped = true
+      this.update({
+        error:
+          "Processing cannot keep up. Accepted audio is finishing; select a face to resume.",
+      })
     }
     if (reply.type === "drained") {
       this.player?.flushEnd(reply.source_end_sample)
@@ -635,12 +619,10 @@ export class ReplayController {
         }
         this.generation++
         this.player?.reset(this.generation)
-        this.preview.reset(this.generation)
         this.connection?.select(this.generation, match)
         this.update({ selectedId: match })
         const generation = this.generation
-        void this.source
-          ?.seek(this.anchor)
+        void Promise.resolve()
           .then(async () => {
             if (generation === this.generation && this.desired) {
               await this.source?.play()
@@ -658,7 +640,7 @@ export class ReplayController {
     const timing = this.player?.getTiming() ?? null
     const sample = this.cursor()
     this.update({ timing, sourceSample: sample })
-    if (timing?.state === "ended") {
+    if (timing?.state === "ended" && this.atSourceEnd()) {
       this.desired = false
       this.update({ status: "ended" })
     }
@@ -670,10 +652,7 @@ export class ReplayController {
     const generation = this.generation
     const epoch = this.epoch
     try {
-      const sample =
-        !this.snapshot.selectedId && this.snapshot.mode === "focused"
-          ? (this.source?.drawCurrent(canvas) ?? null)
-          : await this.preview.drawAt(canvas, this.cursor(), generation)
+      const sample = this.source?.drawCurrent(canvas) ?? null
       if (
         epoch === this.epoch &&
         generation === this.generation &&
@@ -700,10 +679,10 @@ export class ReplayController {
     this.player?.dispose()
     this.player = null
     this.context = null
-    this.preview.reset()
     this.pendingPoint = null
     this.pendingBubble = null
     this.acceptedEnd = null
+    this.captureStopped = false
     this.anchor = 0
   }
   dispose(): void {

@@ -49,11 +49,13 @@ On Apple Silicon this engine runs its complete network on MPS with `auto`/`mps`;
 112x112 grayscale face-box crop and 0.4161/0.1688 normalization. RTFS retains its
 aligned 88x88 mouth input. The two prepared formats cannot be interchanged.
 
-AV clip and streaming extraction use 3-second windows and 1.8-second stride.
-RTFS streaming uses 2-second windows / 1-second stride. Streaming has generalized
+Whole-file AV extraction uses 3-second windows and 1.8-second stride.
+Live/reference processing consumes available input instead of waiting for that window. Streaming has generalized
 weighted overlap-add, exact EOF trimming and continuous native noise suppression.
-One worker loads the model, checks the native runtime and runs four warm-up passes
-before advertising streaming readiness (the three warmed timings seed playback).
+One worker loads the model, checks the native runtime and warms common input
+shapes through two seconds before advertising streaming readiness. The minimum
+shape runs one cold pass and three measured warm passes; those measurements seed
+adaptive playback. Larger supported shapes are initialized when needed.
 File extraction remains available if only streaming warm-up fails. A live/replay
 session reserves the worker; concurrent exports report busy rather than building
 a hidden backlog. Face loss retires the identity and requires reselection.
@@ -127,18 +129,16 @@ offset invalidates that manual check. Arrival-only network sources are rejected 
 check: changing upstream latency cannot be detected from reception timestamps.
 Use USB camera mode or a synchronized recording until capture-clock provenance
 and a monitored mapping are available. The UI rejects stale frames, more than 150 ms residual skew and clock
-discontinuity. Use headphones to avoid microphone feedback. Protocol v2 carries
+discontinuity. Use headphones to avoid microphone feedback. Protocol v3 carries
 source sample indices separately from capture-clock spans; old clients are
-rejected with a version message. Audio and preview follow the same played source
-cursor. The adaptive reserve uses warmed speed, device latency and recent arrival
+rejected with a version message. The picture follows current capture, independently of delayed audio. The adaptive reserve uses warmed speed, device latency and recent arrival
 variation, grows after an underrun, and has no fixed delay cutoff. It preserves
 late valid audio instead of speeding it up or discarding it.
 
-Reference playback advances incrementally and pauses input on worker backpressure.
+Reference input follows native 1× video playback and continues while inference is busy.
 Live microphone capture stops on resource overload, drains already accepted audio
-and requires explicit Resume. One live session, one worker and at most two pending
-windows are allowed. Byte limits bound memory independently of playback delay.
-Stop/unmount closes microphone, socket, preview and audio context. The shared scene
+and requires explicit Resume. One live session and one active inference job are allowed; available new audio is batched when the worker is free. Byte limits bound memory independently of playback delay.
+Stop/unmount closes microphone, socket and audio context. The shared scene
 camera remains owned by its scene session. Clip uploads retain their 120-second
 limit; continuous live streams do not inherit it.
 
@@ -197,3 +197,21 @@ suffix RMS was 5.38e-8. This controlled fixture does not establish equivalent
 performance for arbitrary noise or physical ESP32 recordings.
 
 Run: uv run pytest tests/test_noise.py tests/test_noise_native.py.
+
+
+Live input uses a 120 ms minimum supported model shape and 400 ms of retained past
+context. It never waits for that history to accumulate. Input is padded to 200 ms
+shape increments to reduce repeated GPU shape setup; padding is not future audio.
+Common shapes through two seconds are warmed before streaming readiness, with
+unused MPS allocator buffers released. Each result emits only new source samples,
+with a 10 ms unpublished overlap boundary and continuous RNNoise state. Source EOF
+and overload drain accepted audio against a frozen copy of the selected face's
+history. Current scene tracking continues independently during overload drain.
+
+The health `window_seconds`/`stride_seconds` fields describe whole-file profiles;
+`live_analysis_mode`, `live_minimum_seconds` and `live_history_seconds` describe
+streaming. The installed model remains noncausal: available-input scheduling does
+not prove subsecond physical microphone-to-headphone latency or perceptual target
+separation quality. Benchmark arrival delay excludes browser reserve and physical
+hardware delay. Generated `focused-preview.mp4` is a source-aligned listening
+comparison, not a recording of realtime playback delay.

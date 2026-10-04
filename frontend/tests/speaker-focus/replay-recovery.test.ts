@@ -1,7 +1,6 @@
 import { expect, test, spyOn } from "bun:test"
 import { ReplayController } from "../../apps/web/src/features/speaker-focus/replay-controller"
 import { LivePlayer } from "../../apps/web/src/features/speaker-focus/live-player"
-import { PreviewBuffer } from "../../apps/web/src/features/speaker-focus/preview-buffer"
 import { SpeakerClient } from "../../apps/web/src/features/speaker-focus/client"
 
 function fixture() {
@@ -102,7 +101,7 @@ function fixture() {
   }
 }
 
-test("suspended focused playback retains its played position instead of the target anchor", async () => {
+test("suspended audio output never rewinds the current reference picture", async () => {
   const f = fixture()
   try {
     f.reply(f.audio())
@@ -114,22 +113,23 @@ test("suspended focused playback retains its played position instead of the targ
     f.context.dispatchEvent(new Event("statechange"))
     await Promise.resolve()
     await Promise.resolve()
-    expect(f.controller.getSnapshot().sourceSample).toBe(176000)
-    expect(f.seeks).toEqual([176000])
-    expect(f.controller.getSnapshot().status).toBe("paused")
+    expect(f.controller.getSnapshot().sourceSample).toBe(240000)
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().status).toBe("playing")
+    expect(f.controller.getSnapshot().error).toContain("Audio output paused")
   } finally {
     f.controller.dispose()
   }
 })
 
-test("pausing during rebuffering keeps the end of played audio", async () => {
+test("user pause holds the current picture position even when audio is behind", async () => {
   const f = fixture()
   try {
     f.reply(f.audio())
     Object.assign(f.context, { currentTime: 14 })
     f.reply(f.audio(2, 192000))
     await f.controller.pause()
-    expect(f.controller.getSnapshot().sourceSample).toBe(192000)
+    expect(f.controller.getSnapshot().sourceSample).toBe(240000)
   } finally {
     f.controller.dispose()
   }
@@ -157,7 +157,7 @@ test("pausing without current identity evidence requires explicit selection", as
   }
 })
 
-test("pause reacquires the selected person's played position after movement", async () => {
+test("pause reacquires the selected person's current position after movement", async () => {
   const f = fixture()
   Reflect.get(f.controller, "update").call(f.controller, {
     tracks: [
@@ -166,7 +166,7 @@ test("pause reacquires the selected person's played position after movement", as
         manual: false,
         observations: [
           { timestamp: 0, box: [0.1, 0.1, 0.2, 0.5] },
-          { timestamp: 10, box: [0.7, 0.1, 0.2, 0.5] },
+          { timestamp: 15, box: [0.7, 0.1, 0.2, 0.5] },
         ],
       },
     ],
@@ -180,12 +180,12 @@ test("pause reacquires the selected person's played position after movement", as
         {
           id: "replacement",
           manual: false,
-          observations: [{ timestamp: 10, box: [0.1, 0.1, 0.2, 0.5] }],
+          observations: [{ timestamp: 15, box: [0.1, 0.1, 0.2, 0.5] }],
         },
         {
           id: "same-person-reacquired",
           manual: false,
-          observations: [{ timestamp: 10, box: [0.7, 0.1, 0.2, 0.5] }],
+          observations: [{ timestamp: 15, box: [0.7, 0.1, 0.2, 0.5] }],
         },
       ],
     })
@@ -206,7 +206,8 @@ test("audio queued for a failed replay generation is never scheduled after its e
     })
     f.reply(f.audio())
     expect(f.starts).toEqual([])
-    expect(f.controller.getSnapshot().status).toBe("paused")
+    expect(f.controller.getSnapshot().status).toBe("playing")
+    expect(f.seeks).toEqual([])
     expect(f.controller.getSnapshot().error).toContain("Extraction failed")
   } finally {
     f.controller.dispose()
@@ -278,10 +279,13 @@ test("Reconnect restores streaming ownership at the preserved reference cursor",
             data: JSON.stringify({
               type: "ready",
               generation: 0,
-              protocol_version: 2,
+              protocol_version: 3,
+              analysis_mode: "available",
+              engine: "rtfs",
               device: "cpu",
-              window_samples: 32000,
-              stride_samples: 16000,
+              minimum_samples: 1920,
+              history_samples: 6400,
+              maximum_input_samples: 128000,
               warm_timings: [0.1, 0.2, 0.15],
               noise_processor: "rnnoise",
             }),
@@ -358,7 +362,7 @@ test("selecting the locked face again does not rewind or interrupt listening", a
   }
 })
 
-test("a mouse bubble beside a face reacquires that spatial target after detection shifts", async () => {
+test("a mouse bubble beside a face selects its current spatial target without restarting", async () => {
   const f = fixture()
   try {
     Reflect.get(f.controller, "update").call(f.controller, {
@@ -398,9 +402,10 @@ test("a mouse bubble beside a face reacquires that spatial target after detectio
       ],
     })
     await Promise.resolve()
-    expect(f.controller.getSnapshot().selectedId).toBe("right-reacquired")
+    expect(f.controller.getSnapshot().selectedId).toBe("right")
     expect(f.controller.getSnapshot().error).toBe("")
-    expect(f.plays()).toBe(1)
+    expect(f.plays()).toBe(0)
+    expect(f.seeks).toEqual([])
   } finally {
     f.controller.dispose()
   }
@@ -435,8 +440,8 @@ test("mouse selection uses the displayed frame instead of a later audio cursor",
         },
       ],
     })
-    expect(f.seeks).toEqual([160000, 160000])
-    expect(f.controller.getSnapshot().selectedId).toBe("new-person-reacquired")
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().selectedId).toBe("new-person")
   } finally {
     f.controller.dispose()
   }
@@ -458,7 +463,7 @@ test("clicking background preserves the current audio lock without a selection e
   }
 })
 
-test("reference mouse bubbles choose the most-covered face through reacquisition, independent of array order", async () => {
+test("reference mouse bubbles choose the most-covered visible face, independent of array order", async () => {
   const f = fixture()
   const larger = {
     id: "larger",
@@ -486,7 +491,7 @@ test("reference mouse bubbles choose the most-covered face through reacquisition
         { ...smaller, id: "smaller-reacquired" },
       ],
     })
-    expect(f.controller.getSnapshot().selectedId).toBe("larger-reacquired")
+    expect(f.controller.getSnapshot().selectedId).toBe("larger")
     expect(f.controller.getSnapshot().error).toBe("")
   } finally {
     f.controller.dispose()
@@ -495,14 +500,7 @@ test("reference mouse bubbles choose the most-covered face through reacquisition
 
 test("face selection and outlines follow the painted preview frame between audio ticks", async () => {
   const f = fixture()
-  const preview = new PreviewBuffer({
-    decode: async () =>
-      ({ width: 320, height: 180, close() {} }) as ImageBitmap,
-  })
-  preview.reset(2)
-  preview.add(160000, new Blob(["frame at 10 seconds"]), 2)
-  preview.add(161067, new Blob(["next video frame"]), 2)
-  Reflect.set(f.controller, "preview", preview)
+  Object.assign(f.source, { drawCurrent: () => 160000 })
   const canvas = {
     getContext: () => ({ drawImage() {} }),
   } as unknown as HTMLCanvasElement
@@ -536,8 +534,8 @@ test("face selection and outlines follow the painted preview frame between audio
         },
       ],
     })
-    expect(f.controller.getSnapshot().selectedId).toBe("new-person-reacquired")
-    expect(f.seeks).toEqual([160000, 160000])
+    expect(f.controller.getSnapshot().selectedId).toBe("new-person")
+    expect(f.seeks).toEqual([])
   } finally {
     f.controller.dispose()
   }
@@ -617,7 +615,7 @@ test("replaying a finished clip reacquires the selected location instead of drop
     await Promise.resolve()
     await Promise.resolve()
     expect(f.controller.getSnapshot().selectedId).toBe("person-at-start")
-    expect(f.seeks).toEqual([0, 0])
+    expect(f.seeks).toEqual([0])
     expect(f.plays()).toBe(1)
   } finally {
     f.controller.dispose()
@@ -679,11 +677,152 @@ test("focused playback cannot silently run without a processing session, while O
   try {
     await f.controller.play()
     expect(f.plays()).toBe(0)
-    expect(f.controller.getSnapshot().status).toBe("paused")
+    expect(f.controller.getSnapshot().status).toBe("playing")
     expect(f.controller.getSnapshot().error).toContain("reconnect")
     await f.controller.listen("original")
     await f.controller.play()
     expect(f.plays()).toBe(1)
+    expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("focused reference picture and selection clock stay live while audio is behind", async () => {
+  const f = fixture()
+  Object.assign(f.source, { drawCurrent: () => 240000 })
+  f.reply(f.audio())
+  Object.assign(f.context, { currentTime: f.starts[0]! + 1 })
+  try {
+    expect(f.player.sourceSample()).toBe(176000)
+    await f.controller.draw({} as HTMLCanvasElement)
+    Reflect.get(f.controller, "tick").call(f.controller)
+    expect(f.controller.getSnapshot().displayedSample).toBe(240000)
+    expect(f.controller.getSnapshot().sourceSample).toBe(240000)
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("switching a visible person during reference playback never rewinds or pauses its source", async () => {
+  const f = fixture()
+  const targets: [number, string][] = []
+  Reflect.set(f.controller, "connection", {
+    select: (generation: number, id: string) => targets.push([generation, id]),
+    control() {},
+    close() {},
+  })
+  Reflect.get(f.controller, "update").call(f.controller, {
+    displayedSample: 240000,
+    tracks: [
+      {
+        id: "current-person",
+        manual: false,
+        observations: [{ timestamp: 15, box: [0.7, 0.1, 0.2, 0.5] }],
+      },
+    ],
+  })
+  try {
+    await f.controller.select([0.8, 0.3], { sourceSample: 240000 })
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().status).toBe("playing")
+    expect(f.controller.getSnapshot().selectedId).toBe("current-person")
+    expect(targets).toEqual([[3, "current-person"]])
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("processing flow cannot pause or rewind the current reference picture", () => {
+  const f = fixture()
+  const flow: boolean[] = []
+  Object.assign(f.source, { setFlow: (paused: boolean) => flow.push(paused) })
+  try {
+    f.reply({
+      type: "flow",
+      generation: 2,
+      action: "pause",
+      reason: "worker",
+      queued_windows: 1,
+    })
+    expect(flow).toEqual([])
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("changing person while EOF audio is draining prepares a replay instead of buffering forever", async () => {
+  const f = fixture()
+  Reflect.set(f.controller, "desired", false)
+  f.source.position = 512000
+  Reflect.get(f.controller, "update").call(f.controller, {
+    status: "playing",
+    displayedSample: 512000,
+    tracks: [
+      {
+        id: "other",
+        manual: false,
+        observations: [{ timestamp: 32, box: [0.7, 0.2, 0.15, 0.3] }],
+      },
+    ],
+  })
+  try {
+    await f.controller.select([0.775, 0.35])
+    expect(f.seeks).toEqual([0])
+    expect(f.controller.getSnapshot().status).toBe("paused")
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("changing listening mode while EOF audio is draining settles the ended source", async () => {
+  const f = fixture()
+  f.source.position = 512000
+  try {
+    await f.controller.listen("original")
+    expect(f.controller.getSnapshot().status).toBe("ended")
+    expect(f.controller.getSnapshot().timing).toBeNull()
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("switching back to Focused after overload restarts capture at the current picture", async () => {
+  const f = fixture()
+  const targets: [number, string | null][] = []
+  Reflect.set(f.controller, "connection", {
+    select: (generation: number, id: string | null) =>
+      targets.push([generation, id]),
+    close() {},
+  })
+  Reflect.get(f.controller, "update").call(f.controller, {
+    tracks: [
+      {
+        id: "old-person",
+        manual: false,
+        observations: [{ timestamp: 15, box: [0.1, 0.1, 0.2, 0.5] }],
+      },
+    ],
+  })
+  try {
+    f.reply({
+      type: "flow",
+      generation: 2,
+      action: "pause",
+      reason: "device_cannot_keep_up",
+      queued_windows: 1,
+    })
+    expect(Reflect.get(f.controller, "captureStopped")).toBe(true)
+    await f.controller.listen("original")
+    await f.controller.listen("focused")
+    expect(Reflect.get(f.controller, "captureStopped")).toBe(false)
+    expect(targets).toEqual([
+      [3, null],
+      [4, "old-person"],
+    ])
+    expect(f.seeks).toEqual([])
     expect(f.controller.getSnapshot().status).toBe("playing")
   } finally {
     f.controller.dispose()

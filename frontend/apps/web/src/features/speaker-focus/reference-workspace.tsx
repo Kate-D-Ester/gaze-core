@@ -13,6 +13,12 @@ export function ReferenceWorkspace({
   onExport,
 }: ReferenceWorkspaceProps) {
   const { controller, state } = useSpeakerReplay()
+  let playLabel = "Play"
+  if (state.status === "playing") {
+    playLabel = "Pause"
+  } else if (state.status === "draining" || state.status === "ended") {
+    playLabel = "Replay"
+  }
   return (
     <div className={`${EyeAppStyles} [height:auto] min-h-svh overflow-auto`}>
       <header className="flex min-h-16 items-center justify-between gap-4 border-b px-5 md:px-8">
@@ -77,7 +83,7 @@ export function ReferenceWorkspace({
                   : controller.play())
               }}
             >
-              {state.status === "playing" ? "Pause" : "Play"}
+              {playLabel}
             </Button>
           </div>
         </div>
@@ -94,8 +100,8 @@ export function ReferenceWorkspace({
               to your computer; other voices and artifacts can remain.
             </p>
             <p>
-              Focused playback waits for processed audio. The picture follows
-              the sound being played.
+              The picture stays live. Focused audio plays as soon as processing
+              finishes; its delay depends on your computer.
             </p>
             <p>
               Up to 120 seconds and 120 MiB. Video decoding depends on browser

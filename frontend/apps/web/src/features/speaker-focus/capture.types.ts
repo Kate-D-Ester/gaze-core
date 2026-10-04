@@ -17,7 +17,7 @@ export type CaptureOptions = {
     captureTime: number,
     generation: number
   ) => void
-  onFrame: (jpeg: Blob, sampleStart: number, generation: number) => void
+  onFrame?: (jpeg: Blob, sampleStart: number, generation: number) => void
   onError: (message: string) => void
 }
 export type CaptureMessage = {
