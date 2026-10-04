@@ -18,7 +18,7 @@ if (typeof document === "undefined") {
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-test("an unchecked saved mapping allows returning to accuracy, and only a passed check enables Focus", async () => {
+test("guided accuracy exposes failed results and enables Focus after a fresh corrected check", async () => {
   localStorage.clear()
   const { s } = calibrate()
   saveSceneProfile(
@@ -55,7 +55,32 @@ test("an unchecked saved mapping allows returning to accuracy, and only a passed
     dimensions: { width: 640, height: 480 },
     settings: { ...TrackerHook.DEFAULT_SETTINGS, locked: true },
     configure() {},
-    frame: null,
+    frame: {
+      id: 1,
+      timestamp: 1000,
+      width: 640,
+      height: 480,
+      roi: { x: 0, y: 0, width: 640, height: 480 },
+      detection: {
+        ellipse: {
+          center: [320, 240],
+          major: 30,
+          minor: 20,
+          angle: 0,
+          confidence: 0.95,
+        },
+        tracking: "tracking",
+        seed: null,
+        contour: [],
+        refined: [],
+        previews: [],
+        selected: 0,
+        reason: "",
+      },
+      model: null,
+      gaze: { origin: [0, 0, 0], pupil: [0, 0, -1], direction: [0, 0, -1] },
+      processingMs: 1,
+    },
     latest: { current: null },
     source: { kind: "camera", name: "Eye camera", key: "eye" },
     sourceCanvas: { current: document.createElement("canvas") },
@@ -134,7 +159,22 @@ test("an unchecked saved mapping allows returning to accuracy, and only a passed
     ).toBeNull()
     await act(async () => {
       installed!.startCapture("validation")
-      collectValidation(installed!, 0)
+      collectValidation(installed!, 0, () => [0.08, -0.06])
+    })
+    expect(installed!.getSnapshot().validation?.passed).toBe(false)
+    expect(steps()[6]!.disabled).toBe(true)
+    const recovery = host.querySelector(".scene-validation-recovery")!
+    expect(recovery).not.toBeNull()
+    expect(recovery.closest("details")?.open).toBe(true)
+    const correction = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Apply suggested offset and check accuracy"]'
+    )!
+    expect(correction.disabled).toBe(false)
+    await act(async () => correction.click())
+    expect(installed!.getSnapshot().capture).toBe("validation")
+    expect(steps()[6]!.disabled).toBe(true)
+    await act(async () => {
+      collectValidation(installed!, 500, () => [0.08, -0.06])
     })
     expect(installed!.getSnapshot().validation?.passed).toBe(true)
     expect(steps()[6]!.disabled).toBe(false)

@@ -1,3 +1,30 @@
+# Visible failed accuracy results (2026-10-04)
+
+After collecting five physical points, the human's accuracy result was **60.2 px
+RMS and 64.1 px worst error**, with validation failed. Guided setup suppressed the
+failure notice while hiding the existing error and recovery controls inside the
+closed Adjust gaze disclosure. It then displayed the generic instruction to collect
+five points, making a completed failed check appear not to have completed.
+
+The guided status now shows the measured failed-check errors, and Accuracy result
+opens automatically with the existing offset/recheck/recalibration controls. No
+validation threshold, saved calibration, human offset or Focus gate was changed.
+Collecting five points still measures accuracy; only a current passed check enables
+gaze Focus. The real guided integration test now reproduces a failed check,
+verifies visible recovery and locked Focus, applies its suggested correction, then
+collects five fresh points and opens Focus after they pass. Its red run failed on
+the closed disclosure before this repair.
+
+Verification passed: **824 frontend tests across 98 files**, formatting, lint,
+TypeScript and an isolated production build. Read-only review found no blocker.
+The live Chrome camera session displayed the exact failed-check values after the
+update, with its original offsets intact. Screenshot evidence is saved under the
+ignored `guided-accuracy-failed-result.png` artifact. The human's physical mapping
+remains failed until it is corrected and checked again; the agent did not fabricate
+an accuracy pass. Backend services and primary v3 were not changed.
+
+---
+
 # Guided accuracy navigation repair (2026-10-04)
 
 The human's saved unverified mapping opened Check accuracy, while that step's

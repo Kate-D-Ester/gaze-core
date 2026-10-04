@@ -113,9 +113,12 @@ export function SceneWorkspace({
     ? !!state.calibration
     : canUseSceneCalibration(state)
   const accuracyChecked = hasCurrentAccuracyCheck(state)
+  const validationFailed = !!state.validation && !state.validation.passed
   let accuracyHint = "Check 5 fingertip positions to unlock gaze focus."
   if (accuracyChecked) {
     accuracyHint = "Accuracy checked"
+  } else if (validationFailed && state.validation) {
+    accuracyHint = `Accuracy check failed · ${state.validation.pixelRms.toFixed(1)} px RMS · ${state.validation.maxPixelError.toFixed(1)} px worst.`
   } else if (isMarker) {
     accuracyHint = "Check 5 marker positions to unlock gaze focus."
   }
@@ -397,8 +400,10 @@ export function SceneWorkspace({
             >
               Continue to focus
             </button>
-            <details className="mt-3 text-xs">
-              <summary>Adjust gaze</summary>
+            <details className="mt-3 text-xs" open={validationFailed}>
+              <summary>
+                {validationFailed ? "Accuracy result" : "Adjust gaze"}
+              </summary>
               <SceneLiveControls
                 session={state.session}
                 state={state}
