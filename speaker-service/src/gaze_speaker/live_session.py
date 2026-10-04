@@ -5,7 +5,6 @@ import base64
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from time import monotonic
 
 import numpy as np
 
@@ -32,7 +31,7 @@ class LiveSession:
         self.replies = asyncio.Queue(maxsize=12)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="live-face")
         self.processor = None
-        self.clock_offset = monotonic() - config.client_time
+        self.capture_times: dict[int, float] = {}
         self.last_feed = -1
         self.flow_paused = False
         self.paused = False
@@ -93,6 +92,7 @@ class LiveSession:
             self.faces.correct(self.faces.region)
             self.last_feed = -1
         self.generation = target.generation
+        self.capture_times.clear()
         self.target = target.target_id
         self.buffer.reset()
         self.end_sample = None
@@ -112,8 +112,10 @@ class LiveSession:
         packet = decode_packet(data)
         if packet.generation != self.generation:
             return
-        if abs(monotonic() - self.clock_offset - packet.capture_time) > 1:
-            raise ValueError("Capture clock is stale or discontinuous; restart capture")
+        previous_capture = self.capture_times.get(packet.kind)
+        if previous_capture is not None and packet.capture_time < previous_capture:
+            raise ValueError("Capture clock moved backwards; restart capture")
+        self.capture_times[packet.kind] = packet.capture_time
         if self.end_sample is not None:
             return
         if packet.kind == 2:

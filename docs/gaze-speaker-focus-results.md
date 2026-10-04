@@ -1,3 +1,50 @@
+# Reference playback reliability repair (2026-10-04)
+
+Reference selection now uses the mouse position on the displayed face. Numbered
+speaker labels and shortcuts have been removed; the selected outline says
+**Locked**. Clicking that face again keeps the current playback generation and
+cursor. Keyboard activation still selects the focused face button.
+
+Three independent timing problems caused unwanted pauses: the native video kept
+advancing while JPEG encoding skipped input frames; the player rejected a running
+audio clock that lagged the wall clock by 150 ms; and the server rejected capture
+packets more than one second after capture. Replay now seeks and delivers every
+15 fps source frame before advancing its contiguous mixed PCM, accounts for normal
+seek/encoding work inside cumulative frame deadlines, and slows under sustained
+codec pressure. Playback follows the monotonic audio output clock. The server
+checks per-kind capture-clock order without an arrival-age deadline. Generation,
+actual audio/video sample alignment, capacity and backpressure checks remain.
+
+Small-face detection retries the previous location in a fresh crop when full-scene
+landmark detection misses it. Duplicate fits are merged only when box overlap and
+landmark positions agree; distinct overlapping faces remain separate. All **479
+JPEG-quality-70 frames** of the degraded debate retained the three initial spatial
+identities with **zero missing frames** in the actual MediaPipe diagnostic.
+
+Browser checks completed full final-code left, center and right focused runs with
+their respective face outlines retained, without timing errors. The right run also completed while
+frontend tests, lint and type checking used the CPU. The final-code right run showed
+**6.6 seconds measured delay** near its end; this is an observation, not a latency
+threshold or a microphone-to-ear measurement. A deliberate left-to-center mouse
+switch at approximately 13.8 source seconds changed the outline to the center face,
+buffered the new target, and completed playback to the end with that lock retained.
+The page was left at the first frame with the left face locked, ready for Play.
+
+Final code checks passed: **796 frontend tests across 97 files**, **156 service
+tests** with real model/reference tests enabled (eight existing upstream warnings),
+lint, TypeScript, Ruff and an isolated production build. Regression tests failed
+before fixes for skipped frames, duplicate fits, repeated selection, wall/output
+clock lag, delayed camera/replay packets, decode overhead and mouse coordinates.
+The independent review's pacing issue and pointer-location note were addressed;
+its subsequent capture-clock review found no Important issue.
+
+Evidence is in ignored `speaker-service/data/benchmarks/reference-reliability/`:
+complete test logs, actual detector observations and browser screenshots/snapshots.
+Speech-isolation quality is still not certified by human listening, and physical
+ESP32/microphone/gaze/headset behavior remains untested. No v3 changes were made.
+
+---
+
 # Adaptive streaming measurements (2026-10-04)
 
 Current implementation: protocol v2, engine-specific context, stateful RNNoise,
@@ -42,9 +89,10 @@ Explicit correction regions were used: left `[0,0.05,0.35,0.65]`, center
 `[0.40,0.10,0.20,0.55]`, right `[0.65,0.05,0.35,0.65]`. The initial broad center
 region produced a multiple-face error at 23.45 seconds and remains saved as an
 incomplete test (`baseline-middle`); a tighter single-person region completed.
-Automatic full-scene browser tracking also dropped identities on the low-quality
-clip. It pauses and requires reselection instead of silently switching voices.
-These are material detection limitations, not successful automatic full-clip runs.
+Before the reliability repair recorded above, automatic full-scene browser tracking
+also dropped identities on this clip. Those older failures motivated the paced
+frame feeder, crop retry and duplicate-landmark fixes. The historical runs below
+are retained for comparison.
 
 Synthetic noise seed **20261004** adds hiss, 50/100 Hz hum and brief transients to
 one complete mixture. Noise MOV SHA-256:
@@ -84,8 +132,8 @@ Pause/recovery reacquires the selected identity at its played observation, requi
 explicit selection when that evidence is missing. Processing errors retire the
 generation before queued audio can play. Reconnect reopens streaming ownership
 without reloading the decoded source; service errors remain actionable through
-socket cleanup. A 120 fps regression verifies bounded frame/PCM dispatch and exact
-EOF conservation. Controlled concurrent requests verify atomic live/batch admission,
+socket cleanup. A paced-decoder regression verifies bounded frame/PCM dispatch and exact
+EOF conservation, including delayed seek and JPEG encoding. Controlled concurrent requests verify atomic live/batch admission,
 including the dequeued-but-unfinished worker interval. Late playback permission
 completion cannot start a replacement source or fail disposal. Screenshot evidence:
 `focused-playback.png`, `narrow.png`, `desktop.png`. Guided setup/calibration and

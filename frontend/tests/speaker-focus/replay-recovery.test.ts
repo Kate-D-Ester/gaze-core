@@ -335,3 +335,24 @@ test("Reconnect restores streaming ownership at the preserved reference cursor",
     }
   }
 })
+
+test("selecting the locked face again does not rewind or interrupt listening", async () => {
+  const f = fixture()
+  try {
+    Reflect.get(f.controller, "update").call(f.controller, {
+      tracks: [
+        {
+          id: "old-person",
+          manual: false,
+          observations: [{ timestamp: 10, box: [0.1, 0.1, 0.3, 0.4] }],
+        },
+      ],
+    })
+    await f.controller.select([0.2, 0.3])
+    expect(f.seeks).toEqual([])
+    expect(f.controller.getSnapshot().selectedId).toBe("old-person")
+    expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})

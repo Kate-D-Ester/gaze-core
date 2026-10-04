@@ -471,6 +471,9 @@ export class ReplayController {
       this.update({ error: "Select a currently visible face" })
       return
     }
+    if (valid === this.snapshot.selectedId) {
+      return
+    }
     try {
       await this.restart(this.cursor(), point, this.desired)
     } catch (error) {

@@ -27,7 +27,6 @@ export type ScheduledChunk = {
   when: number
   end: number
 }
-export type LiveClock = { audio: number; performance: number }
 export type PreviewFrame = {
   image: ImageBitmap
   timestamp: number

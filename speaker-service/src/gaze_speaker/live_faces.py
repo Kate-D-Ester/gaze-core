@@ -9,7 +9,10 @@ from PIL import Image
 
 from .faces import (
     FaceAssociator,
+    FaceObservation,
     FaceTrack,
+    associate_boxes,
+    box_iou,
     detector_observations,
     face_model_path,
     validate_region,
@@ -26,6 +29,24 @@ def decode_frame(payload: bytes) -> np.ndarray:
     if image is None:
         raise ValueError("Live JPEG could not be decoded")
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def distinct_observations(
+    observations: list[FaceObservation], width: int, height: int
+) -> list[FaceObservation]:
+    """Merge duplicate landmark fits, retaining distinct overlapping faces."""
+    distinct = []
+    for observation in observations:
+        face_size = min(observation.box[2] * width, observation.box[3] * height)
+        duplicate = any(
+            box_iou(observation.box, other.box) >= 0.65
+            and np.linalg.norm(observation.anchors - other.anchors, axis=1).mean()
+            <= 0.15 * face_size
+            for other in distinct
+        )
+        if not duplicate:
+            distinct.append(observation)
+    return distinct
 
 
 class LiveFaces:
@@ -60,25 +81,58 @@ class LiveFaces:
     def detect(self, image: np.ndarray, timestamp: float):
         if timestamp - self.last_detection < 0.18:
             return
+        self.initialize()
+        observations = self._observe(image, timestamp, self.region)
+        if self.region is None:
+            previous = {key: track.observations[-1].box for key, track in self.tracks.items()}
+            matched = associate_boxes(previous, [item.box for item in observations])
+            for identity, track in self.tracks.items():
+                last = track.observations[-1]
+                if identity in matched or timestamp - last.timestamp > 0.35:
+                    continue
+                if any(box_iou(last.box, item.box) >= 0.35 for item in observations):
+                    continue
+                x, y, w, h = last.box
+                left = max(0, x - 0.6 * w)
+                top = max(0, y - 0.6 * h)
+                region = (left, top, min(1, x + 1.6 * w) - left, min(1, y + 1.6 * h) - top)
+                recovered = self._observe(image, timestamp, region)
+                if len(recovered) == 1 and box_iou(last.box, recovered[0].box) >= 0.35:
+                    observations += recovered
+        elif len(observations) > 1:
+            raise ValueError("Correct a region containing exactly one face")
+        identities = self.associator.update([o.box for o in observations], timestamp)
+        for identity, observation in zip(identities, observations, strict=True):
+            track = self.tracks.setdefault(
+                identity, FaceTrack(identity, manual=self.region is not None)
+            )
+            track.observations.append(observation)
+        self.last_detection = timestamp
+        self.tracks = {
+            key: track for key, track in self.tracks.items() if key in self.associator.last_seen
+        }
+        for track in self.tracks.values():
+            track.observations = list(
+                deque((o for o in track.observations if timestamp - o.timestamp <= 3.5), maxlen=24)
+            )
+
+    def _observe(self, image, timestamp, region):
         import mediapipe as mp
 
-        self.initialize()
         height, width = image.shape[:2]
         left, top = 0, 0
         crop = image
-        if self.region is not None:
-            x, y, w, h = self.region
+        if region is not None:
+            x, y, w, h = region
             left, top = round(x * width), round(y * height)
             crop = np.ascontiguousarray(
                 image[top : round((y + h) * height), left : round((x + w) * width)]
             )
             if min(crop.shape[:2]) < 8:
-                raise ValueError("Correction region is too small")
+                return []
         detected = self.detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=crop))
         observations = detector_observations(detected, crop.shape[1], crop.shape[0], timestamp)
-        if self.region is not None:
-            if len(observations) > 1:
-                raise ValueError("Correct a region containing exactly one face")
+        if region is not None:
             for observation in observations:
                 x, y, w, h = observation.box
                 observation.box = (
@@ -89,22 +143,7 @@ class LiveFaces:
                 )
                 observation.anchors += [left, top]
                 observation.mouth += [left, top]
-        identities = self.associator.update([o.box for o in observations], timestamp)
-        for identity, observation in zip(identities, observations, strict=True):
-            track = self.tracks.setdefault(
-                identity, FaceTrack(identity, manual=self.region is not None)
-            )
-            track.observations.append(observation)
-        self.last_detection = timestamp
-        self.tracks = {
-            key: track
-            for key, track in self.tracks.items()
-            if key in self.associator.last_seen
-        }
-        for track in self.tracks.values():
-            track.observations = list(
-                deque((o for o in track.observations if timestamp - o.timestamp <= 3.5), maxlen=24)
-            )
+        return distinct_observations(observations, width, height)
 
     def view(self):
         return [

@@ -9,9 +9,9 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
   const [marking, setMarking] = useState(false)
   const [anchor, setAnchor] = useState<ImagePoint | null>(null)
   const time = state.sourceSample / 16000
-  const visible = state.tracks.flatMap((track, index) => {
+  const visible = state.tracks.flatMap((track) => {
     const box = boxAtTime(track, time)
-    return box ? [{ track, box, index }] : []
+    return box ? [{ track, box }] : []
   })
   useEffect(() => {
     const timer = setInterval(() => {
@@ -54,10 +54,10 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
           </div>
         )}
         {!marking &&
-          visible.map(({ track, box, index }) => (
+          visible.map(({ track, box }) => (
             <button
               key={track.id}
-              aria-label={`Select reference speaker ${index + 1}`}
+              aria-label={`Select face at ${Math.round((box[0] + box[2] / 2) * 100)}%, ${Math.round((box[1] + box[3] / 2) * 100)}%`}
               aria-pressed={state.selectedId === track.id}
               className={`absolute rounded-lg border-2 ${state.selectedId === track.id ? "border-primary bg-primary/10" : "border-white/50 hover:bg-white/10"}`}
               style={{
@@ -66,17 +66,34 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
                 width: `${box[2] * 100}%`,
                 height: `${box[3] * 100}%`,
               }}
-              onClick={() => {
-                void controller.select([
+              onClick={(event) => {
+                let point: ImagePoint = [
                   box[0] + box[2] / 2,
                   box[1] + box[3] / 2,
-                ])
+                ]
+                if (event.detail > 0) {
+                  if (!surface.current || !state.media) {
+                    return
+                  }
+                  const clicked = imagePoint(
+                    [event.clientX, event.clientY],
+                    surface.current.getBoundingClientRect(),
+                    state.media.width,
+                    state.media.height
+                  )
+                  if (!clicked) {
+                    return
+                  }
+                  point = clicked
+                }
+                void controller.select(point)
               }}
             >
-              <span className="absolute -top-7 left-0 rounded bg-black/80 px-2 py-1 text-xs">
-                {index + 1}
-                {state.selectedId === track.id && " · locked"}
-              </span>
+              {state.selectedId === track.id && (
+                <span className="absolute -top-7 left-0 rounded bg-black/80 px-2 py-1 text-xs">
+                  Locked
+                </span>
+              )}
             </button>
           ))}
         {marking && (
@@ -149,23 +166,9 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
       )}
       {state.media && (
         <div className="flex flex-wrap items-center gap-2">
-          {visible.map(({ track, box, index }) => (
-            <Button
-              key={track.id}
-              size="sm"
-              variant={state.selectedId === track.id ? "default" : "outline"}
-              aria-label={`Lock reference speaker ${index + 1}`}
-              aria-pressed={state.selectedId === track.id}
-              onClick={() => {
-                void controller.select([
-                  box[0] + box[2] / 2,
-                  box[1] + box[3] / 2,
-                ])
-              }}
-            >
-              Speaker {index + 1}
-            </Button>
-          ))}
+          <span className="text-xs text-muted-foreground">
+            Click a face to listen
+          </span>
           <Button
             size="sm"
             variant="ghost"

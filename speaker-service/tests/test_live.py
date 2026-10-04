@@ -89,7 +89,7 @@ def test_origin_ready_heartbeat_and_reconnect_beyond_clip_limit(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_stale_capture_is_rejected_but_paused_source_time_is_valid(tmp_path):
+async def test_backwards_capture_is_rejected_but_paused_source_time_is_valid(tmp_path):
     store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
     session = LiveSession(store, LiveConfig.model_validate(config()))
     session.generation = 1
@@ -327,4 +327,23 @@ def test_live_admission_rejects_a_dequeued_unfinished_batch_task(tmp_path, monke
                 assert reply.get("code") == "worker_busy", reply
     finally:
         store.queue.task_done()
+        store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["replay", "camera"])
+async def test_delayed_contiguous_capture_is_accepted_without_an_arrival_deadline(tmp_path, source):
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config(source=source)))
+    session.generation = 1
+    session.target = "face"
+    try:
+        captured = monotonic() - 3
+        pcm = np.zeros(1600, dtype="<f4").tobytes()
+        await session.packet(encode_packet(1, 1, 0, captured, pcm))
+        await session.packet(encode_packet(1, 1, 1600, captured + 0.1, pcm))
+        assert session.buffer.next_audio == 3200
+        assert session.accepted_end == 3200
+    finally:
+        await session.close()
         store.close()

@@ -113,3 +113,16 @@ test("real clock discontinuity and suspension reject output", () => {
     expect(f.sources[0]!.stopped).toBe(true)
   }
 })
+
+test("a running output clock may lag the wall clock without interrupting valid speech", () => {
+  const f = fixture()
+  f.player.audio(f.chunk(0))
+  const when = f.sources[0]!.when
+  f.advance(3)
+  Object.assign(f.context, { currentTime: when + 0.5 })
+  expect(f.player.sourceSample()).toBe(8000)
+  expect(f.player.audio(f.chunk(16000, 3))).toBe(true)
+  expect(f.errors).toEqual([])
+  expect(f.sources[0]!.stopped).toBe(false)
+  expect(f.sources[1]!.when).toBeCloseTo(when + 1, 6)
+})

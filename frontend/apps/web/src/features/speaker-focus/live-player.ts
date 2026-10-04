@@ -1,6 +1,5 @@
 import { AdaptiveJitter } from "./adaptive-jitter"
 import type {
-  LiveClock,
   LivePlayerOptions,
   PlaybackTiming,
   ScheduledChunk,
@@ -15,7 +14,7 @@ export class LivePlayer {
   private nextTime: number | null = null
   private disposed = false
   private failed = false
-  private clock: LiveClock | null = null
+  private audioClock: number | null = null
   private finalSample: number | null = null
   private bytes = 0
   private jitter: AdaptiveJitter
@@ -43,7 +42,7 @@ export class LivePlayer {
     this.nextSample = null
     this.nextTime = null
     this.finalSample = null
-    this.clock = null
+    this.audioClock = null
     this.jitter.reset()
     const now = this.options.context.currentTime
     for (const [source, gain] of this.sources) {
@@ -66,7 +65,7 @@ export class LivePlayer {
   private stateChanged = () => {
     if (
       !this.disposed &&
-      this.clock &&
+      this.audioClock !== null &&
       this.options.context.state !== "running"
     ) {
       this.fail("Audio output paused; resume listening")
@@ -78,10 +77,6 @@ export class LivePlayer {
     }
     const context = this.options.context
     const now = this.now()
-    this.clock ??= { audio: context.currentTime, performance: now }
-    const drift = Math.abs(
-      context.currentTime - this.clock.audio - (now - this.clock.performance)
-    )
     const endSample = chunk.startSample + chunk.pcm.length
     let captureCursor = chunk.startSample
     for (const span of chunk.captures) {
@@ -94,7 +89,11 @@ export class LivePlayer {
       }
       captureCursor = span.endSample
     }
-    if (context.state !== "running" || drift > 0.15) {
+    if (
+      context.state !== "running" ||
+      !Number.isFinite(context.currentTime) ||
+      (this.audioClock !== null && context.currentTime < this.audioClock)
+    ) {
       return this.fail("Audio output clock changed; resume listening")
     }
     if (
@@ -110,6 +109,7 @@ export class LivePlayer {
     if (this.bytes + chunk.pcm.byteLength > 4 * 1024 * 1024) {
       return this.fail("Audio buffer is full; resume listening")
     }
+    this.audioClock = context.currentTime
     const duration = chunk.pcm.length / 16000
     this.jitter.arrive(now, duration)
     let when = this.nextTime
