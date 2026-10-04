@@ -138,3 +138,54 @@ test("streaming status reports measured delay and explicit capability failure", 
     "noise suppression"
   )
 })
+
+test("a busy session offers reconnect even when the local model is healthy", async () => {
+  const snapshot: ReplayState = {
+    ...state,
+    status: "paused",
+    selectedId: null,
+    tracks: [],
+    timing: null,
+    health: {
+      ready: true,
+      model_state: "ready",
+      engine: "AV-MossFormer2-TSE-16K",
+      device: "mps",
+      error: null,
+      clip: true,
+      live: true,
+      streaming_ready: true,
+      streaming_error: null,
+      max_upload_bytes: 125829120,
+      max_duration: 120,
+      queued: 0,
+      window_seconds: 3,
+      stride_seconds: 1.8,
+    },
+    serviceError:
+      "Speaker service is in use in another tab. Close that session, then reconnect.",
+  }
+  spyOn(ReplayController.prototype, "mount").mockImplementation(function () {
+    Reflect.get(this, "update").call(this, snapshot)
+  })
+  host = document.createElement("div")
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host!)
+    root.render(
+      createElement(ReferenceWorkspace, { onSetup() {}, onExport() {} })
+    )
+  })
+  expect(
+    host.querySelector(
+      'button[aria-label="Reconnect to local speaker service"]'
+    )?.textContent
+  ).toBe("Reconnect")
+  expect(host.textContent).toContain("Reconnect to detect faces")
+  expect(host.textContent).not.toContain("Local service ready")
+  expect(
+    host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Select face at 25%, 40%"]'
+    )
+  ).toBeNull()
+})

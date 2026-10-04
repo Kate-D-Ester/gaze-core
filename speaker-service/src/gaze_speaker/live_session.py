@@ -271,16 +271,34 @@ class LiveSession:
         self.cancel.set()
         self.generation += 1
         self.buffer.reset()
-        await self.loop.run_in_executor(self.executor, self.faces.close)
-        await asyncio.to_thread(self.executor.shutdown, wait=True, cancel_futures=True)
+        try:
+            await self.loop.run_in_executor(self.executor, self.faces.close)
+        finally:
+            try:
+                await asyncio.to_thread(self.executor.shutdown, wait=True, cancel_futures=True)
+            finally:
+                await self.close_processor()
+
+    async def close_processor(self):
         if self.processor:
             # Queue disposal behind all running inference so native state cannot race.
             if self.owner.thread.is_alive() and not self.owner.stopping.is_set():
                 future = self.loop.create_future()
 
+                def complete(error):
+                    if not future.done():
+                        if error is None:
+                            future.set_result(None)
+                        else:
+                            future.set_exception(error)
+
                 def dispose():
-                    self.processor.close()
-                    self.loop.call_soon_threadsafe(future.set_result, None)
+                    try:
+                        self.processor.close()
+                    except Exception as exc:
+                        self.loop.call_soon_threadsafe(complete, exc)
+                    else:
+                        self.loop.call_soon_threadsafe(complete, None)
 
                 while self.owner.queue.full():
                     await asyncio.sleep(0.02)

@@ -1,3 +1,48 @@
+# Reference connection conflict repair (2026-10-04)
+
+The human reported no rectangles and rejected mouse clicks despite the earlier
+agent test succeeding. Reproducing the normal workflow in another tab showed
+that an earlier test tab still owned the service's exclusive live session. The
+rejected tab retained the mixed video but had no face observations; clicks
+replaced the useful connection error with “Select a currently visible face.”
+Closing the original test tab, allowing its teardown to finish, and reconnecting
+restored all three reference face rectangles. This reproduced blocker was a
+session conflict, not a proven runtime lease leak.
+
+Selection and focused playback now preserve a rejected session's service error.
+The connection button displays Reconnect when that tab cannot use the service,
+even if the model is healthy. The video offers a reconnect hint and disables
+manual correction while detection is unavailable. Original audio remains usable.
+
+Review also confirmed two cleanup failure paths: a native processor disposal
+exception could leave an awaited future unresolved, and failed/cancelled teardown
+could skip releasing the worker lease. Cleanup now completes resource teardown
+before releasing ownership, survives transport cancellation, and propagates
+native disposal failures through the future. Exclusive inference is retained.
+
+Verification: **816 frontend tests across 97 files** and **155 backend tests**
+passed; four real-model tests were excluded. Lint, TypeScript, formatting, and an
+isolated production build passed. Regression tests reproduced the selection/play
+failures and cleanup exception failures before the fixes; a cancellation test
+checks that ownership remains reserved until native cleanup finishes. Independent
+read-only review found no blocking issue.
+
+Native browser input verified Play-before-selection followed by a middle-face
+click during playback, with the middle person locked. A feature-only restart and
+clean development compilation activated the fixes. A fresh physical click again
+produced the middle-face rectangle and Locked label. Another tab visibly showed
+the busy-session message and Reconnect button; after the first tab left reference
+mode, its reconnect restored all three face rectangles. Both test connections
+were released afterward so they cannot occupy the user's processing session.
+
+Evidence is saved under the ignored `session-*` prefix in
+`speaker-service/data/benchmarks/reference-reliability/`, including
+`session-mouse-lock.png` and `session-reconnect-ready.png`. These checks do not
+certify perceptual separation quality or physical camera/gaze behavior. The
+primary v3 checkout remains untouched.
+
+---
+
 # Reference mouse selection repair (2026-10-04)
 
 Physical pointer selection now happens on the stable video surface at press time,

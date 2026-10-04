@@ -215,11 +215,14 @@ export function ReplayStage({ controller, state }: ReplayStageProps) {
       {state.media && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            Click a face to listen
+            {state.serviceError
+              ? "Reconnect to detect faces"
+              : "Click a face to listen"}
           </span>
           <Button
             size="sm"
             variant="ghost"
+            disabled={Boolean(state.serviceError)}
             onClick={() => setMarking(!marking)}
           >
             {marking ? "Cancel region" : "Correct face region"}

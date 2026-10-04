@@ -405,6 +405,10 @@ export class ReplayController {
     )
   }
   async play(): Promise<void> {
+    if (this.snapshot.mode === "focused" && this.snapshot.serviceError) {
+      this.update({ error: this.snapshot.serviceError })
+      return
+    }
     const source = this.source
     const context = this.context
     const epoch = this.epoch
@@ -486,6 +490,10 @@ export class ReplayController {
     point: ImagePoint,
     options?: ReplaySelectionOptions
   ): Promise<void> {
+    if (this.snapshot.serviceError) {
+      this.update({ error: this.snapshot.serviceError })
+      return
+    }
     const sample =
       options?.sourceSample ??
       this.snapshot.displayedSample ??

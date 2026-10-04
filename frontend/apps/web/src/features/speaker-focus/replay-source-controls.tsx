@@ -47,7 +47,9 @@ export function ReplaySourceControls({
           void controller.connect()
         }}
       >
-        {state.health?.live ? "Local service ready" : "Reconnect"}
+        {state.health?.live && !state.serviceError
+          ? "Local service ready"
+          : "Reconnect"}
       </button>
       {state.serviceError && (
         <p role="status" className="w-full text-xs text-amber-200">

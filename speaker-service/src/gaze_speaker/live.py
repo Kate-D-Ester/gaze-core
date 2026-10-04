@@ -67,7 +67,11 @@ async def serve_live(socket: WebSocket):
     sender = None
     try:
         if not acquired:
-            raise ServiceError("live_busy", "Only one live session can run at a time", 409)
+            raise ServiceError(
+                "live_busy",
+                "Speaker service is in use in another tab. Close that session, then reconnect.",
+                409,
+            )
         if owner.queue.unfinished_tasks or owner.worker_busy:
             raise ServiceError("worker_busy", "Wait for file processing to finish", 409)
         if owner.separator is None or owner.model_state != "ready":
@@ -156,14 +160,23 @@ async def serve_live(socket: WebSocket):
         except (WebSocketDisconnect, RuntimeError):
             pass
     finally:
-        if sender:
-            sender.cancel()
-            await asyncio.gather(sender, return_exceptions=True)
-        if session:
-            await session.close()
-        if acquired:
-            owner.live_lock.release()
-        try:
-            await socket.close()
-        except (WebSocketDisconnect, RuntimeError):
-            pass
+
+        async def cleanup():
+            try:
+                try:
+                    if sender:
+                        sender.cancel()
+                        await asyncio.gather(sender, return_exceptions=True)
+                finally:
+                    if session:
+                        await session.close()
+            finally:
+                if acquired:
+                    owner.live_lock.release()
+                try:
+                    await socket.close()
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+
+        # Transport cancellation must not strand the worker lease or native state.
+        await asyncio.shield(cleanup())

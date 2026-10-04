@@ -347,3 +347,111 @@ async def test_delayed_contiguous_capture_is_accepted_without_an_arrival_deadlin
     finally:
         await session.close()
         store.close()
+
+
+@pytest.mark.asyncio
+async def test_native_processor_close_failure_does_not_leave_session_cleanup_waiting(tmp_path):
+    store = Store(Settings(data_dir=tmp_path), load_model=False)
+    session = LiveSession(store, LiveConfig.model_validate(config()))
+
+    def failed_close():
+        raise RuntimeError("native cleanup failed")
+
+    session.processor = SimpleNamespace(close=failed_close)
+    try:
+        with pytest.raises(RuntimeError, match="native cleanup failed"):
+            await asyncio.wait_for(session.close(), 1)
+        assert session.cancel.is_set()
+        assert not session.executor._threads or all(
+            not t.is_alive() for t in session.executor._threads
+        )
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_face_cleanup_releases_the_disconnected_sessions_processing_lease(
+    tmp_path, monkeypatch
+):
+    from gaze_speaker.live import serve_live
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    store.separator = SimpleNamespace(device="cpu", engine_key="rtfs")
+    store.model_state = "ready"
+    store.streaming_ready = True
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
+
+    def failed_close(_):
+        raise RuntimeError("face cleanup failed")
+
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.close", failed_close)
+
+    try:
+        with pytest.raises(RuntimeError, match="face cleanup failed"):
+            await serve_live(DisconnectedSocket(store))
+        assert not store.live_lock.locked()
+    finally:
+        store.close()
+
+
+class DisconnectedSocket:
+    def __init__(self, store):
+        self.app = SimpleNamespace(state=SimpleNamespace(store=store))
+        self.headers = {"host": "127.0.0.1", "origin": store.settings.origin}
+
+    async def accept(self):
+        pass
+
+    async def receive_text(self):
+        import json
+
+        return json.dumps(config())
+
+    async def receive(self):
+        return {"type": "websocket.disconnect"}
+
+    async def send_json(self, reply):
+        pass
+
+    async def close(self, code=1000):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_transport_cancellation_holds_the_lease_until_native_cleanup_finishes(
+    tmp_path, monkeypatch
+):
+    from gaze_speaker.live import serve_live
+
+    store = Store(Settings(data_dir=tmp_path), start_worker=False, load_model=False)
+    store.separator = SimpleNamespace(device="cpu", engine_key="rtfs")
+    store.model_state = "ready"
+    store.streaming_ready = True
+    monkeypatch.setattr("gaze_speaker.live_faces.LiveFaces.initialize", lambda _: None)
+    entered, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    close = LiveSession.close
+    sessions = []
+
+    async def delayed_close(session):
+        sessions.append(session)
+        entered.set()
+        await release.wait()
+        await close(session)
+        finished.set()
+
+    monkeypatch.setattr(LiveSession, "close", delayed_close)
+    task = asyncio.create_task(serve_live(DisconnectedSocket(store)))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        assert store.live_lock.locked()
+        release.set()
+        await asyncio.wait_for(finished.wait(), 1)
+        assert not store.live_lock.locked()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        if not finished.is_set() and sessions:
+            await close(sessions[0])
+        store.close()

@@ -650,3 +650,42 @@ test("Original replay starts at zero without waiting for a face to be detected",
     f.controller.dispose()
   }
 })
+
+test("a rejected processing session keeps its connection error when a face is clicked", async () => {
+  const f = fixture()
+  const message =
+    "Speaker service is in use in another tab. Close that session, then reconnect."
+  Reflect.get(f.controller, "streamUnavailable").call(f.controller, message)
+  f.seeks.length = 0
+  try {
+    await f.controller.select([0.5, 0.35], {
+      sourceSample: 160000,
+      radius: [0.1, 0.1],
+    })
+    expect(f.controller.getSnapshot().error).toBe(message)
+    expect(f.controller.getSnapshot().selectedId).toBeNull()
+    expect(f.seeks).toEqual([])
+  } finally {
+    f.controller.dispose()
+  }
+})
+
+test("focused playback cannot silently run without a processing session, while Original can", async () => {
+  const f = fixture()
+  Reflect.get(f.controller, "streamUnavailable").call(
+    f.controller,
+    "Processing session unavailable; reconnect"
+  )
+  try {
+    await f.controller.play()
+    expect(f.plays()).toBe(0)
+    expect(f.controller.getSnapshot().status).toBe("paused")
+    expect(f.controller.getSnapshot().error).toContain("reconnect")
+    await f.controller.listen("original")
+    await f.controller.play()
+    expect(f.plays()).toBe(1)
+    expect(f.controller.getSnapshot().status).toBe("playing")
+  } finally {
+    f.controller.dispose()
+  }
+})
