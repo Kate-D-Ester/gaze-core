@@ -69,11 +69,20 @@ export class LocalVoiceController {
       const session = await this.factory(
         (text) => {
           if (current()) {
+            this.update({ ...this.snapshot, message: `Heard: ${text}` })
             handler(text)
           }
         },
         startup.signal,
-        fail
+        fail,
+        () => {
+          if (current()) {
+            this.update({
+              ...this.snapshot,
+              message: "Command not understood. Say one command, then pause.",
+            })
+          }
+        }
       )
       if (!current()) {
         session.stop()
@@ -82,7 +91,7 @@ export class LocalVoiceController {
       this.session = session
       this.update({
         status: "listening",
-        message: "Listening · audio stays on this device",
+        message: "Say one command, then pause.",
       })
     } catch (failure) {
       fail(failure)

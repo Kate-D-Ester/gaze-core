@@ -47,6 +47,7 @@ export function ViewerWorkspace({
   onSetup,
   setupStatus,
   gazeSession,
+  voiceSessionFactory,
   visible = true,
 }: ViewerWorkspaceProps = {}) {
   const eye = useViewerCamera({
@@ -97,7 +98,7 @@ export function ViewerWorkspace({
   const capturePending = useRef(false)
   const mounted = useRef(false)
   const [clock, setClock] = useState(() => performance.now())
-  const [voice] = useState(() => new LocalVoiceController())
+  const [voice] = useState(() => new LocalVoiceController(voiceSessionFactory))
   const voiceState = useSyncExternalStore(voice.subscribe, voice.getSnapshot)
 
   useEffect(() => {
@@ -191,7 +192,17 @@ export function ViewerWorkspace({
           cameras[role].getSnapshot(),
           performance.now()
         )
-        selectPoint(role, current ? selected!.point : [0.5, 0.5])
+        if (!hasFreshFrame(cameras[role].getSnapshot(), performance.now())) {
+          setError(
+            "Connect a camera and wait for a fresh frame before selecting a point."
+          )
+        } else if (!current) {
+          setError(
+            `Click a point in the ${LABELS[role].toLowerCase()} preview first.`
+          )
+        } else {
+          setNotice(`${LABELS[role]}: manual point confirmed.`)
+        }
         return
       }
       if (command.kind === "clear") {
@@ -239,7 +250,7 @@ export function ViewerWorkspace({
         }
       }
     },
-    [cameras, saveSelections, selectCamera, selectPoint, voice]
+    [cameras, saveSelections, selectCamera, voice]
   )
 
   async function connect(
@@ -288,7 +299,10 @@ export function ViewerWorkspace({
   const activeState = snapshots[active]
   const displayTime = Math.max(clock, activeState.frame?.timestamp ?? 0)
   return (
-    <div className={`fixed inset-0 ${EyeAppStyles}`} style={{ overflow: "clip" }}>
+    <div
+      className={`fixed inset-0 ${EyeAppStyles}`}
+      style={{ overflow: "clip" }}
+    >
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-4 md:px-8">
         <TrackingBrand version="VIEWER" />
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -315,6 +329,8 @@ export function ViewerWorkspace({
             canCapture={hasFreshFrame(activeState, displayTime)}
             capturing={capturing}
             voice={voiceState}
+            feedback={error || notice}
+            commandError={!!error}
             onCommand={(text) => {
               void execute(text)
             }}
@@ -325,15 +341,6 @@ export function ViewerWorkspace({
             }}
             onVoiceStop={() => voice.stop()}
           />
-          {(error || notice) && (
-            <p
-              role={error ? "alert" : "status"}
-              aria-live="polite"
-              className={`text-xs ${error ? "rounded-md border border-red-300/30 bg-red-300/5 px-3 py-2 text-red-200" : "text-muted-foreground"}`}
-            >
-              {error || notice}
-            </p>
-          )}
           <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
             {ROLES.map((role) => {
               const state = snapshots[role]

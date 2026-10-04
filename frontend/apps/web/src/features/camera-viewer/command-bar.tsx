@@ -8,6 +8,8 @@ export function CommandBar({
   canCapture,
   capturing,
   voice,
+  feedback,
+  commandError,
   onCommand,
   onVoiceStart,
   onVoiceStop,
@@ -35,6 +37,12 @@ export function CommandBar({
   }, [])
   const voiceActive =
     voice.status === "starting" || voice.status === "listening"
+  const voiceLabel = {
+    idle: "Voice off",
+    starting: "Starting…",
+    listening: "Listening",
+    error: "Retry voice",
+  }[voice.status]
   return (
     <section
       ref={container}
@@ -94,11 +102,11 @@ export function CommandBar({
           onClick={voiceActive ? onVoiceStop : onVoiceStart}
         >
           {voiceActive ? (
-            <MicOff size={15} aria-hidden="true" />
-          ) : (
             <Mic size={15} aria-hidden="true" />
+          ) : (
+            <MicOff size={15} aria-hidden="true" />
           )}
-          {voiceActive ? "Stop voice" : "Voice"}
+          {voiceLabel}
         </button>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -109,7 +117,7 @@ export function CommandBar({
             className={`secondary ${EyeButtonStyles}`}
             onClick={() => onCommand(text)}
           >
-            {text === "select" ? "Select point" : text}
+            {text === "select" ? "Confirm point" : text}
           </button>
         ))}
         <details className="text-xs text-muted-foreground">
@@ -118,28 +126,40 @@ export function CommandBar({
           </summary>
           <div className="mt-2 max-h-24 space-y-2 overflow-y-auto pb-1">
             <p>
-              Select keeps your point, or uses the center. Clear removes it.
+              Click a preview to mark a point. Select confirms it; clear removes
+              it. Enter or Space on a preview marks its center. The gaze dot is
+              a live preview. Each camera has its own manual markers.
             </p>
             <p>
               Commands: eye camera, scene camera, auxiliary camera, select,
               clear, switch camera, take photo, stop cameras, stop voice.
             </p>
             <p>
-              Tap Voice and allow the microphone. Say one command at a time.
-              Audio stays on this device.
+              Tap Voice off and allow the microphone. Wait for Listening, say
+              one English command, then pause. Heard confirms recognition. Audio
+              stays on this device.
             </p>
           </div>
         </details>
       </div>
-      {voice.status !== "idle" && (
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs leading-relaxed text-muted-foreground">
         <p
-          role="status"
+          role={commandError ? "alert" : "status"}
           aria-live="polite"
-          className="mt-2 text-xs leading-relaxed text-muted-foreground"
+          className={commandError ? "text-red-200" : undefined}
         >
-          {voice.message}
+          {feedback || "Click a preview to mark a point."}
         </p>
-      )}
+        {voice.status !== "idle" && (
+          <p
+            role={voice.status === "error" ? "alert" : "status"}
+            aria-label="Voice feedback"
+            aria-live="polite"
+          >
+            {voice.message}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

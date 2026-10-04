@@ -5,7 +5,8 @@ import type { VoiceSessionFactory } from "./local-voice.types"
 export const startVoiceSession: VoiceSessionFactory = async (
   handler,
   signal,
-  onFailure
+  onFailure,
+  onRejected
 ) => {
   if (
     !navigator.mediaDevices?.getUserMedia ||
@@ -77,7 +78,7 @@ export const startVoiceSession: VoiceSessionFactory = async (
     decoder = await loadVoiceDecoder(activeSignal, fail)
     await context.audioWorklet.addModule("/voice-runtime/microphone.worklet.js")
     activeSignal.throwIfAborted()
-    decoder.listen(context.sampleRate, handler, fail)
+    decoder.listen(context.sampleRate, handler, fail, onRejected)
     source = context.createMediaStreamSource(stream)
     node = new AudioWorkletNode(context, "viewer-microphone", {
       numberOfInputs: 1,

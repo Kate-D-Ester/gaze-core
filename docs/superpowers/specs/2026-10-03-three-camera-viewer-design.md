@@ -9,7 +9,7 @@ The user requested immediate inline implementation without further approval gate
 - `/trial/three-camera-viewer` loads a client-only workspace and is discoverable from the dashboard.
 - Reuse `SceneCamera` and `CameraTransformControls`. Extend camera configuration to isolate viewer orientation preferences from existing eye/scene tracking and use accurate per-feed labels.
 - Three source panels each support USB selection, network URLs via the existing relay, connect/disconnect, rotation in degrees, horizontal/vertical mirroring, and reset.
-- A camera can be selected as the active preview. A clicked point is a static screen marker tied to the current source and orientation; it does not identify or follow an object. “Select” pins the chosen point or preview center, “clear” removes it, “switch camera” cycles previews, and named camera commands change the active preview.
+- A camera can be selected as the active preview. A clicked point is a static screen marker tied to the current source and orientation; it does not identify or follow an object. “Select” confirms a clicked point; it asks for a click when no current marker exists, “clear” removes it, “switch camera” cycles previews, and named camera commands change the active preview.
 - “Take photo” saves a PNG of a fresh transformed frame from the active feed. No periodic or automatic capture is provided.
 - Reuse existing dark tracker tokens and components. Stack previews on small screens; keep source controls and the command bar reachable.
 

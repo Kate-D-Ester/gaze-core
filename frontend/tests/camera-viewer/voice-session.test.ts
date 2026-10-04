@@ -202,3 +202,36 @@ test("stop during permission request releases the late stream without loading th
     fixture.restore()
   }
 })
+
+test("final voice results travel through the session to command and rejection feedback", async () => {
+  const fixture = platform()
+  const voice = new LocalVoiceController()
+  const heard: string[] = []
+  try {
+    const starting = voice.start((text) => heard.push(text))
+    await until(() => !!fixture.worker)
+    fixture.worker.load()
+    await until(() => fixture.workletRequested)
+    fixture.worklet.resolve()
+    await starting
+    fixture.worker.onmessage({
+      data: {
+        event: "result",
+        result: {
+          text: "select",
+          result: [{ word: "select", conf: 0.95, start: 0, end: 1 }],
+        },
+      },
+    })
+    expect(heard).toEqual(["select"])
+    expect(voice.getSnapshot().message).toBe("Heard: select")
+    fixture.worker.onmessage({
+      data: { event: "result", result: { text: "[unk]" } },
+    })
+    expect(voice.getSnapshot().message).toContain("not understood")
+    expect(heard).toEqual(["select"])
+  } finally {
+    voice.dispose()
+    fixture.restore()
+  }
+})

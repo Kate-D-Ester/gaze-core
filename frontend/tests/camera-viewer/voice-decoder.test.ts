@@ -135,3 +135,55 @@ test("abort and failed model loading terminate the worker without leaving startu
     fixture.restore()
   }
 })
+
+test("nonempty rejected final speech gives feedback without executing partial or uncertain commands", async () => {
+  const fixture = workerFixture()
+  const abort = new AbortController()
+  try {
+    const loading = loadVoiceDecoder(abort.signal)
+    fixture.worker.emit({ event: "load", result: true })
+    const decoder = await loading
+    const heard: string[] = []
+    let rejected = 0
+    decoder.listen(
+      48000,
+      (text) => heard.push(text),
+      () => {},
+      () => rejected++
+    )
+    fixture.worker.emit({
+      event: "partialresult",
+      result: { partial: "select" },
+    })
+    fixture.worker.emit({ event: "result", result: { text: "", result: [] } })
+    expect(rejected).toBe(0)
+    fixture.worker.emit({
+      event: "result",
+      result: {
+        text: "select",
+        result: [{ word: "select", conf: 0.3, start: 0, end: 1 }],
+      },
+    })
+    fixture.worker.emit({
+      event: "result",
+      result: { text: "[unk]", result: [] },
+    })
+    expect(rejected).toBe(2)
+    expect(heard).toEqual([])
+    fixture.worker.emit({
+      event: "result",
+      result: {
+        text: "select",
+        result: [{ word: "select", conf: 0.95, start: 0, end: 1 }],
+      },
+    })
+    expect(heard).toEqual(["select"])
+    expect(rejected).toBe(2)
+    decoder.stop()
+    fixture.worker.emit({ event: "result", result: { text: "[unk]" } })
+    expect(rejected).toBe(2)
+  } finally {
+    abort.abort()
+    fixture.restore()
+  }
+})

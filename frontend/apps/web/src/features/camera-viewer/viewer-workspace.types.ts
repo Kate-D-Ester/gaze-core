@@ -1,3 +1,4 @@
+import type { VoiceSessionFactory } from "./local-voice.types"
 import type { SceneSession } from "../scene-eye-tracking/scene-session"
 import type { ViewerCamera } from "./viewer-camera.types"
 import type { CameraRole } from "./commands.types"
@@ -11,6 +12,7 @@ export type ConnectionGuard = {
 }
 
 export type ViewerWorkspaceProps = {
+  voiceSessionFactory?: VoiceSessionFactory
   gazeSession?: SceneSession
   eyeCamera?: ViewerCamera
   sceneCamera?: ViewerCamera

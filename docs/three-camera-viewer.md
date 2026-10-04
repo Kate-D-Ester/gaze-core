@@ -39,7 +39,7 @@ Click a camera's heading to make it active. Click its preview to pin a static im
 
 Typed commands and buttons work in supported modern browsers:
 
-- `select` / `select it`: keep the active marker, or select the preview center.
+- `select` / `select it` (**Confirm point**): confirm a point clicked in the active preview. Without a current manual marker, ask for a click; never default to the center.
 - `clear` / `clear selection`: remove the active marker.
 - `switch camera`: cycle Eye → Scene → Auxiliary.
 - `eye camera`, `scene camera`, `auxiliary camera`: choose a feed.
@@ -51,7 +51,7 @@ Phrases must match a whole command. Unknown input does nothing and displays help
 
 ## Local voice and privacy
 
-Tap **Voice** and allow microphone access. English commands run in the app's local Vosk WASM worker. No browser language-pack installation is required, and there is no remote speech fallback. The same Voice button retries a failed start. Speak one complete command at a time; partial, unsupported or low-confidence results are ignored.
+Tap **Voice off** and allow microphone access. Wait until the button says **Listening**, say one complete English command, then pause. English commands run in the app's local Vosk WASM worker. No browser language-pack installation is required, and there is no remote speech fallback. The same button stops listening or retries a failed start. **Heard: select** (or another supported phrase) confirms recognition. Nonempty unsupported or low-confidence final speech shows **Command not understood** without executing it. Partial speech and silent results do not execute commands. Action outcomes and voice feedback stay in the pinned command bar.
 
 Development and production builds prepare the pinned WASM assets and a checksum-verified English model (about 40 MB) from the official Vosk model host. The model is cached in this worktree and served from the app's own origin. Preparation requires standard unzip/tar tools. Runtime audio stays on this device; loading the model does not upload audio. Voice stops on microphone/worker errors, page hiding, stop cameras, opening setup and leaving the viewer. Stop also cancels model startup and releases any late microphone stream.
 
@@ -81,7 +81,7 @@ Browser checks confirmed the saved ESP URL, on-page setup/return controls and na
 
 The viewer now serves its own English recognizer instead of relying on the failing browser pack installer. Real WASM recognition was tested with generated English speech through the production AudioWorklet; no personal audio was captured. Synthetic feeds were used to inspect gaze motion/expiry, selection, camera switching and command-bar scrolling.
 
-To repeat the browser simulation on macOS, build and start this worktree's preview at port 4014, then from frontend run `bun tests/camera-viewer/browser-smoke-server.ts` and open `http://127.0.0.1:4030`. The loopback-only fixture generates a "scene camera" WAV with macOS speech tools, renders synthetic feeds, and offers generated-speech, gaze-pause and dropped-frame recovery checks. **Drop frames** pauses the Eye and Scene feeds; **Resume frames** restores both overlays while retaining calibration. Other platforms can supply a synthetic WAV at `.local-reference/voice/scene.wav`. The fixture is separate from the production viewer.
+To repeat the browser simulation on macOS, build and start this worktree's preview at port 4014, then from frontend run `bun tests/camera-viewer/browser-smoke-server.ts` and open `http://127.0.0.1:4030`. The loopback-only fixture generates a "select" WAV with macOS speech tools, renders synthetic feeds, and offers gaze-pause and dropped-frame recovery checks. Click the fixture viewer’s **Voice off** button to run generated speech through the real decoder, voice controller and viewer command dispatch; it does not access a microphone. **Drop frames** pauses the Eye and Scene feeds; **Resume frames** restores both overlays while retaining calibration. Other platforms can supply a synthetic WAV at `.local-reference/voice/select.wav`. The fixture is separate from the production viewer.
 
 This follow-up passed 726 full-suite tests and 36 focused viewer tests after the final viewport correction, plus lint, typecheck, production build and dependency audit. Independent review has no remaining Critical/Important findings. Actual WASM recognized generated speech at 44100 Hz. Browser checks covered 1280×900, 390×844 and 390×449, command switching, independent static selection, gaze motion/expiry, pinned scrolling, bounded help and visible keyboard focus. Physical microphone quality and complete physical calibration remain device checks.
 
@@ -90,3 +90,10 @@ This follow-up passed 726 full-suite tests and 36 focused viewer tests after the
 The Eye viewer reuses the v3 pupil/model renderer and the existing worker. Scene calibration identity now uses persistent canvas geometry, so a missing frame does not erase the mapping. A remounted preview redraws when its connection becomes live, even if frame identity is unchanged. Pupil metadata expires after 250 ms and returns with fresh evidence; raw photos remain unchanged. Genuine camera source, orientation and geometry changes still invalidate calibration.
 
 Verified with 732 frontend tests, lint, typecheck and production build. An initial concurrent run timed out the existing input-mirror calibration test; its isolated rerun passed all eight calibration tests, and the subsequent full run passed all 732 tests. Independent review found no remaining Critical/Important issues. Browser simulation paused both Eye and Scene frames, confirmed missing previews with calibration retained, then restored the pupil ellipse and live scene gaze without recalibration. Only synthetic feed images were captured. Physical camera interruption/recovery remains a device check.
+
+
+### Manual point confirmation and voice feedback
+
+Select no longer invents a center point. **Confirm point** and spoken/typed `select` require a current manually clicked marker, retain its coordinates, and reject stale/disconnected frames. Command results and local voice feedback share the pinned controls. The button displays Voice off, Starting, Listening or Retry voice; supported final speech shows Heard, while rejected final speech gives a short retry hint without executing it.
+
+Verified with 755 frontend tests, lint, typecheck and production build. Independent review found no remaining Critical/Important issues. Real WASM recognized generated `select` at 48000 Hz, and the complete decoder → voice controller → viewer command flow at 44100 Hz confirmed an off-center clicked point. Browser checks covered the desktop layout and 390×449 scrolling with bounded help and pinned feedback; markers remained independent across cameras. The synthetic fixture replaces microphone input only. Physical microphone quality and physical calibration remain device checks. The preview server was restarted on port 4014; user camera sessions were not reloaded.

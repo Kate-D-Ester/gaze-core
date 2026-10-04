@@ -5,6 +5,7 @@ import { createElement } from "../../apps/web/node_modules/react"
 import { createRoot } from "../../apps/web/node_modules/react-dom/client"
 import { ViewerWorkspace } from "../../apps/web/src/features/camera-viewer/viewer-workspace"
 import { loadVoiceDecoder } from "../../apps/web/src/features/camera-viewer/voice-decoder"
+import type { VoiceSessionFactory } from "../../apps/web/src/features/camera-viewer/local-voice.types"
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
 import { calibrate } from "../scene-eye-tracking/fixtures"
 
@@ -133,6 +134,77 @@ const updateEye = () => {
   })
 }
 updateEye()
+// Replace only microphone input: the real decoder, controller and command dispatch remain in use.
+const generatedVoiceSession: VoiceSessionFactory = async (
+  handler,
+  signal,
+  onFailure,
+  onRejected
+) => {
+  const output = document.getElementById("voice-result")!
+  const abort = new AbortController()
+  const context = new AudioContext()
+  let node: AudioWorkletNode | null = null
+  let source: AudioBufferSourceNode | null = null
+  let stopped = false
+  const cleanup = () => {
+    if (stopped) return
+    stopped = true
+    abort.abort()
+    signal.removeEventListener("abort", cleanup)
+    if (node) {
+      node.port.onmessage = null
+      node.port.close()
+      node.disconnect()
+    }
+    source?.disconnect()
+    void context.close()
+  }
+  signal.addEventListener("abort", cleanup, { once: true })
+  try {
+    signal.throwIfAborted()
+    output.textContent = "Loading local model…"
+    await context.resume()
+    const decoder = await loadVoiceDecoder(
+      AbortSignal.any([signal, abort.signal]),
+      onFailure
+    )
+    await context.audioWorklet.addModule("/voice-runtime/microphone.worklet.js")
+    const response = await fetch("/select.wav", { signal })
+    const speech = await context.decodeAudioData(await response.arrayBuffer())
+    signal.throwIfAborted()
+    const buffer = context.createBuffer(
+      1,
+      speech.length + context.sampleRate * 3,
+      context.sampleRate
+    )
+    buffer.getChannelData(0).set(speech.getChannelData(0))
+    source = context.createBufferSource()
+    source.buffer = buffer
+    node = new AudioWorkletNode(context, "viewer-microphone")
+    node.port.onmessage = (event) =>
+      decoder.accept(event.data, context.sampleRate)
+    decoder.listen(
+      context.sampleRate,
+      (text) => {
+        output.textContent =
+          "Recognized: " + text + " · " + context.sampleRate + " Hz"
+        handler(text)
+      },
+      onFailure,
+      onRejected
+    )
+    source.connect(node)
+    node.connect(context.destination)
+    source.start()
+    output.textContent = "Recognizing generated select…"
+    return { stop: cleanup }
+  } catch (failure) {
+    cleanup()
+    throw failure
+  }
+}
+
 createRoot(document.getElementById("viewer")!).render(
   createElement(ViewerWorkspace, {
     eyeCamera,
@@ -140,6 +212,7 @@ createRoot(document.getElementById("viewer")!).render(
     auxiliaryCamera: cameras[2].camera,
     gazeSession: session,
     setupStatus: "Synthetic calibration",
+    voiceSessionFactory: generatedVoiceSession,
   })
 )
 let gazeEnabled = true
@@ -182,63 +255,3 @@ setInterval(() => {
       ? " · calibration retained"
       : " · calibration missing")
 }, 100)
-
-document.getElementById("voice-test")!.onclick = async () => {
-  const output = document.getElementById("voice-result")!
-  const abort = new AbortController()
-  const context = new AudioContext()
-  let decoder: Awaited<ReturnType<typeof loadVoiceDecoder>> | null = null
-  let node: AudioWorkletNode | null = null
-  let source: AudioBufferSourceNode | null = null
-  const cleanup = () => {
-    abort.abort()
-    node?.disconnect()
-    source?.disconnect()
-    void context.close()
-  }
-  try {
-    output.textContent = "Loading local model…"
-    await context.resume()
-    decoder = await loadVoiceDecoder(abort.signal)
-    await context.audioWorklet.addModule("/voice-runtime/microphone.worklet.js")
-    const response = await fetch("/scene.wav")
-    const speech = await context.decodeAudioData(await response.arrayBuffer())
-    const buffer = context.createBuffer(
-      1,
-      speech.length + context.sampleRate * 3,
-      context.sampleRate
-    )
-    buffer.getChannelData(0).set(speech.getChannelData(0))
-    source = context.createBufferSource()
-    source.buffer = buffer
-    node = new AudioWorkletNode(context, "viewer-microphone")
-    const activeDecoder = decoder
-    node.port.onmessage = (event) =>
-      activeDecoder.accept(event.data, context.sampleRate)
-    decoder.listen(
-      context.sampleRate,
-      (text) => {
-        output.textContent =
-          "Recognized: " + text + " · " + context.sampleRate + " Hz"
-        cleanup()
-      },
-      (failure) => {
-        output.textContent = "Failed: " + String(failure)
-        cleanup()
-      }
-    )
-    source.connect(node)
-    node.connect(context.destination)
-    source.start()
-    output.textContent = "Recognizing synthetic speech locally…"
-    setTimeout(() => {
-      if (!abort.signal.aborted) {
-        output.textContent = "No final command recognized"
-        cleanup()
-      }
-    }, 15000)
-  } catch (failure) {
-    output.textContent = "Failed: " + String(failure)
-    cleanup()
-  }
-}

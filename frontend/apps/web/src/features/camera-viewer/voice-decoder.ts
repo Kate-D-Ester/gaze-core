@@ -35,6 +35,7 @@ export function loadVoiceDecoder(
     let loaded = false
     let stopped = false
     let resultHandler: (text: string) => void = () => {}
+    let rejectedHandler: () => void = () => {}
     let failureHandler = onFailure
     let terminalFailure: unknown = null
     const stop = () => {
@@ -87,7 +88,7 @@ export function loadVoiceDecoder(
         loaded = true
         clearTimeout(timeout)
         resolve({
-          listen(sampleRate, handler, onFailure) {
+          listen(sampleRate, handler, onFailure, onRejected = () => {}) {
             if (stopped) {
               throw (
                 terminalFailure ??
@@ -95,6 +96,7 @@ export function loadVoiceDecoder(
               )
             }
             resultHandler = handler
+            rejectedHandler = onRejected
             failureHandler = onFailure
             worker.postMessage({
               action: "create",
@@ -130,6 +132,11 @@ export function loadVoiceDecoder(
         const text = recognizedCommand(message.result)
         if (text) {
           resultHandler(text)
+        } else if (
+          typeof message.result?.text === "string" &&
+          message.result.text.trim()
+        ) {
+          rejectedHandler()
         }
       }
     }
