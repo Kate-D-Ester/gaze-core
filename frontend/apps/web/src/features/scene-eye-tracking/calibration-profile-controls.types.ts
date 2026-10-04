@@ -6,5 +6,5 @@ export type CalibrationProfileControlsProps = {
 
 export type ProfileNameDraft = {
   name: string
-  createNew: boolean
+  profileId: string | null
 }

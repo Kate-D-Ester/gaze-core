@@ -119,13 +119,12 @@ export function useCalibrationProfiles({
       setError(errorMessage(cause))
     }
   }, [canSave, library.profiles, profileData, selectedId])
-  function save(name: string, createNew: boolean) {
+  function save(name: string, profileId?: string) {
     if (!canSave || !profileData) {
       return false
     }
     try {
-      const id = createNew ? undefined : (selectedId ?? undefined)
-      const profile = saveSceneProfile(name, profileData, setup, id)
+      const profile = saveSceneProfile(name, profileData, setup, profileId)
       selectedMapping.current = state.calibration
       setSelectedId(profile.id)
       setLibrary(readSceneProfiles())
@@ -140,6 +139,9 @@ export function useCalibrationProfiles({
       setError(errorMessage(cause))
       return false
     }
+  }
+  function clearError() {
+    setError("")
   }
   function remove() {
     if (disabled || !selectedId) {
@@ -166,6 +168,7 @@ export function useCalibrationProfiles({
     canSave,
     load,
     save,
+    clearError,
     remove,
   }
 }
