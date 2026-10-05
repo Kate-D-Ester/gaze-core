@@ -24,6 +24,13 @@ def valid_box(value) -> Box:
     return tuple(float(x) for x in value)
 
 
+def project_box(parent, region):
+    """Map a normalized child region into a proposed parent box."""
+    x1, y1, x2, y2 = parent
+    a, b, c, d = region
+    return [x1 + a * (x2 - x1), y1 + b * (y2 - y1), x1 + c * (x2 - x1), y1 + d * (y2 - y1)]
+
+
 def stable_projection(source, destination, corners, projected):
     affine, _ = cv2.estimateAffinePartial2D(
         np.float32(source), np.float32(destination), method=cv2.LMEDS

@@ -491,3 +491,86 @@ def test_small_remaining_overlap_uses_recent_mask_evidence(similarity, matched, 
     tracker = MemoryTracker(image, selected, backend=backend, appearance=AppearanceBoundary())
     result = tracker.update(textured_image(88))
     assert (result["status"] == "matched") == matched
+
+
+@pytest.mark.parametrize("similarity,matched", [(0.9, True), (0.8, False), (0.6, False)])
+def test_fast_motion_recovery_can_confirm_a_new_position(similarity, matched, monkeypatch):
+    import memory_tracking
+
+    image = textured_image(42)
+    changed = cv2.flip(image, 1)
+    selected = [0.1, 0.2, 0.3, 0.55]
+    first = [0.35, 0.2, 0.55, 0.55]
+    second = [0.56, 0.2, 0.76, 0.55]
+    backend = SegmentationBoundary(
+        [(selected, 0.99, 0.95), (first, 0.99, 0.95), (second, 0.99, 0.95)]
+    )
+    backend.similarity = lambda *args: similarity
+    appearance = AppearanceBoundary()
+    appearance.score = lambda *args: 0.4
+    monkeypatch.setattr(memory_tracking, "follow_flow", lambda *args: None)
+    tracker = MemoryTracker(image, selected, backend=backend, appearance=appearance)
+    original = tracker.reference
+    assert tracker.update(changed) == {"status": "searching"}
+    assert tracker.outputs["non_cond_frame_outputs"] == {}
+    result = tracker.update(changed)
+    assert (result["status"] == "matched") == matched
+    assert tracker.reference is original
+    if matched:
+        assert result["box"] == second
+        assert list(tracker.outputs["non_cond_frame_outputs"]) == [2]
+
+
+def test_fast_motion_recovery_does_not_use_appearance_alone(monkeypatch):
+    import memory_tracking
+
+    image = textured_image(42)
+    selected = [0.1, 0.2, 0.3, 0.55]
+    moved = [0.4, 0.2, 0.6, 0.55]
+    monkeypatch.setattr(memory_tracking, "follow_flow", lambda *args: None)
+    tracker = MemoryTracker(
+        image,
+        selected,
+        appearance=AppearanceBoundary(),
+        backend=SegmentationBoundary(
+            [(selected, 0.99, 0.95), (moved, 0.99, 0.95), (moved, 0.99, 0.95)]
+        ),
+    )
+    for _ in range(2):
+        assert tracker.update(textured_image(88)) == {"status": "searching"}
+    assert tracker.outputs["non_cond_frame_outputs"] == {}
+
+
+def test_fast_motion_confirmation_requires_consistent_mask_memory(monkeypatch):
+    import memory_tracking
+
+    image = textured_image(42)
+    selected = [0.1, 0.2, 0.3, 0.55]
+    first = [0.35, 0.2, 0.55, 0.55]
+    second = [0.56, 0.2, 0.76, 0.55]
+    backend = SegmentationBoundary(
+        [(selected, 0.99, 0.95), (first, 0.99, 0.95), (second, 0.99, 0.95)]
+    )
+    backend.similarity = lambda candidate, anchor: 0.9 if anchor["frame"] == 0 else 0.4
+    monkeypatch.setattr(memory_tracking, "follow_flow", lambda *args: None)
+    tracker = MemoryTracker(image, selected, backend=backend, appearance=AppearanceBoundary())
+    for _ in range(2):
+        assert tracker.update(cv2.flip(image, 1)) == {"status": "searching"}
+    assert tracker.outputs["non_cond_frame_outputs"] == {}
+
+
+def test_fast_recovery_rejects_an_equal_area_unrelated_stripe(monkeypatch):
+    import memory_tracking
+
+    image = textured_image(42)
+    selected = [0.3, 0.2, 0.4, 0.55]
+    stripe = [0, 0.6, 1, 0.635]
+    backend = SegmentationBoundary(
+        [(selected, 0.99, 0.95), (stripe, 0.99, 0.95), (stripe, 0.99, 0.95)]
+    )
+    backend.similarity = lambda *args: 0.9
+    monkeypatch.setattr(memory_tracking, "follow_flow", lambda *args: None)
+    tracker = MemoryTracker(image, selected, backend=backend, appearance=AppearanceBoundary())
+    for _ in range(2):
+        assert tracker.update(textured_image(88)) == {"status": "searching"}
+    assert tracker.outputs["non_cond_frame_outputs"] == {}

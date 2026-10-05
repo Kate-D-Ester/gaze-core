@@ -18,6 +18,7 @@ from ultralytics import YOLOE, settings  # noqa: E402
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor  # noqa: E402
 
 from appearance import choose_appearance  # noqa: E402
+from context_acquisition import ContextAcquisition  # noqa: E402
 from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
 from memory_tracking import MemoryTracker  # noqa: E402
 from prepare import MODELS, verify  # noqa: E402
@@ -138,20 +139,20 @@ class VisionEngine:
             **self.options,
         )
         embedding = self.visual.model.pe.detach().clone()
+        scene = MemoryTracker(
+            image, box, backend=self.segmentation, reference=reference, appearance=self.appearance
+        )
         token = self.sessions.add(
             {
                 "reference": reference,
                 "embedding": embedding,
                 "label": label,
-                "scene": MemoryTracker(
-                    image,
-                    box,
-                    backend=self.segmentation,
-                    reference=reference,
-                    appearance=self.appearance,
-                ),
+                "scene": scene,
                 "target": None,
                 "stream": None,
+                "context_acquisition": ContextAcquisition.create(
+                    image, box, reference, scene.outputs["cond_frame_outputs"][0], self.segmentation
+                ),
             }
         )
         self.active = token
@@ -183,6 +184,8 @@ class VisionEngine:
         if selected["stream"] != stream:
             selected["target"] = None
             selected["stream"] = stream
+            if selected.get("context_acquisition") is not None:
+                selected["context_acquisition"].reset()
         tracker = selected["target"]
         if tracker is not None:
             result = tracker.update(image)
@@ -190,6 +193,25 @@ class VisionEngine:
                 return result
             if tracker.active or tracker.recovering:
                 return result
+        context_result = None
+        context = selected.get("context_acquisition")
+        if context is not None:
+            result = context.update(image)
+            if result["status"] == "matched":
+                acquisition = result.pop("acquisition")
+                try:
+                    selected["target"] = MemoryTracker(
+                        image,
+                        result["box"],
+                        backend=self.segmentation,
+                        reference=selected["reference"],
+                        appearance=self.appearance,
+                        acquisition=acquisition,
+                    )
+                except ValueError:
+                    return {"status": "searching"}
+                return result
+            context_result = result
         result = self.find(token, image)
         if result["status"] == "matched":
             try:
@@ -202,6 +224,8 @@ class VisionEngine:
                 )
             except ValueError:
                 return {"status": "searching"}
+        if result["status"] == "searching" and context_result is not None:
+            return context_result
         return result
 
     def find(self, token, image):

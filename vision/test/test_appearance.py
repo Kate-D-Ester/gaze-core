@@ -48,3 +48,27 @@ def test_rotated_smooth_region_uses_interior_detail_with_bounded_resolution():
     )
     assert result["status"] == "matched"
     assert result["score"] > 0.92
+
+
+def small_object():
+    patch = np.random.default_rng(71).integers(0, 255, (24, 16, 3), dtype=np.uint8)
+    scene = np.full((240, 640, 3), 170, np.uint8)
+    scene[40:64, 80:96] = patch
+    target = np.full_like(scene, 170)
+    target[120:144, 400:416] = patch
+    return scene, target
+
+
+def test_small_detailed_object_is_searched_without_discarding_its_pixels():
+    scene, target = small_object()
+    result = choose_appearance(Reference(scene, (80 / 640, 40 / 240, 96 / 640, 64 / 240)), target)
+    assert result["status"] == "matched"
+    assert result["box"] == [400 / 640, 120 / 240, 416 / 640, 144 / 240]
+    assert result["score"] > 0.92
+
+
+def test_small_identical_objects_remain_ambiguous():
+    scene, target = small_object()
+    target[120:144, 200:216] = target[120:144, 400:416]
+    result = choose_appearance(Reference(scene, (80 / 640, 40 / 240, 96 / 640, 64 / 240)), target)
+    assert result == {"status": "ambiguous"}

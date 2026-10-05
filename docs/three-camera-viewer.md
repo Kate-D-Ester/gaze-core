@@ -191,3 +191,16 @@ These six same-video cases processed 671 analyzed frame pairs at 5 Hz, from sele
 Verification passed 86 Python tests, Ruff and 71 focused viewer/tooling tests. Real public-image inference passed 0/5/15-degree views, blank/unrelated rejection, disappearance with a same-category distractor, original return, independent Target reset, four interleaved tokens/eight camera states, bounded memory and release on Clear/expiry. The nonmatching-Target test had zero Scene deactivations (maximum pair 192.3 ms). Private clips, annotations and reports remain ignored. Frontend source and the existing preview build are unchanged by this backend replacement.
 
 The isolated preview was restarted on port 4016 after these checks. Its route returns HTTP 200 and the service reports `ready`, `YOLOE-26n + SAM 2.1 Tiny + DINOv2`, device `mps`. Clear the old selection and select again to initialize the new camera memories.
+
+
+### Fast-motion recovery and small selections — 2026-10-05
+
+Fast motion can now recover without occupying the previous pixels. Two corroborated SAM observations must agree with recent accepted memory and stay within bounded displacement and extent; appearance similarity alone cannot authorize a jump. Original Scene references remain immutable, and failed observations do not enter accepted tracking memory.
+
+Tiny selections retain their useful native pixels during dense search. For 12–63-pixel short sides, unique nearby context can propose a location, but two strongly supported masks from original Scene conditioning must verify the object before Target initializes independently. Duplicate contexts are compared at the selected-object scale. Ambiguous surroundings do not block a uniquely verified direct object match. No controls or UI text were added.
+
+The supplied 17×23-pixel shelf-object screenshot acquired on its second Target observation and remained correctly bounded for 11 subsequent static checks. Removed-object, blank and duplicated views remained unlocked for 12 checks each. Target stream changes reset confirmation; returning the object reacquired. Clear released the context and camera states. This screenshot fixture does not establish accuracy for new physical viewpoints or moving tiny objects.
+
+The final six-case same-video replay processed 671 analyzed pairs at 5 Hz through 32.833 seconds. Both views passed 47/49 sparse checkpoints: face 13/14, glasses 11/12, clothing 8/8, open hand 7/7, closed hand 4/4 and phone 4/4. Phone loss at 29.4 seconds now recovered at 29.6 seconds. The two failed checkpoints were missing overlays, not accepted wrong boxes. Hand tracking still remains Searching after the changed/occluded hand at 21.8 seconds; hand truth ends at 20 seconds, phone truth at 30 seconds. Sparse checks do not establish correctness between annotations.
+
+Verification passed 115 Python tests, Ruff and 71 focused viewer/tooling tests. Real public-image checks passed angle changes, same-category distractor rejection, long absence, original return, independent Target reset, four interleaved selections with eight bounded camera states, and release on Clear/expiry. The source branch excludes all private media and replay artifacts. See object-tracking-model-research.md for score thresholds, runtime and limitations.

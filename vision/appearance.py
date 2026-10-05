@@ -7,12 +7,15 @@ Uniform regions, weak results and similar non-overlapping peaks stay unconfirmed
 import cv2
 import numpy as np
 
-from matching import Candidate, box_overlap, crop
+from matching import Candidate, box_overlap, crop, project_box
 
 
-def choose_appearance(reference, image):
+def choose_appearance(reference, image, *, unique_region=(0, 0, 1, 1)):
+    """Search appearance; deduplicate at the selected child region's scale."""
     height, width = image.shape[:2]
-    reduction = min(1, 480 / max(height, width))
+    # Keep the useful pixels of small references; large objects stay cheap.
+    reference_side = min(reference.image.shape[:2])
+    reduction = min(1, max(480 / max(height, width), 24 / reference_side))
     view_image = cv2.resize(image, (round(width * reduction), round(height * reduction)))
     template = cv2.resize(
         reference.image,
@@ -22,16 +25,18 @@ def choose_appearance(reference, image):
         ),
     )
     gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-    if min(gray.shape) < 20 or gray.std() < 8:
+    if min(gray.shape) < 12 or gray.std() < 8:
         return {"status": "searching"}
     view_height, view_width = view_image.shape[:2]
     view = cv2.cvtColor(view_image, cv2.COLOR_BGR2GRAY)
     margin_y, margin_x = max(1, gray.shape[0] // 10), max(1, gray.shape[1] // 10)
     mean_color = template[margin_y:-margin_y, margin_x:-margin_x].mean(axis=(0, 1))
     matches = []
+    region_width = unique_region[2] - unique_region[0]
+    region_height = unique_region[3] - unique_region[1]
     for scale in (0.8, 0.9, 1.0, 1.1, 1.25):
         w, h = round(gray.shape[1] * scale), round(gray.shape[0] * scale)
-        if not 25 <= w <= view_width or not 25 <= h <= view_height:
+        if not 12 <= w <= view_width or not 12 <= h <= view_height:
             continue
         resized = cv2.resize(gray, (w, h))
         for angle in (-10, -5, 0, 5, 10):
@@ -66,14 +71,22 @@ def choose_appearance(reference, image):
                             "method": "appearance",
                         }
                     )
+                suppress_x = max(1, round(w * region_width / 2))
+                suppress_y = max(1, round(h * region_height / 2))
                 scores[
-                    max(0, y - h // 2) : min(scores.shape[0], y + h // 2 + 1),
-                    max(0, x - w // 2) : min(scores.shape[1], x + w // 2 + 1),
+                    max(0, y - suppress_y) : min(scores.shape[0], y + suppress_y + 1),
+                    max(0, x - suppress_x) : min(scores.shape[1], x + suppress_x + 1),
                 ] = -1
     matches.sort(key=lambda match: match["score"], reverse=True)
     distinct = []
     for match in matches:
-        if not any(box_overlap(match["box"], other["box"]) > 0.5 for other in distinct):
+        if not any(
+            box_overlap(
+                project_box(match["box"], unique_region), project_box(other["box"], unique_region)
+            )
+            > 0.5
+            for other in distinct
+        ):
             distinct.append(match)
     if not distinct:
         return {"status": "searching"}

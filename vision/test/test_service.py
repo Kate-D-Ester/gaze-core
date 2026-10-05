@@ -265,3 +265,70 @@ def test_unverified_acquisition_cannot_seed_another_camera_instance(role):
     assert engine.sessions.get(token)["reference"] is original
     if role == "target":
         assert engine.sessions.get(token)["target"] is None
+
+
+def test_small_object_can_acquire_from_context_and_two_mask_observations():
+    from types import SimpleNamespace
+
+    from test_memory_tracking import SegmentationBoundary
+
+    from engine import VisionEngine
+
+    random = np.random.default_rng(73)
+    scene = random.integers(0, 255, (150, 200, 3), dtype=np.uint8)
+    box = [80 / 200, 60 / 150, 96 / 200, 84 / 150]
+    target = scene.copy()
+    target[60:84, 80:83] = 255 - target[60:84, 80:83]
+    backend = SegmentationBoundary([(box, 0.99, 0.95)] * 4)
+    backend.similarity = lambda *args: 0.9
+    model = SimpleNamespace(pe=SimpleNamespace(detach=lambda: SimpleNamespace(clone=lambda: None)))
+    visual = SimpleNamespace(
+        model=model, predict=lambda *args, **kwargs: [SimpleNamespace(boxes=[])]
+    )
+    engine = VisionEngine.__new__(VisionEngine)
+    engine.segmentation = backend
+    engine.appearance = None
+    engine.visual = visual
+    engine.options = {}
+    engine.sessions = Sessions()
+    token = engine.select(scene, None, box)["token"]
+    original = engine.sessions.get(token)["reference"]
+    assert engine.match(token, target) == {"status": "searching"}
+    result = engine.match(token, target)
+    assert result["status"] == "matched"
+    assert result["box"] == box
+    selected = engine.sessions.get(token)
+    assert selected["target"].reference is original
+    assert selected["scene"] is not selected["target"]
+
+
+def test_ambiguous_surroundings_do_not_hide_a_unique_original_object():
+    from types import SimpleNamespace
+
+    from test_memory_tracking import SegmentationBoundary
+
+    from engine import VisionEngine
+
+    scene = np.random.default_rng(73).integers(0, 255, (150, 200, 3), dtype=np.uint8)
+    box = [80 / 200, 60 / 150, 96 / 200, 84 / 150]
+    target = np.full((200, 300, 3), 170, np.uint8)
+    patch = scene[36:108, 56:120].copy()
+    target[30:102, 30:94] = patch
+    target[110:182, 190:254] = patch
+    target[134:158, 214:217] = 255 - target[134:158, 214:217]
+    expected = [54 / 300, 54 / 200, 70 / 300, 78 / 200]
+    engine = VisionEngine.__new__(VisionEngine)
+    engine.segmentation = SegmentationBoundary([(box, 0.99, 0.95), (expected, 0.99, 0.95)])
+    engine.appearance = None
+    engine.visual = SimpleNamespace(
+        model=SimpleNamespace(
+            pe=SimpleNamespace(detach=lambda: SimpleNamespace(clone=lambda: None))
+        ),
+        predict=lambda *args, **kwargs: [SimpleNamespace(boxes=[])],
+    )
+    engine.options = {}
+    engine.sessions = Sessions()
+    token = engine.select(scene, None, box)["token"]
+    result = engine.match(token, target)
+    assert result["status"] == "matched"
+    assert np.allclose(result["box"], expected)
