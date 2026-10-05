@@ -161,7 +161,7 @@ def run_case(engine, video, fps, case, output, analysis_fps=15, target_mode="sam
                 if not ok:
                     raise ValueError(f"Cannot decode video frame {index}.")
                 image = cv2.resize(frame, (960, 540))
-            if not analyzed_frame(index, first, step, checkpoints):
+            if index != last and not analyzed_frame(index, first, step, checkpoints):
                 continue
             target = (
                 image.copy() if transform is None else cv2.warpAffine(image, transform, (960, 540))

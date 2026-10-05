@@ -19,9 +19,9 @@ from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor  # noqa: E402
 
 from appearance import choose_appearance  # noqa: E402
 from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
+from memory_tracking import MemoryTracker  # noqa: E402
 from prepare import MODELS, verify  # noqa: E402
 from sessions import Sessions  # noqa: E402
-from temporal import TemporalTracker  # noqa: E402
 
 
 class VisionEngine:
@@ -54,6 +54,11 @@ class VisionEngine:
 
         cv2.setNumThreads(4)
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        from learned_appearance import AppearanceModel
+        from segmentation import SegmentationModel
+
+        self.segmentation = SegmentationModel(self.device)
+        self.appearance = AppearanceModel(self.device)
         self.detector = YOLOE(str(MODELS / "yoloe-26n-seg-pf.pt"))
         self.visual = YOLOE(str(MODELS / "yoloe-26n-seg.pt"))
         self.sessions = Sessions()
@@ -68,6 +73,11 @@ class VisionEngine:
             "rect": False,
         }
         warm = np.zeros((480, 640, 3), np.uint8)
+        empty_memory = {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
+        initial = self.segmentation.predict(warm, [0.1, 0.1, 0.6, 0.6], 0, empty_memory)
+        empty_memory["cond_frame_outputs"][0] = initial.memory
+        self.segmentation.predict(warm, None, 1, empty_memory)
+        self.appearance.score(warm[:64, :64], warm[:64, :64])
         self.detector.predict(warm, **self.options)
         self.visual.predict(
             warm,
@@ -78,7 +88,11 @@ class VisionEngine:
         )
 
     def status(self):
-        return {"status": "ready", "model": "YOLOE-26n + NanoTrack-v3", "device": self.device}
+        return {
+            "status": "ready",
+            "model": "YOLOE-26n + SAM 2.1 Tiny + DINOv2",
+            "device": self.device,
+        }
 
     def select(self, image, point, box):
         height, width = image.shape[:2]
@@ -129,7 +143,13 @@ class VisionEngine:
                 "reference": reference,
                 "embedding": embedding,
                 "label": label,
-                "scene": TemporalTracker(image, box, reference=reference),
+                "scene": MemoryTracker(
+                    image,
+                    box,
+                    backend=self.segmentation,
+                    reference=reference,
+                    appearance=self.appearance,
+                ),
                 "target": None,
                 "stream": None,
             }
@@ -142,13 +162,20 @@ class VisionEngine:
         result = selected["scene"].update(image)
         if result["status"] == "matched":
             return result
-        if selected["scene"].active:
+        if selected["scene"].active or selected["scene"].recovering:
             return result
         acquired = self.find(token, image)
         if acquired["status"] == "matched":
-            selected["scene"] = TemporalTracker(
-                image, acquired["box"], reference=selected["reference"]
-            )
+            try:
+                selected["scene"] = MemoryTracker(
+                    image,
+                    acquired["box"],
+                    backend=self.segmentation,
+                    reference=selected["reference"],
+                    appearance=self.appearance,
+                )
+            except ValueError:
+                return {"status": "searching"}
         return acquired
 
     def match(self, token, image, stream=0):
@@ -161,13 +188,20 @@ class VisionEngine:
             result = tracker.update(image)
             if result["status"] == "matched":
                 return result
-            if tracker.active:
+            if tracker.active or tracker.recovering:
                 return result
         result = self.find(token, image)
         if result["status"] == "matched":
-            selected["target"] = TemporalTracker(
-                image, result["box"], reference=selected["reference"]
-            )
+            try:
+                selected["target"] = MemoryTracker(
+                    image,
+                    result["box"],
+                    backend=self.segmentation,
+                    reference=selected["reference"],
+                    appearance=self.appearance,
+                )
+            except ValueError:
+                return {"status": "searching"}
         return result
 
     def find(self, token, image):

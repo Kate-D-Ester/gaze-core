@@ -1,47 +1,56 @@
-# Model choice for the LED cosplay viewer
+# Tracking model choice
 
-Requirement: an arbitrary clicked/boxed scene example must be found at an unknown location in another camera, not just followed from a known box in one video. No hardware control is included.
+The viewer uses **SAM 2.1 Tiny** for continuous selected-region tracking. YOLOE remains the click-selection and acquisition proposal model. Selection stays in Scene; Target independently searches the original Scene reference, then owns a separate tracking state. This is visual tracking for the LED cosplay viewer; no hardware control is included.
 
-| Option | Footprint | Fit for this requirement |
+## Why replace NanoTrack
+
+The previous NanoTrack path required every moving crop to match the original pixels. Angle changes, partial occlusion and open/closed hand postures violate that assumption. Removing the check alone permits reference drift. The replacement uses a prompted segmentation model with temporal memory, keeps the original selection immutable for acquisition, and treats recovery as a separate operation.
+
+[SAM 2](https://github.com/facebookresearch/sam2/tree/2b90b9f5ceec907a1c18123530e92e794ad901a4) supports prompted video segmentation and object memory. The service pins this source revision and its official 2.1 Tiny checkpoint, loads weights strictly, and adapts the streaming step without retaining a complete camera recording. Source/checkpoint licenses are recorded in [NOTICE](../vision/NOTICE.md).
+
+## Local model comparison
+
+Measurements below used the supplied local recording on an Apple M1 Pro with 16 GiB RAM. Initialized-tracker probes received an initial box directly; they do **not** validate Target acquisition or product recovery. A correct reviewed checkpoint means box IoU >=0.5; missing boxes fail.
+
+| Candidate | Weight file | Observed fit |
 | --- | --- | --- |
-| NanoTrack v3 | 1.4 MB backbone + 1.1 MB head ONNX, 541K parameters | Small footprint for following a known box; its source initializes a template and center and searches a crop around the prior center. It does not provide second-camera global acquisition or instance verification. Chosen for following an acquired region in both views. Fine parts also need feature-motion and appearance checks to reject drift. |
-| YOLOX nano | 0.91M parameters | Small detector with Apache-2.0 source, trained on COCO's fixed categories. Would need a separate proposal method for glasses/arbitrary examples and separate cross-view matching. |
-| ORB + RANSAC only | No neural weights | Fast geometric matching of textured, overlapping views. Cannot propose an object's extent reliably in a new scene and loses plain objects or substantial viewpoint changes. Useful as independent corroboration. |
-| YOLOE-26n | Visual model 11,710,443 bytes + prompt-free model 16,271,345 bytes | Visual prompts support an example rectangle instead of a fixed class list. Prompt-free detection makes click selection possible; ORB/RANSAC rejects category-only matches and ambiguous duplicates. Retained for click selection and acquisition proposals; it is not the continuous tracker. |
+| NanoTrack v3 | 2,615,375 bytes across two ONNX files | Small and fast, but the original-crop policy failed the required pose tracking. Retained only as a regression baseline. |
+| EdgeTAM | 56,116,523 bytes | Smaller checkpoint, but roughly 248 ms per frame in this local probe. Face/glasses errors and mask contamination survived high presence scores. |
+| SAM 2.1 Tiny, 1024 | 156,008,466 bytes | Better face segmentation, but roughly 1.12 seconds per frame on this Mac. |
+| SAM 2.1 Tiny, 512 mixed precision | Same checkpoint | About 100 ms per frame; passed all 49 sparse initialized-tracker checkpoints. Chosen for detail and throughput. |
+| SAM 2.1 Tiny, 384 mixed precision | Same checkpoint | About 67 ms per frame; passed 47/49 checkpoints. Clothing extent lost detail, so this configuration was rejected. |
 
-Sources: [NanoTrack author benchmarks](https://github.com/HonglinChu/SiamTrackers/blob/master/NanoTrack/README.md), [NanoTrack search implementation](https://github.com/HonglinChu/SiamTrackers/blob/master/NanoTrack/nanotrack/tracker/nano_tracker.py), [OpenCV TrackerNano interface](https://docs.opencv.org/4.x/d8/d69/classcv_1_1TrackerNano.html), [official YOLOX model zoo](https://yolox.readthedocs.io/en/latest/model_zoo.html), [YOLOE modes and visual prompt API](https://docs.ultralytics.com/models/yoloe/). Fit assessments are engineering inferences from those APIs, not cross-camera benchmark claims.
+[EdgeTAM](https://github.com/facebookresearch/EdgeTAM) reports mobile-device benchmarks, which do not establish performance on this Mac. [SAM 3.1](https://github.com/facebookresearch/sam3/blob/main/RELEASE_SAM3p1.md) was not the first local candidate because its official setup targets CUDA GPUs. These fit assessments are engineering inferences and local measurements, not universal model rankings.
 
-Earlier acquisition-only Mac/MPS measurement on the bundled bus image: 87 ms median per analyzed frame after fixed-square-input warm-up. Rotated/scaled overlapping views passed; blank and different-scene frames were rejected. This is an inference-stage measurement, not guaranteed camera/display FPS or proof of identity across arbitrary real viewpoints. The UI uses bounded requests and drops intermediate frames. Initial model warm-up happens in the background before readiness.
+## Runtime and recovery
 
-The displayed >80% match score is the fraction of descriptor correspondences passing RANSAC, with >=8 inliers and coverage/geometry constraints. It is not a calibrated probability of identity. Similar accepted candidates within an 8-point score margin yield Ambiguous. Low texture, blur, small glasses, occlusion and changed 3D viewpoints can remain Searching. The original YOLOE model weights are ~26.7 MiB total; the isolated Python/PyTorch environment is larger. Runtime models and camera frames remain local. See [vision dependency notice](../vision/NOTICE.md).
+The selected configuration uses 512-pixel inference with MPS float16 autocast. CPU inference remains float32. Each camera retains its original conditioning frame and at most 16 recent accepted outputs. The shared neural model has no per-camera recording state. Sessions are limited to four selections and expire after ten minutes; Clear releases their camera memories.
 
+Ordinary temporal updates use object presence and predicted mask quality. A weak positive overlap below 0.1 can continue only with presence >0.95, quality >=0.8, bounded extent and SAM token cosine >0.8 against the immediately preceding accepted mask. Zero overlap or abrupt extent change must be corroborated before replacing recent recovery evidence. Missing/uncertain predictions hide the overlay and cannot enter accepted object memory.
 
-## Continuous regions and local video evaluation
+Brief recovery uses at most three recently verified views, each limited to 12 analyzed frames and two wall-clock seconds. Geometry must agree, and reliable optical motion or learned evidence must support the candidate. The SAM object-memory token uses cosine >0.8 with presence >0.95 and mask quality >=0.65. Otherwise [DINOv2](https://github.com/facebookresearch/dinov2) Small provides supplementary cosine >0.7 with quality >=0.8. Two consistent verified observations must occur within three analyzed frames and one second. Valid uncertainty can occur between them; true absence, malformed evidence and expiry clear confirmation. Long loss uses the immutable original reference for reacquisition.
 
-This branch now uses NanoTrack v3 for motion in each view. Its two ONNX files total 2,615,375 bytes. The native decoder uses the upstream 15×15 response map; the packaged TrackerNano interface assumed a different response shape. Shape/finiteness checks and deterministic decoder tests cover this adaptation.
+These are distinct algorithm scores: object presence, predicted mask quality, memory-token similarity, descriptor similarity and geometric inlier ratio are **not calibrated identity probabilities**. The Tracking overlay deliberately does not display an identity percentage. Similar-looking objects, long disappearance, rapid motion and substantial new viewpoints remain limitations.
 
-For detailed regions, [OpenCV Lucas–Kanade flow](https://docs.opencv.org/4.x/d4/dee/tutorial_optical_flow.html) supplies a corroborating motion estimate: forward/backward error, feature coverage, at least eight inliers, >80% geometric consistency, bounded scale change and agreement with NanoTrack are required. Each proposed region must also match the immutable Scene selection through ORB/RANSAC with consistent extent, or through >92% local appearance correlation and tonal agreement. A neural response alone cannot confirm it. Loss removes the box; both views reacquire from that same original reference. Confirmed motion recenters NanoTrack without replacing the reference used for instance verification.
+## Replay method
 
-Acquisition first checks global ORB geometry, including exclusion of a second plausible instance. A single <=480px interior appearance search per request can match smooth regions with >92% correlation and tonal agreement. Similar distinct peaks stay Ambiguous. YOLOE proposals remain a fallback, with five candidates and a 250ms soft budget checked between stages. This budget bounds repeated work; it cannot interrupt an individual native/model call. Scores remain algorithm evidence, never a calibrated probability of identity.
+Each case runs independently from its selection time through the recording's final real frame. By default Scene and Target receive identical video pixels, but Target receives only the Scene token and independently acquires its box. The evaluator also supports a mildly transformed copy. Neither mode measures independent physical-camera accuracy.
 
-The local evaluator runs each supplied region independently and reports hand-reviewed checkpoint IoU, missing boxes, visibility, and timing. It also generates annotated clips. By default, Scene and Target receive identical decoded video pixels, while Target independently searches from the Scene token without being given a Target rectangle. The optional transformed mode applies a slight rotation/scale/translation. These replay modes check overlapping views; an independently recorded second camera is required to measure real cross-camera accuracy. Private media, truth boxes and results stay under ignored .local-reference, outside versioned source.
+Private video, annotations, per-frame JSON, checkpoint sheets and annotated clips stay under ignored `.local-reference`. Hand truth annotations stop at 20 seconds and phone annotations at 30 seconds; later status logs continue through the endpoint without a ground-truth accuracy claim. Model scores and the fraction of frames displaying boxes are not tracking accuracy.
 
+## Paired product replay and acceptance
 
-## Earlier motion acceptance result (2026-10-05)
+| Case | Scene checkpoints | Target checkpoints | Median pair ms |
+| --- | --- | --- | --- |
+| face | 13/14 | 13/14 | 205 |
+| glasses | 11/12 | 11/12 | 204 |
+| clothing | 8/8 | 8/8 | 206 |
+| hand-open | 7/7 | 7/7 | 209 |
+| hand-closed | 4/4 | 4/4 | 233 |
+| phone | 3/4 | 3/4 | 205 |
 
-The six independently initialized cases on the supplied local recording were run sequentially at a 15 Hz video cadence. At 49 sparse, hand-reviewed checkpoints (including known initialization), IoU >=0.5 successes were: face 12/14 Scene and 11/14 synthetic Target; specs 4/12 and 5/12; clothing 4/8 and 7/8; open-hand initialization 1/7 and 1/7; closed-hand initialization 1/4 and 1/4; phone 3/4 and 3/4. Missing boxes count as failures. Hands include open/closed posture transitions. **This fails the requested reliable hand/specs and arbitrary-object accuracy; high evidence scores did not guarantee correct region extent.** No production accuracy claim is warranted. Private annotations, clips and the detailed report remain ignored under .local-reference/motion-tests/continuous-final-v9.
+The complete current pipeline passed 46/49 sparse checkpoints in each view at 5 analyzed frames per second, across 671 frame pairs through the final real frame. Each Target independently acquired the selected instance. Failed checkpoints were absent overlays for face at 18s, glasses at 26s and phone at 30s, rather than accepted wrong boxes. This is a substantial improvement over the original-reference NanoTrack path, which passed 13/49 Scene and 14/49 Target checkpoints on the same cases at a different analysis cadence. These local comparisons do not establish a general accuracy percentage or physical-camera matching performance.
 
-[OpenCV ViTTrack](https://github.com/opencv/opencv_zoo/tree/47534e27c9851bb1128ccc0102f1145e27f23f98/models/object_tracking_vittrack) was also evaluated locally. The full ONNX file is 714,726 bytes (official LFS SHA256 2990f0b7cd44d92afa48cd97db6de7be113fc1d9594fddb74e2725c10478e91d). Its [native API](https://docs.opencv.org/4.x/d9/d26/classcv_1_1TrackerVit.html) defaults to a 0.2 response threshold. The >0.8 probe lost almost all regions; the native-threshold probe remained poor on specs/clothing/hands. It was rejected for this implementation. Model response thresholds across trackers are not interchangeable or calibrated identity probabilities.
+Tracking still has brief gaps. Both hand cases lose the changed/occluded hand after about 22s and stay Searching through the endpoint; hand truth annotations stop at 20s. The phone's fast movement at 29.4s enters Searching and is not reacquired before the endpoint. Sparse annotations cannot rule out errors between checkpoints. Typical paired analysis takes about 204–233 ms on this M1 Pro, with per-case p95 values up to 351 ms; this is not a 30 fps live inference claim.
 
-The final public-image smoke check passed acquisition at 0/5/15-degree transforms, rejected blank/unrelated frames, and kept Scene active for 12 fresh nonmatching Target pairs (maximum 147.9 ms). Real-video pair median/p95 ranged from 42.5/295.6 ms for phone to 311.5/345.7 ms for specs while reacquiring. These timings exclude capture/encoding/transport/rendering and do not establish live FPS. The Target video test uses transformed same-frame copies, so real independent camera accuracy remains unmeasured.
-
-
-## Original-reference drift guard and same-video replay (2026-10-05)
-
-Regression tests reproduced gradual drift and contaminated recent-crop reacquisition. Both temporal verification and every acquisition/recovery now use the immutable original Scene reference. Newly acquired Target crops cannot replace it. Crop rounding is consistent, and tiny regions avoid unsupported ORB pyramid processing. Ongoing confirmed responses retain the Tracking label and the actual confirmation score.
-
-Six identical-video cases processed all 3,966 frame pairs from selection through the final decoded frame at a 30 fps video cadence. Target independently searched from the Scene token, without a Target rectangle. Correct sparse checkpoints (IoU >=0.5, missing boxes fail): face 7/14 Scene and 7/14 Target; glasses 3/12 Scene and 3/12 Target; clothing 0/8 Scene and 1/8 Target; hand-open 1/7 Scene and 1/7 Target; hand-closed 1/4 Scene and 1/4 Target; phone 1/4 Scene and 1/4 Target. All initial Target acquisitions succeeded. No accepted boxes were wrong at the 49 reviewed checkpoints, but rejection/gaps increased substantially. **Reliable continuous tracking remains failed; rejecting reference drift does not establish accurate posture tracking or recovery.** Sparse checks do not rule out wrong matches between checkpoints. Hand annotations stop at 20s and phone annotations at 30s, although status logs and videos continue through the endpoint.
-
-The final Python suite passes 48 tests and Ruff. Private case definitions, full-frame JSON, clips, checkpoint sheets and the report remain ignored under .local-reference/motion-tests/same-video-original-reference. Identical frame replay is not an independent physical-camera benchmark, and processing every recorded frame is not a live FPS claim.
-
-Release verification: the final public-image real-model check passed 0/5/15-degree views, blank/unrelated rejection and 12 healthy Scene/nonmatching Target pairs, with zero Scene deactivations (maximum pair 288.2 ms). The restarted isolated 4016 viewer returns HTTP 200 and its local service reports ready on MPS. The source commit excludes all private recordings and test artifacts.
+The final real-model acceptance checks passed same-category distractor disappearance, original return, independent Target reset, four interleaved tokens/eight camera states and memory release on Clear/expiry. Four selections used about 419 MB of allocated MPS memory in that fixture; Clear released all eight tracker states and returned allocation to about 276 MB. The public angle smoke check passed 0/5/15 degrees and healthy Scene/nonmatching Target pairs without Scene deactivation. The final Python suite passed 86 tests and focused viewer/tooling tests passed 71.

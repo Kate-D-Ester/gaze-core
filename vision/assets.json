@@ -18,5 +18,15 @@
     "name": "v3-nanotrack_head.onnx",
     "url": "https://raw.githubusercontent.com/HonglinChu/SiamTrackers/248663fde6bf7c40190cf10ee396d5662919ecd3/NanoTrack/models/nanotrackv3/nanotrack_head.onnx",
     "sha256": "75357903be3f4817c965af16cb5a11fd32b1467f597a408405a98635ac63f61d"
+  },
+  {
+    "name": "sam2.1_hiera_tiny.pt",
+    "url": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+    "sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69"
+  },
+  {
+    "name": "dinov2_vits14.pt",
+    "url": "https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth",
+    "sha256": "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
   }
 ]

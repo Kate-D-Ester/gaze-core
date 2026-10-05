@@ -1,0 +1,11 @@
+# Memory-based tracking design
+
+Replace the brittle frame-to-original crop gate in the existing visual-only Scene/Target flow. A selected region must follow ordinary angle changes and deformation, including open/closed hand postures, while preserving instance identity through loss. Selection remains Scene-only through the current mouse/gaze/voice controls. No new controls or hardware outputs are in scope.
+
+Evaluate official EdgeTAM first and SAM 2.1 Tiny as the alternate on the local Apple M1 Pro with 16 GiB memory. Both segment a prompted region and propagate its mask with temporal memory. The model must use bounded streaming state rather than loading an entire camera recording. Independent Scene/Target state shares one loaded model. Original selection data remains immutable for acquisition; it is not a pixel-similarity requirement on every accepted temporal frame. Lost/absent predictions hide the box; recovery cannot promote an unrelated recent crop into the original reference. Learned instance verification may be needed for global reacquisition, which is separate from mask propagation.
+
+Keep private video, annotations and experiments local and ignored. Pin official source/checkpoint integrity; perform preparation explicitly, with no downloads during image requests. Preserve existing API freshness/source-generation checks and the minimal interface. Report model quality scores as algorithm evidence, not calibrated identity probabilities.
+
+Success is measured on the six existing cases, with Scene and Target receiving identical frames and Target independently finding its initial region. Examine ordinary angle shifts, posture changes, absence, distractors and return. Compare correct sparse checkpoint coverage, false accepted boxes, gaps, timing and memory with the failed crop-gate baseline. Benchmark evidence must precede enabling a new live tracker. Identical-video results do not establish independent-camera identity accuracy.
+
+Sources: [EdgeTAM](https://github.com/facebookresearch/EdgeTAM), [SAM 2.1](https://github.com/facebookresearch/sam2), [SAM 3.1](https://github.com/facebookresearch/sam3/blob/main/RELEASE_SAM3p1.md). SAM 3.1 is not the first local candidate because its official setup targets CUDA GPUs.

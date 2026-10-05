@@ -104,17 +104,17 @@ def test_default_target_feed_uses_identical_pixels_without_a_target_selection(
         def clear(self, token):
             pass
 
-    video = SimpleNamespace(set=lambda *args: None, get=lambda *args: 3, read=lambda: (True, image))
+    video = SimpleNamespace(set=lambda *args: None, get=lambda *args: 4, read=lambda: (True, image))
     writer = SimpleNamespace(isOpened=lambda: True, write=lambda *args: None, release=lambda: None)
     monkeypatch.setattr(module.cv2, "VideoWriter", lambda *args: writer)
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: None)
-    case = {"name": "same-video", "start": 0, "end": 0.2, "box": box, "truth": {"0": box}}
-    result = module.run_case(EngineBoundary(), video, 10, case, tmp_path, analysis_fps=10)
+    case = {"name": "same-video", "start": 0, "end": 0.3, "box": box, "truth": {"0": box}}
+    result = module.run_case(EngineBoundary(), video, 10, case, tmp_path, analysis_fps=5)
     for scene, target in zip(captured["scene"], captured["target"], strict=True):
         np.testing.assert_array_equal(target, scene)
     assert result["targetMode"] == "same-video"
     assert result["analyzedFrames"] == 3
-    assert result["lastAnalyzedTime"] == 0.2
+    assert result["lastAnalyzedTime"] == 0.3
     assert result["targetFirstAcquiredTime"] is None
 
 

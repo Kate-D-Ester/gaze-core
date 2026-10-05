@@ -8,7 +8,7 @@ From this worktree's root:
 
 ```sh
 bun install --cwd frontend --frozen-lockfile
-uv sync --project vision --frozen
+SAM2_BUILD_CUDA=0 uv sync --project vision --frozen
 uv run --project vision vision/prepare.py
 # Start the viewer and its owned local vision service:
 bun run --cwd frontend dev
@@ -38,9 +38,9 @@ After calibration, the Scene preview shows a red gaze bubble. It uses the same l
 
 Connect Scene and Target. Click an object in Scene to select it and start tracking immediately, or drag a rectangle around it. The Scene box follows the selected region as it moves. Drag a rectangle to select a part such as specs, a hand or a patch of clothing. Target is a passive tracking view and never accepts manual selections. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Button, typed and spoken `select` always use Scene, regardless of the active photo camera. Fresh calibrated gaze takes priority over an older clicked point; otherwise the last current Scene point/rectangle is retried. There is no implicit center fallback.
 
-The third view shows **Searching**, **Ambiguous**, or a cyan tracking box. Geometric acquisition displays **Locked** with its score; ongoing motion displays **Tracking**, and dense acquisition displays **Matched appearance**. Geometric acquisition requires a score strictly above 80%, at least eight inliers and valid coverage/geometry. Ongoing NanoTrack proposals require a response above 80%, compatible available motion evidence, and verification against the original Scene selection; dense acquisition requires >92% correlation. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Target source changes reacquire. Temporary frame loss hides both boxes; recovery searches from the immutable original Scene selection. Recent tracked crops cannot become replacement references.
+The third view shows **Searching**, **Ambiguous**, or a cyan tracking box. Geometric acquisition displays **Locked** with its score; ongoing motion displays **Tracking**, and dense acquisition displays **Matched appearance**. Geometric acquisition requires a score strictly above 80%, at least eight inliers and valid coverage/geometry. Ongoing SAM 2.1 mask tracking requires object presence above 80%, finite predicted mask quality of at least 0.5 and a valid box; dense acquisition requires >92% correlation. The Tracking label omits percentages because presence and predicted mask quality do not measure instance identity. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Target source changes reacquire. Temporary frame loss hides both boxes. Brief recovery can use up to three stable views within 12 analyzed frames and two seconds. Geometry plus optical motion or learned appearance must support two consistent observations within three analyzed frames and one second. Actual absence, malformed evidence and expiry clear that confirmation. See the model research for the individual evidence thresholds. Longer loss searches from the immutable original Scene selection. Recent appearances cannot replace that reference or the original segmentation conditioning.
 
-The web launcher owns a loopback-only local Python service using pinned YOLOE nano and NanoTrack v3 models, MPS for YOLOE when available and CPU otherwise. Model preparation downloads ~29.2 MiB of verified weights once; the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
+The web launcher owns a loopback-only local Python service using pinned YOLOE nano, SAM 2.1 Tiny and DINOv2 Small models, MPS when available and CPU otherwise. Model preparation downloads about 262 MiB of verified weights once (including the retained NanoTrack comparison weights); the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
 
 ## Commands
 
@@ -76,7 +76,7 @@ The initial regression run reproduced missing automatic selection, wrong-camera 
 
 ### Real object matching — 2026-10-05
 
-The current implementation passes 769 frontend tests, 12 Python tests, lint, TypeScript checks, Ruff and the production build. Regression tests cover stale source/orientation responses, bounded requests, clear during selection, missing-frame recovery, strict >80% acceptance, ambiguous candidates, reference expiry and release of predictor image caches. Independent review findings were addressed with regression coverage.
+The initial object-matching implementation passed 769 frontend tests, 12 Python tests, lint, TypeScript checks, Ruff and the production build. Regression tests cover stale source/orientation responses, bounded requests, clear during selection, missing-frame recovery, strict >80% acceptance, ambiguous candidates, reference expiry and release of predictor image caches. Independent review findings were addressed with regression coverage.
 
 Real model acceptance on bundled public samples passed on MPS: rotated/scaled overlapping views matched with 99% geometric scores; blank and different-scene views remained Searching. Median analysis time after warm-up was 87 ms. Browser validation confirmed real match geometry, loss on a blank third feed, automatic reacquisition, Clear, custom rectangles and generated `select` through the real offline decoder. Eye was disconnected. The 390px layout had no horizontal overflow and kept commands visible during scrolling. This does not establish accuracy across unrelated physical camera viewpoints, people or tiny glasses; those remain device-specific checks.
 
@@ -162,12 +162,32 @@ The output directory must be new. The tool runs cases one by one and creates one
 The 2026-10-05 local video evaluation fails reliable specs and open/closed hand tracking. Clothing boxes can drift in extent, and occlusion can distort face tracking. Continuous overlays and stale-frame handling are implemented, but an overlay or >80% evidence score is not proof of correct tracking. See object-tracking-model-research.md for measured checkpoint results. Private case definitions, per-frame JSON, annotated clips and the report remain under ignored .local-reference/motion-tests/continuous-final-v9; no personal recording is versioned. That earlier Target test used a transformed Scene copy, not an independent second camera.
 
 
-### Original-reference drift guard and same-video replay (2026-10-05)
+### Earlier original-reference drift guard (superseded)
 
 Regression tests reproduced gradual drift and contaminated recent-crop reacquisition. Both temporal verification and every acquisition/recovery now use the immutable original Scene reference. Newly acquired Target crops cannot replace it. Crop rounding is consistent, and tiny regions avoid unsupported ORB pyramid processing. Ongoing confirmed responses retain the Tracking label and the actual confirmation score.
 
-Six identical-video cases processed all 3,966 frame pairs from selection through the final decoded frame at a 30 fps video cadence. Target independently searched from the Scene token, without a Target rectangle. Correct sparse checkpoints (IoU >=0.5, missing boxes fail): face 7/14 Scene and 7/14 Target; glasses 3/12 Scene and 3/12 Target; clothing 0/8 Scene and 1/8 Target; hand-open 1/7 Scene and 1/7 Target; hand-closed 1/4 Scene and 1/4 Target; phone 1/4 Scene and 1/4 Target. All initial Target acquisitions succeeded. No accepted boxes were wrong at the 49 reviewed checkpoints, but rejection/gaps increased substantially. **Reliable continuous tracking remains failed; rejecting reference drift does not establish accurate posture tracking or recovery.** Sparse checks do not rule out wrong matches between checkpoints. Hand annotations stop at 20s and phone annotations at 30s, although status logs and videos continue through the endpoint.
+Six identical-video cases processed all 3,966 frame pairs from selection through the final decoded frame at a 30 fps video cadence. Target independently searched from the Scene token, without a Target rectangle. Correct sparse checkpoints (IoU >=0.5, missing boxes fail): face 7/14 Scene and 7/14 Target; glasses 3/12 Scene and 3/12 Target; clothing 0/8 Scene and 1/8 Target; hand-open 1/7 Scene and 1/7 Target; hand-closed 1/4 Scene and 1/4 Target; phone 1/4 Scene and 1/4 Target. All initial Target acquisitions succeeded. No accepted boxes were wrong at the 49 reviewed checkpoints, but rejection/gaps increased substantially. **That version failed reliable continuous tracking; rejecting reference drift alone did not establish accurate posture tracking or recovery.** Sparse checks do not rule out wrong matches between checkpoints. Hand annotations stop at 20s and phone annotations at 30s, although status logs and videos continue through the endpoint.
 
 The final Python suite passes 48 tests and Ruff. Private case definitions, full-frame JSON, clips, checkpoint sheets and the report remain ignored under .local-reference/motion-tests/same-video-original-reference. Identical frame replay is not an independent physical-camera benchmark, and processing every recorded frame is not a live FPS claim.
 
 Release verification: the final public-image real-model check passed 0/5/15-degree views, blank/unrelated rejection and 12 healthy Scene/nonmatching Target pairs, with zero Scene deactivations (maximum pair 288.2 ms). The restarted isolated 4016 viewer returns HTTP 200 and its local service reports ready on MPS. The source commit excludes all private recordings and test artifacts.
+
+
+### SAM 2.1 memory tracking — 2026-10-05
+
+The active motion tracker is now SAM 2.1 Tiny at 512 pixels, with independent bounded Scene/Target memory and the original selection preserved for acquisition. Small angle/posture changes no longer require equality with the original crop. Weak overlap during fast movement requires strong evidence from the immediately preceding accepted mask; zero overlap and abrupt extent changes still require corroboration before updating memory.
+
+| Case | Scene checkpoints | Target checkpoints | Median pair ms |
+| --- | --- | --- | --- |
+| face | 13/14 | 13/14 | 205 |
+| glasses | 11/12 | 11/12 | 204 |
+| clothing | 8/8 | 8/8 | 206 |
+| hand-open | 7/7 | 7/7 | 209 |
+| hand-closed | 4/4 | 4/4 | 233 |
+| phone | 3/4 | 3/4 | 205 |
+
+These six same-video cases processed 671 analyzed frame pairs at 5 Hz, from selection through the final real frame at 32.833 seconds. Target independently acquired every initial selection using the Scene token, without a Target rectangle. Both views passed 46/49 sparse reviewed checkpoints (IoU >=0.5, missing boxes fail). The three failures were missing boxes: face at 18s, glasses at 26s and phone at 30s. No accepted box was wrong at those reviewed checkpoints; unannotated frames are not an identity-accuracy claim. Brief gaps remain. Hand truth ends at 20s, and both hand cases remain Searching after loss at about 22s through the endpoint; phone truth ends at 30s. Independent physical-camera viewpoints remain unverified.
+
+Verification passed 86 Python tests, Ruff and 71 focused viewer/tooling tests. Real public-image inference passed 0/5/15-degree views, blank/unrelated rejection, disappearance with a same-category distractor, original return, independent Target reset, four interleaved tokens/eight camera states, bounded memory and release on Clear/expiry. The nonmatching-Target test had zero Scene deactivations (maximum pair 192.3 ms). Private clips, annotations and reports remain ignored. Frontend source and the existing preview build are unchanged by this backend replacement.
+
+The isolated preview was restarted on port 4016 after these checks. Its route returns HTTP 200 and the service reports `ready`, `YOLOE-26n + SAM 2.1 Tiny + DINOv2`, device `mps`. Clear the old selection and select again to initialize the new camera memories.
