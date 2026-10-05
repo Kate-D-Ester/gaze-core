@@ -24,6 +24,7 @@ from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
 from memory_tracking import MemoryTracker  # noqa: E402
 from prepare import MODELS, verify  # noqa: E402
 from sessions import Sessions  # noqa: E402
+from view_acquisition import ViewAcquisition  # noqa: E402
 
 
 class VisionEngine:
@@ -61,6 +62,9 @@ class VisionEngine:
 
         self.segmentation = SegmentationModel(self.device)
         self.appearance = AppearanceModel(self.device)
+        from learned_correspondence import LearnedCorrespondence
+
+        self.correspondence = LearnedCorrespondence(self.device)
         self.detector = YOLOE(str(MODELS / "yoloe-26n-seg-pf.pt"))
         self.visual = YOLOE(str(MODELS / "yoloe-26n-seg.pt"))
         self.sessions = Sessions()
@@ -80,6 +84,7 @@ class VisionEngine:
         empty_memory["cond_frame_outputs"][0] = initial.memory
         self.segmentation.predict(warm, None, 1, empty_memory)
         self.appearance.score(warm[:64, :64], warm[:64, :64])
+        self.correspondence.match(warm, warm)
         self.detector.predict(warm, **self.options)
         self.visual.predict(
             warm,
@@ -92,7 +97,7 @@ class VisionEngine:
     def status(self):
         return {
             "status": "ready",
-            "model": "YOLOE-26n + SAM 2.1 Tiny + DINOv2",
+            "model": "YOLOE-26n + SAM 2.1 Tiny + DINOv2 + LoFTR",
             "device": self.device,
         }
 
@@ -157,6 +162,19 @@ class VisionEngine:
                     self.segmentation,
                     self.appearance,
                 ),
+                "view_acquisition": (
+                    ViewAcquisition(
+                        image,
+                        box,
+                        reference,
+                        self.correspondence,
+                        self.segmentation,
+                        source_memory=scene.outputs["cond_frame_outputs"][0],
+                    )
+                    if getattr(self, "correspondence", None) is not None
+                    else None
+                ),
+                "view_search": False,
                 "context_acquisition": ContextAcquisition.create(
                     image, box, reference, scene.outputs["cond_frame_outputs"][0], self.segmentation
                 ),
@@ -188,7 +206,8 @@ class VisionEngine:
 
     @staticmethod
     def reset_acquisitions(selected):
-        for name in ("context_acquisition", "cross_acquisition"):
+        selected["view_search"] = False
+        for name in ("context_acquisition", "cross_acquisition", "view_acquisition"):
             if selected.get(name) is not None:
                 selected[name].reset()
 
@@ -226,7 +245,21 @@ class VisionEngine:
                         return {"status": "searching"}
                     return result
                 context_result = result
-            result = self.find(token, image, True)
+            view = selected.get("view_acquisition")
+            if view is not None and selected.get("view_search", False):
+                selected["view_search"] = False
+                prediction = self.detector.predict(image, **self.options)[0]
+                result = view.update(image, self.candidates(prediction, image))
+                selected["view_search"] = view.pending is not None
+            else:
+                result = self.find(token, image, True)
+                # Keep ordinary search cheap. A failed search schedules a separate
+                # learned pass; never multiply both models in one camera request.
+                selected["view_search"] = (
+                    result["status"] == "searching"
+                    and view is not None
+                    and selected["cross_acquisition"].pending is None
+                )
             if result["status"] == "matched":
                 self.reset_acquisitions(selected)
                 acquisition = result.pop("acquisition", None)
@@ -299,16 +332,7 @@ class VisionEngine:
                     return ordinary({"status": "searching"})
                 prediction = self.detector.predict(image, **self.options)[0]
                 generic = True
-            height, width = image.shape[:2]
-            candidates = []
-            for detected in prediction.boxes:
-                x1, y1, x2, y2 = detected.xyxy[0].cpu().tolist()
-                box = tuple(
-                    max(0, min(1, value))
-                    for value in (x1 / width, y1 / height, x2 / width, y2 / height)
-                )
-                if box[2] > box[0] and box[3] > box[1]:
-                    candidates.append(Candidate(box, float(detected.conf[0])))
+            candidates = self.candidates(prediction, image)
             if generic:
                 return acquisition.update(image, candidates, deadline)
             result = choose_match(reference, image, candidates, deadline=deadline)
@@ -319,6 +343,20 @@ class VisionEngine:
             if acquisition is not None:
                 acquisition.reset()
             raise
+
+    @staticmethod
+    def candidates(prediction, image):
+        height, width = image.shape[:2]
+        candidates = []
+        for detected in prediction.boxes:
+            x1, y1, x2, y2 = detected.xyxy[0].cpu().tolist()
+            box = tuple(
+                max(0, min(1, value))
+                for value in (x1 / width, y1 / height, x2 / width, y2 / height)
+            )
+            if box[2] > box[0] and box[3] > box[1]:
+                candidates.append(Candidate(box, float(detected.conf[0])))
+        return candidates
 
     def expire(self):
         self.sessions.expire()
