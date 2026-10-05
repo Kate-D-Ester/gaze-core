@@ -19,6 +19,7 @@ from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor  # noqa: E402
 
 from appearance import choose_appearance  # noqa: E402
 from context_acquisition import ContextAcquisition  # noqa: E402
+from cross_camera import CrossCameraAcquisition  # noqa: E402
 from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
 from memory_tracking import MemoryTracker  # noqa: E402
 from prepare import MODELS, verify  # noqa: E402
@@ -150,6 +151,12 @@ class VisionEngine:
                 "scene": scene,
                 "target": None,
                 "stream": None,
+                "cross_acquisition": CrossCameraAcquisition(
+                    reference,
+                    scene.outputs["cond_frame_outputs"][0],
+                    self.segmentation,
+                    self.appearance,
+                ),
                 "context_acquisition": ContextAcquisition.create(
                     image, box, reference, scene.outputs["cond_frame_outputs"][0], self.segmentation
                 ),
@@ -179,26 +186,50 @@ class VisionEngine:
                 return {"status": "searching"}
         return acquired
 
+    @staticmethod
+    def reset_acquisitions(selected):
+        for name in ("context_acquisition", "cross_acquisition"):
+            if selected.get(name) is not None:
+                selected[name].reset()
+
     def match(self, token, image, stream=0):
         selected = self.sessions.get(token)
-        if selected["stream"] != stream:
-            selected["target"] = None
-            selected["stream"] = stream
-            if selected.get("context_acquisition") is not None:
-                selected["context_acquisition"].reset()
-        tracker = selected["target"]
-        if tracker is not None:
-            result = tracker.update(image)
+        try:
+            if selected["stream"] != stream:
+                selected["target"] = None
+                selected["stream"] = stream
+                self.reset_acquisitions(selected)
+            tracker = selected["target"]
+            if tracker is not None:
+                result = tracker.update(image)
+                if result["status"] == "matched":
+                    return result
+                if tracker.active or tracker.recovering:
+                    return result
+            context_result = None
+            context = selected.get("context_acquisition")
+            if context is not None:
+                result = context.update(image)
+                if result["status"] == "matched":
+                    self.reset_acquisitions(selected)
+                    acquisition = result.pop("acquisition")
+                    try:
+                        selected["target"] = MemoryTracker(
+                            image,
+                            result["box"],
+                            backend=self.segmentation,
+                            reference=selected["reference"],
+                            appearance=self.appearance,
+                            acquisition=acquisition,
+                        )
+                    except ValueError:
+                        return {"status": "searching"}
+                    return result
+                context_result = result
+            result = self.find(token, image, True)
             if result["status"] == "matched":
-                return result
-            if tracker.active or tracker.recovering:
-                return result
-        context_result = None
-        context = selected.get("context_acquisition")
-        if context is not None:
-            result = context.update(image)
-            if result["status"] == "matched":
-                acquisition = result.pop("acquisition")
+                self.reset_acquisitions(selected)
+                acquisition = result.pop("acquisition", None)
                 try:
                     selected["target"] = MemoryTracker(
                         image,
@@ -210,57 +241,63 @@ class VisionEngine:
                     )
                 except ValueError:
                     return {"status": "searching"}
-                return result
-            context_result = result
-        result = self.find(token, image)
-        if result["status"] == "matched":
-            try:
-                selected["target"] = MemoryTracker(
-                    image,
-                    result["box"],
-                    backend=self.segmentation,
-                    reference=selected["reference"],
-                    appearance=self.appearance,
-                )
-            except ValueError:
-                return {"status": "searching"}
-        if result["status"] == "searching" and context_result is not None:
-            return context_result
-        return result
+            if result["status"] == "searching" and context_result is not None:
+                return context_result
+            return result
+        except Exception:
+            self.reset_acquisitions(selected)
+            raise
 
-    def find(self, token, image):
+    def find(self, token, image, cross_camera=False):
         selected = self.sessions.get(token)
-        deadline = time.monotonic() + 0.25
-        # Reacquisition must use the user's immutable selection. Recent temporal
-        # crops can be contaminated by drift, even when a model score stays high.
-        reference = selected["reference"]
-        # Try cheap global corroboration first. Proposal inference and dense
-        # searches must not multiply across every reference and candidate.
-        result = choose_match(reference, image, [Candidate((0, 0, 1, 1), 0.0)], deadline=deadline)
-        if result["status"] != "searching":
+        acquisition = selected.get("cross_acquisition") if cross_camera else None
+
+        def ordinary(result):
+            if acquisition is not None:
+                acquisition.reset()
             return result
-        if time.monotonic() >= deadline:
-            return {"status": "searching"}
-        result = choose_appearance(reference, image)
-        if result["status"] != "searching":
-            return result
-        if time.monotonic() >= deadline:
-            return {"status": "searching"}
-        if self.active != token:
-            self.visual.set_classes(["selected object"], selected["embedding"])
-            self.active = token
-        prediction = self.visual.predict(image, **self.options)[0]
-        height, width = image.shape[:2]
-        candidates = []
-        for detected in prediction.boxes[:5]:
-            x1, y1, x2, y2 = detected.xyxy[0].cpu().tolist()
-            box = tuple(
-                max(0, min(1, value))
-                for value in (x1 / width, y1 / height, x2 / width, y2 / height)
+
+        try:
+            deadline = time.monotonic() + 0.25
+            # Reacquisition must use the user's immutable selection. Recent temporal
+            # crops can be contaminated by drift, even when a model score stays high.
+            reference = selected["reference"]
+            # Try cheap global corroboration first. Proposal inference and dense
+            # searches must not multiply across every reference and candidate.
+            result = choose_match(
+                reference, image, [Candidate((0, 0, 1, 1), 0.0)], deadline=deadline
             )
-            if box[2] > box[0] and box[3] > box[1]:
-                candidates.append(Candidate(box, float(detected.conf[0])))
-        return choose_match(reference, image, candidates, deadline=deadline)
+            if result["status"] != "searching":
+                return ordinary(result)
+            if time.monotonic() >= deadline:
+                return ordinary({"status": "searching"})
+            result = choose_appearance(reference, image)
+            if result["status"] != "searching":
+                return ordinary(result)
+            if time.monotonic() >= deadline:
+                return ordinary({"status": "searching"})
+            if self.active != token:
+                self.visual.set_classes(["selected object"], selected["embedding"])
+                self.active = token
+            prediction = self.visual.predict(image, **self.options)[0]
+            height, width = image.shape[:2]
+            candidates = []
+            for detected in prediction.boxes:
+                x1, y1, x2, y2 = detected.xyxy[0].cpu().tolist()
+                box = tuple(
+                    max(0, min(1, value))
+                    for value in (x1 / width, y1 / height, x2 / width, y2 / height)
+                )
+                if box[2] > box[0] and box[3] > box[1]:
+                    candidates.append(Candidate(box, float(detected.conf[0])))
+            result = choose_match(reference, image, candidates[:5], deadline=deadline)
+            if result["status"] == "searching" and acquisition is not None:
+                return acquisition.update(image, candidates, deadline)
+            return ordinary(result)
+        except Exception:
+            if acquisition is not None:
+                acquisition.reset()
+            raise
 
     def expire(self):
         self.sessions.expire()

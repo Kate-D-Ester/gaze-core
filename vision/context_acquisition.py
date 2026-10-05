@@ -17,6 +17,18 @@ class AcquiredRegion:
     reference: Reference
     image: object
     box: list
+    prediction: object = None
+
+
+def consistent_observation(previous, prediction, now, backend):
+    if previous is None or not 0 <= now - previous[2] <= 1:
+        return False
+    score = backend.similarity(prediction.memory, previous[1])
+    return (
+        box_overlap(previous[0], prediction.box) >= 0.5
+        and math.isfinite(score)
+        and 0.8 < score <= 1
+    )
 
 
 class ContextAcquisition:
@@ -91,14 +103,7 @@ class ContextAcquisition:
         now = self.clock()
         previous = self.pending
         self.pending = (list(prediction.box), prediction.memory, now)
-        if previous is None or not 0 <= now - previous[2] <= 1:
-            return {"status": "searching"}
-        consistency = self.backend.similarity(prediction.memory, previous[1])
-        if (
-            box_overlap(previous[0], prediction.box) < 0.5
-            or not math.isfinite(consistency)
-            or not 0.8 < consistency <= 1
-        ):
+        if not consistent_observation(previous, prediction, now, self.backend):
             return {"status": "searching"}
         self.pending = None
         return {

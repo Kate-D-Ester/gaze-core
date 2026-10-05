@@ -48,7 +48,11 @@ class MemoryTracker:
         self.active = True
         self.misses = 0
         self.reset = False
-        initial = self.backend.predict(image, valid_box(box), self.index, self.outputs)
+        initial = (
+            acquisition.prediction
+            if context_verified and acquisition.prediction is not None
+            else self.backend.predict(image, valid_box(box), self.index, self.outputs)
+        )
         if not self.acceptable(initial) or box_overlap(initial.box, box) < 0.5:
             raise ValueError(
                 "Could not isolate this object. Draw a tighter box in Scene and retry."
