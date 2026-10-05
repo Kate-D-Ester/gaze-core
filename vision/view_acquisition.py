@@ -138,6 +138,7 @@ class ViewAcquisition:
         height, width = image.shape[:2]
         pixels = np.asarray(box) * [width, height, width, height]
         self.contexts = []
+        self.encoded_sources = {}
         mask = foreground_mask(source_memory, (width, height), dilation=0)
         for fraction in (0.1, 0.2):
             margin = max(32, round(min(height, width) * fraction / 8) * 8)
@@ -177,11 +178,17 @@ class ViewAcquisition:
             return {"status": "ambiguous" if len(candidates) > 20 else "searching"}
         deadline = time.monotonic() + 2
         order = [previous[3]] if previous is not None else range(len(self.contexts))
+        target_features = None
         for index in order:
             source, region, source_mask = self.contexts[index]
             if source_mask is None:
                 return {"status": "searching"}
-            first, second = self.matcher.match(source, image)
+            if index not in self.encoded_sources:
+                self.encoded_sources[index] = self.matcher.encode(source)
+            if target_features is None:
+                target_features = self.matcher.encode(image)
+            source_features = self.encoded_sources[index]
+            first, second = self.matcher.match_encoded(source_features, target_features)
             source_supported = foreground_points(first, source_mask)
             first, second = first[source_supported], second[source_supported]
             verified = []
@@ -244,7 +251,7 @@ class ViewAcquisition:
                 max(0, math.floor(y1 * h) - 2) : min(h, math.ceil(y2 * h) + 2),
                 max(0, math.floor(x1 * w) - 2) : min(w, math.ceil(x2 * w) + 2),
             ] = 0
-            a, b = self.matcher.match(source, remaining)
+            a, b = self.matcher.match_encoded(source_features, self.matcher.encode(remaining))
             source_supported = foreground_points(a, source_mask)
             try:
                 competitor = geometric_region(

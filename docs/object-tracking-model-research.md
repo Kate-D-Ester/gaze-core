@@ -108,3 +108,27 @@ The actual production browser controller and overlays were also replayed with th
 The final release suite passes 158 Python tests and the unchanged frontend's 778 tests, with Ruff formatting, lint and whitespace checks passing. An independent review found two important gaps (background support and multiple competing groups); both were reproduced with failing regressions and repaired. The latest colour-contradiction regression also fails before its fix and passes afterward. Private fixtures, recordings, logs and annotated results remain local and ignored.
 
 This adds general local-feature matching rather than a screwdriver-specific heuristic. It still needs enough visible shared detail, a usable Source mask and a detector proposal for this fallback. Objects absent from generic proposals, unseen surfaces, extreme viewpoint changes, textureless regions and visually indistinguishable copies can remain Searching. Similarity and geometric ratios are evidence scores, not an 80% probability that two objects are identical.
+
+
+## Search latency optimization (2026-10-06)
+
+Initial acquisition now tries cheap global/appearance matching, reuses generic detector proposals for the existing quality verifier, and then runs learned cross-view matching if neither cheaper path supplies evidence. Older visual-prompt/context search retains its retry turn. A verified first observation receives one direct confirmation turn without repeating the earlier unsuccessful searches. An unsuccessful confirmation returns a turn to the older paths, including when learned inference supplies another pending candidate. Pending small-context and quality confirmations also keep their next turn. Verification thresholds and ordinary continuous tracking are unchanged.
+
+Each selection lazily caches the two immutable Scene contexts' CNN features and positional encoding. They are pre-attention tensors: Target-conditioned features are never retained in this cache. The current Target encoding is shared across Scene contexts only within a single update; the masked duplicate search always encodes its changed pixels independently. The cache belongs to the selection, survives Target resets because its Source pixels do not change, and is released when the selection is cleared, evicted or expires. There is no global camera-feature cache.
+
+The adapter follows pinned Kornia 0.8.3 coarse matching, fine preprocessing and fine refinement. Tests compare it numerically with upstream forward for equal and unequal input dimensions and verify that reused Source tensors remain unchanged. Actual trained-model acceptance retains fan IoU 0.965 and remote IoU 0.800, now confirming on the second request. Removed, unrelated and duplicate views remain unlocked in six attempts each per object.
+
+The latency comparison uses three fresh selections per object through the same local JPEG API, with identical input pixels/coordinates and sequential Scene tracking before each Target request. Selection-to-lock includes selection, Scene updates and API round trips; it is not a model-only benchmark.
+
+| Supplied pair | Previous median | Current median | Reduction | Target observations to lock |
+| --- | --- | --- | --- | --- |
+| Fan | 1,859 ms | 1,572 ms | 15.5% | 3 → 2 |
+| Remote | 1,849 ms | 1,441 ms | 22.1% | 3 → 2 |
+
+All six final optimized acquisitions succeed. The first post-restart acquisition remains slower (about 1.83s for fan in the final run; 2.66s in the earlier cache-only run), reflecting lazy model/runtime work; the cache does not make initial identification instantaneous. Measurements are local to this M1 Pro and these captured camera pairs. No thresholds were lowered to obtain the improvement.
+
+The final ordering regression confirms that an independently verified quality candidate uses the existing two-observation confirmation without invoking heavier correspondence. The complete backend suite passes 168 tests; 30 focused browser-controller/API tests pass. All six older motion cases retain 47/49 reviewed checkpoints in each view over 671 frame pairs, including both hand postures. The two existing face/glasses misses remain. The full 1080-frame separate-camera blue-case replay retains acquisition at 0.195s, all 1077 subsequent matched results and all 17 reviewed checkpoints after acquisition through 35.713s. Median paired processing is 199 ms, p95 205 ms. Removed, blank, recoloured and duplicated Target fixtures stay unlocked for four fresh attempts each. These captured-recording checks do not establish a general identity accuracy percentage.
+
+Production browser-controller replay confirms both captured pairs on the second Target request, retains fresh Scene and Target overlays, and removes both on Clear. Target then continues tracking for 158 fan and 192 remote results in this static captured-pixel replay. The 500 ms freshness guard and JPEG quality 0.85 remain in use. This verifies the running controller and rendering, not newly captured physical motion. The normal viewer server remains on port 4016 without temporary capture instrumentation.
+
+The final JPEG API checks use the same successful browser selection coordinates. Removed, unrelated and duplicated views each remain unlocked for six fresh attempts per object. Final Ruff formatting, lint and whitespace checks pass. Personal inputs, logs, annotations and browser proof remain local and ignored.

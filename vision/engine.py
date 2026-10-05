@@ -174,7 +174,7 @@ class VisionEngine:
                     if getattr(self, "correspondence", None) is not None
                     else None
                 ),
-                "view_search": False,
+                "view_search": getattr(self, "correspondence", None) is not None,
                 "context_acquisition": ContextAcquisition.create(
                     image, box, reference, scene.outputs["cond_frame_outputs"][0], self.segmentation
                 ),
@@ -206,7 +206,7 @@ class VisionEngine:
 
     @staticmethod
     def reset_acquisitions(selected):
-        selected["view_search"] = False
+        selected["view_search"] = selected.get("view_acquisition") is not None
         for name in ("context_acquisition", "cross_acquisition", "view_acquisition"):
             if selected.get(name) is not None:
                 selected[name].reset()
@@ -227,7 +227,9 @@ class VisionEngine:
                     return result
             context_result = None
             context = selected.get("context_acquisition")
-            if context is not None:
+            view = selected.get("view_acquisition")
+            use_view = view is not None and selected.get("view_search", False)
+            if context is not None and not use_view:
                 result = context.update(image)
                 if result["status"] == "matched":
                     self.reset_acquisitions(selected)
@@ -245,20 +247,39 @@ class VisionEngine:
                         return {"status": "searching"}
                     return result
                 context_result = result
-            view = selected.get("view_acquisition")
-            if view is not None and selected.get("view_search", False):
-                selected["view_search"] = False
-                prediction = self.detector.predict(image, **self.options)[0]
-                result = view.update(image, self.candidates(prediction, image))
-                selected["view_search"] = view.pending is not None
+            if use_view:
+                quality = selected["cross_acquisition"]
+                confirming = view.pending is not None or quality.pending is not None
+                # Give verified evidence a direct confirmation pass. Otherwise
+                # retain cheap global matching before cross-view models.
+                result = (
+                    {"status": "searching"}
+                    if confirming
+                    else self.find(token, image, True, proposals=False)
+                )
+                if result["status"] == "searching":
+                    prediction = self.detector.predict(image, **self.options)[0]
+                    candidates = self.candidates(prediction, image)
+                    if view.pending is None:
+                        # Reuse proposals for existing quality verification before
+                        # spending time on learned cross-view correspondence.
+                        result = quality.update(image, candidates, time.monotonic() + 0.25)
+                    if result["status"] == "searching" and quality.pending is None:
+                        result = view.update(image, candidates)
+                # An unsuccessful confirmation must leave a turn for legacy
+                # acquisition, even if another pending candidate was seeded.
+                selected["view_search"] = (
+                    view.pending is not None or quality.pending is not None
+                ) and not confirming
             else:
                 result = self.find(token, image, True)
-                # Keep ordinary search cheap. A failed search schedules a separate
-                # learned pass; never multiply both models in one camera request.
+                # If learned evidence fails, give the older quality/context path
+                # a turn. Its pending confirmation takes precedence over a retry.
                 selected["view_search"] = (
                     result["status"] == "searching"
                     and view is not None
                     and selected["cross_acquisition"].pending is None
+                    and (context is None or context.pending is None)
                 )
             if result["status"] == "matched":
                 self.reset_acquisitions(selected)
@@ -281,7 +302,7 @@ class VisionEngine:
             self.reset_acquisitions(selected)
             raise
 
-    def find(self, token, image, cross_camera=False):
+    def find(self, token, image, cross_camera=False, *, proposals=True):
         selected = self.sessions.get(token)
         acquisition = selected.get("cross_acquisition") if cross_camera else None
 
@@ -314,6 +335,8 @@ class VisionEngine:
             if result["status"] != "searching":
                 return ordinary(result)
             if time.monotonic() >= deadline:
+                return ordinary({"status": "searching"})
+            if not proposals:
                 return ordinary({"status": "searching"})
             if self.active != token:
                 self.visual.set_classes(["selected object"], selected["embedding"])
