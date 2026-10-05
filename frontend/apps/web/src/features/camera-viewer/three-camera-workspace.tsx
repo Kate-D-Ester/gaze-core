@@ -13,7 +13,7 @@ export function ThreeCameraWorkspace() {
   const scene = useSceneCamera()
   const auxiliary = useSceneCamera({
     transformRole: "viewer-auxiliary",
-    label: "Auxiliary camera",
+    label: "Target camera",
   })
   return (
     <ViewerSession

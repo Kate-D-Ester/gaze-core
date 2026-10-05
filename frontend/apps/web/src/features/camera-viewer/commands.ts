@@ -10,6 +10,7 @@ const COMMANDS: Readonly<Record<string, ViewerCommand>> = {
   "switch camera": { kind: "next-camera" },
   "eye camera": { kind: "camera", role: "eye" },
   "scene camera": { kind: "camera", role: "scene" },
+  "target camera": { kind: "camera", role: "auxiliary" },
   "auxiliary camera": { kind: "camera", role: "auxiliary" },
   "stop cameras": { kind: "stop" },
   "stop all cameras": { kind: "stop" },

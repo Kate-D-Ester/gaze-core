@@ -2,8 +2,11 @@ import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global
 if (typeof document === "undefined") {
   GlobalRegistrator.register()
 }
-import { expect, test } from "bun:test"
-import { ObjectTracking } from "../../apps/web/src/features/camera-viewer/object-tracking"
+import { expect, test, spyOn } from "bun:test"
+import {
+  ObjectTracking,
+  requestVision,
+} from "../../apps/web/src/features/camera-viewer/object-tracking"
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
 import { liveSnapshot } from "./fixtures"
 import type {
@@ -207,4 +210,20 @@ test("rotation while Scene has no frame clears its old visual reference", async 
   expect(tracker.getSnapshot().reference).toBeNull()
   expect(tracker.getSnapshot().match).toBeNull()
   tracker.clear()
+})
+
+test("a stopped viewer server reports connection failure instead of leaving selection without guidance", async () => {
+  const network = spyOn(globalThis, "fetch").mockRejectedValue(
+    new TypeError("Failed to fetch")
+  )
+  try {
+    await expect(
+      requestVision(
+        { action: "select", image: "jpeg", point: [0.2, 0.3] },
+        new AbortController().signal
+      )
+    ).rejects.toThrow("Tracking connection unavailable")
+  } finally {
+    network.mockRestore()
+  }
 })

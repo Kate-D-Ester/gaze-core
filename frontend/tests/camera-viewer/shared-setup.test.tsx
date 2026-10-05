@@ -326,7 +326,7 @@ test("eye setup rejects the USB device already used by the auxiliary feed", asyn
   await render()
   await act(async () =>
     host
-      .querySelector<HTMLFormElement>('[aria-label="Auxiliary camera source"]')!
+      .querySelector<HTMLFormElement>('[aria-label="Target camera source"]')!
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
   )
   await click("Gaze setup")
@@ -338,7 +338,7 @@ test("eye setup rejects the USB device already used by the auxiliary feed", asyn
   await click("Use in viewer")
   expect(
     host.querySelector<HTMLButtonElement>(
-      '[aria-label="Auxiliary camera disconnect"]'
+      '[aria-label="Target camera disconnect"]'
     )!.disabled
   ).toBe(false)
   expect(

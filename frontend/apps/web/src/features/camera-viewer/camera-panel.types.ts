@@ -23,5 +23,5 @@ export type CameraPanelProps = {
   onActivate: () => void
   onConnect: (kind: ViewerSourceKind, value: string) => void
   onDisconnect: () => void
-  onPoint: (point: PreviewPoint) => void
+  onPoint?: (point: PreviewPoint) => void
 }

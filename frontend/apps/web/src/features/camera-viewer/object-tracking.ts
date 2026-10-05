@@ -67,12 +67,19 @@ function encodeFrame(camera: ViewerCamera) {
   return data.slice("data:image/jpeg;base64,".length)
 }
 export const requestVision: VisionTransport = async (request, signal) => {
-  const response = await fetch("/api/viewer-vision", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(22000)]),
-  })
+  let response: Response
+  try {
+    response = await fetch("/api/viewer-vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(22000)]),
+    })
+  } catch {
+    throw new Error(
+      "Tracking connection unavailable. Restart the viewer server and retry."
+    )
+  }
   const body: unknown = await response.json()
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("Vision returned an invalid result. Retry Select.")

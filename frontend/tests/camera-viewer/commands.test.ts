@@ -9,6 +9,10 @@ test("viewer commands accept only complete supported phrases", () => {
     kind: "camera",
     role: "scene",
   })
+  expect(parseViewerCommand("target camera")).toEqual({
+    kind: "camera",
+    role: "auxiliary",
+  })
   for (const text of [
     "",
     "do not select",

@@ -9,6 +9,7 @@ export function ObjectOverlay({
   now,
   region,
 }: ObjectOverlayProps) {
+  const name = role === "auxiliary" ? "target" : "scene"
   const fresh = hasFreshFrame(camera, now)
   let box: ObjectBox | null = null
   let text = "Select an object in Scene"
@@ -18,7 +19,10 @@ export function ObjectOverlay({
       (tracking.reference && sameSource(tracking.reference, camera)
         ? tracking.reference.box
         : null)
-    text = region ? "Press Select" : "Reference"
+    text = tracking.reference ? "Selected" : "Selection"
+    if (tracking.status === "selecting") {
+      text = "Selecting…"
+    }
   } else {
     const match = tracking.match
     const current =
@@ -29,7 +33,7 @@ export function ObjectOverlay({
       now - match.timestamp <= 500
     if (current) {
       box = match.box
-      text = `${tracking.reference?.label ?? "Object"} · Match ${Math.round(match.score * 100)}%`
+      text = `Locked · ${Math.round(match.score * 100)}%`
     } else if (tracking.status === "selecting") {
       text = "Selecting…"
     } else if (tracking.status === "error") {
@@ -50,12 +54,12 @@ export function ObjectOverlay({
   return (
     <span
       className="pointer-events-none absolute inset-0"
-      aria-label={`${role} object tracking`}
+      aria-label={`${name} object tracking`}
     >
       {box && (
         <span
           role="img"
-          aria-label={`${role} ${role === "scene" ? "reference" : "matched object"} box`}
+          aria-label={`${name} ${role === "scene" ? "reference" : "matched object"} box`}
           className={`absolute rounded-sm border-2 ${role === "scene" ? "border-primary/80" : "border-cyan-300 shadow-[0_0_0_1px_#0008]"}`}
           style={{
             left: `${box[0] * 100}%`,

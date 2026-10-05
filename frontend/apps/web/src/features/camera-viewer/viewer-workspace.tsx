@@ -1,6 +1,6 @@
 import { useObjectTracking } from "./use-object-tracking"
 import { getViewerGaze } from "./viewer-gaze"
-import type { ObjectBox, ObjectRegion } from "./object-tracking.types"
+import type { ObjectChoice, ObjectRegion } from "./object-tracking.types"
 import { ShieldCheck } from "lucide-react"
 import {
   useCallback,
@@ -40,7 +40,7 @@ const ROLES: readonly CameraRole[] = ["eye", "scene", "auxiliary"]
 const LABELS: Record<CameraRole, string> = {
   eye: "Eye camera",
   scene: "Scene camera",
-  auxiliary: "Auxiliary camera",
+  auxiliary: "Target camera",
 }
 
 export function ViewerWorkspace({
@@ -154,46 +154,56 @@ export function ViewerWorkspace({
     }
   }, [cameras, saveSelections, voice])
 
-  const selectPoint = useCallback(
-    (role: CameraRole, point: PreviewPoint) => {
+  const startSelection = useCallback(
+    async (choice: ObjectChoice) => {
+      setError("")
+      setNotice("Selecting object…")
+      await tracking.select(cameras.scene, choice)
+      const state = tracking.getSnapshot()
+      if (!mounted.current || state.status === "selecting") {
+        return
+      }
+      if (state.error) {
+        setError(state.error)
+      } else {
+        setNotice(
+          state.reference ? "Scene object selected." : "Selection cleared."
+        )
+      }
+    },
+    [cameras.scene, tracking]
+  )
+  const selectObject = useCallback(
+    (choice: ObjectChoice) => {
+      const point =
+        "point" in choice
+          ? choice.point
+          : ([
+              (choice.box[0] + choice.box[2]) / 2,
+              (choice.box[1] + choice.box[3]) / 2,
+            ] as PreviewPoint)
       const selection = createVisualSelection(
         point,
-        cameras[role].getSnapshot(),
+        cameras.scene.getSnapshot(),
         performance.now()
       )
       if (!selection) {
-        setError(
-          "Connect a camera and wait for a fresh frame before selecting a point."
-        )
+        setError("Connect Scene and wait for a fresh frame before selecting.")
         return
       }
-      if (role === "scene") {
-        region.current = null
-        setSceneRegion(null)
-      }
-      selectCamera(role)
-      saveSelections({ ...chosenPoints.current, [role]: selection })
-      setError("")
-      setNotice(`${LABELS[role]}: static point selected.`)
+      region.current =
+        "box" in choice
+          ? {
+              box: choice.box,
+              sourceKey: selection.sourceKey,
+              generation: selection.generation,
+            }
+          : null
+      setSceneRegion(region.current)
+      saveSelections({ scene: selection })
+      void startSelection(choice)
     },
-    [cameras, saveSelections, selectCamera]
-  )
-
-  const selectRegion = useCallback(
-    (box: ObjectBox) => {
-      selectPoint("scene", [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
-      const chosen = chosenPoints.current.scene
-      if (chosen) {
-        region.current = {
-          box,
-          sourceKey: chosen.sourceKey,
-          generation: chosen.generation,
-        }
-        setSceneRegion(region.current)
-        setNotice("Object rectangle chosen. Press Select.")
-      }
-    },
-    [selectPoint]
+    [cameras.scene, saveSelections, startSelection]
   )
 
   const execute = useCallback(
@@ -219,68 +229,47 @@ export function ViewerWorkspace({
         return
       }
       if (command.kind === "select") {
-        let selected = chosenPoints.current[role] ?? null
-        if (role === "scene" && !selected && gazeSession) {
-          const gaze = getViewerGaze(
-            gazeSession.getSnapshot(),
-            cameras.scene.getSnapshot(),
-            performance.now()
-          )
-          if (gaze.point) {
-            selected = createVisualSelection(
-              gaze.point,
-              cameras.scene.getSnapshot(),
-              performance.now()
-            )
-          }
+        const sceneState = cameras.scene.getSnapshot()
+        const now = performance.now()
+        if (!hasFreshFrame(sceneState, now)) {
+          setError("Connect Scene and wait for a fresh frame before selecting.")
+          return
         }
-        const current = isSelectionCurrent(
-          selected,
-          cameras[role].getSnapshot(),
-          performance.now()
+        const gaze = gazeSession
+          ? getViewerGaze(gazeSession.getSnapshot(), sceneState, now).point
+          : null
+        if (gaze) {
+          // Keep the last mouse choice available if gaze becomes unusable.
+          setSelections({})
+          setSceneRegion(null)
+          await startSelection({ point: gaze })
+          return
+        }
+        const selected = chosenPoints.current.scene ?? null
+        if (!isSelectionCurrent(selected, sceneState, now)) {
+          setError(
+            "Click a point or draw a box in Scene, or use calibrated gaze."
+          )
+          return
+        }
+        const area = region.current
+        const usable =
+          area &&
+          area.sourceKey === selected!.sourceKey &&
+          area.generation === selected!.generation
+        setSelections({ scene: selected! })
+        setSceneRegion(usable ? area : null)
+        await startSelection(
+          usable ? { box: area.box } : { point: selected!.point }
         )
-        if (!hasFreshFrame(cameras[role].getSnapshot(), performance.now())) {
-          setError(
-            "Connect a camera and wait for a fresh frame before selecting a point."
-          )
-        } else if (!current) {
-          setError(
-            `Click a point in the ${LABELS[role].toLowerCase()} preview first.`
-          )
-        } else if (role === "scene") {
-          const area = region.current
-          const usable =
-            area &&
-            area.sourceKey === selected!.sourceKey &&
-            area.generation === selected!.generation
-          setNotice("Selecting object…")
-          await tracking.select(
-            cameras.scene,
-            usable ? { box: area.box } : { point: selected!.point }
-          )
-          const state = tracking.getSnapshot()
-          if (mounted.current) {
-            if (state.error) {
-              setError(state.error)
-            } else {
-              setNotice(
-                state.reference
-                  ? `${state.reference.label}: reference selected.`
-                  : "Selection cleared."
-              )
-            }
-          }
-        } else {
-          setNotice(`${LABELS[role]}: manual point confirmed.`)
-        }
         return
       }
       if (command.kind === "clear") {
         tracking.clear()
         region.current = null
         setSceneRegion(null)
-        saveSelections({ ...chosenPoints.current, [role]: undefined })
-        setNotice(`${LABELS[role]} selection cleared.`)
+        saveSelections({})
+        setNotice("Selection cleared.")
         return
       }
       if (command.kind === "voice-stop") {
@@ -326,7 +315,15 @@ export function ViewerWorkspace({
         }
       }
     },
-    [cameras, gazeSession, saveSelections, selectCamera, tracking, voice]
+    [
+      cameras,
+      gazeSession,
+      saveSelections,
+      selectCamera,
+      startSelection,
+      tracking,
+      voice,
+    ]
   )
 
   async function connect(
@@ -415,8 +412,8 @@ export function ViewerWorkspace({
             canCapture={hasFreshFrame(activeState, displayTime)}
             capturing={capturing}
             voice={voiceState}
-            feedback={error || notice}
-            commandError={!!error}
+            feedback={error || tracked.error || notice}
+            commandError={!!(error || tracked.error)}
             onCommand={(text) => {
               void execute(text)
             }}
@@ -464,13 +461,21 @@ export function ViewerWorkspace({
                       ? sceneRegion.box
                       : null
                   }
-                  onRegion={role === "scene" ? selectRegion : undefined}
+                  onRegion={
+                    role === "scene"
+                      ? (box) => selectObject({ box })
+                      : undefined
+                  }
                   onActivate={() => selectCamera(role)}
                   onConnect={(kind, value) => {
                     void connect(role, kind, value)
                   }}
                   onDisconnect={() => disconnect(role)}
-                  onPoint={(point) => selectPoint(role, point)}
+                  onPoint={
+                    role === "scene"
+                      ? (point) => selectObject({ point })
+                      : undefined
+                  }
                 />
               )
             })}

@@ -54,7 +54,7 @@ export function CommandBar({
           id="viewer-command-title"
           className="min-w-0 flex-1 scroll-mt-4 text-xs font-semibold md:flex-none"
         >
-          {activeLabel}
+          Scene → Target
         </h2>
         <form
           aria-label="Camera commands"
@@ -87,6 +87,7 @@ export function CommandBar({
         <button
           type="button"
           aria-label="Take photo"
+          title={`Photo from ${activeLabel}`}
           disabled={!canCapture || capturing}
           className={`secondary ${EyeButtonStyles}`}
           onClick={() => onCommand("take photo")}
@@ -126,15 +127,13 @@ export function CommandBar({
           </summary>
           <div className="mt-2 max-h-24 space-y-2 overflow-y-auto pb-1">
             <p>
-              Click an object in Scene or drag a box around it, then Select. The
-              third camera searches for that example. Clear stops tracking. A
-              live calibrated gaze can also select. Match scores above 80%
-              require visual detail; similar candidates stay Ambiguous. Enter or
-              Space marks a preview center explicitly.
+              Click or draw around an object in Scene to track it in Target.
+              Select uses live Scene gaze, or your last mouse selection. Clear
+              stops tracking.
             </p>
             <p>
-              Commands: eye camera, scene camera, auxiliary camera, select,
-              clear, switch camera, take photo, stop cameras, stop voice.
+              Commands: eye camera, scene camera, target camera, select, clear,
+              switch camera, take photo, stop cameras, stop voice.
             </p>
             <p>
               Tap Voice off and allow the microphone. Wait for Listening, say
@@ -150,7 +149,8 @@ export function CommandBar({
           aria-live="polite"
           className={commandError ? "text-red-200" : undefined}
         >
-          {feedback || "Choose an object in Scene, then Select."}
+          {feedback ||
+            "Click an object in Scene, or look at it and say select."}
         </p>
         {voice.status !== "idle" && (
           <p

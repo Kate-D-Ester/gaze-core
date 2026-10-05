@@ -14,5 +14,5 @@ export type CameraPreviewProps = {
   camera: ViewerCamera
   state: SceneCameraSnapshot
   selection: VisualSelection | null
-  onPoint: (point: PreviewPoint) => void
+  onPoint?: (point: PreviewPoint) => void
 }

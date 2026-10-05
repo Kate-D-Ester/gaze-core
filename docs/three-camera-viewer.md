@@ -1,6 +1,6 @@
 # Three-camera viewer
 
-This public trial previews Eye, Scene, and Auxiliary camera feeds independently. It provides real Scene-to-Auxiliary visual object matching, manual markers and PNG photos. The Eye panel now shares the existing v3 eye tracker and setup session. Object matching works without Eye; calibrated gaze remains optional.
+This public trial previews Eye, Scene, and Target camera feeds independently. It provides real Scene-to-Target visual object matching, manual markers and PNG photos. The Eye panel now shares the existing v3 eye tracker and setup session. Object matching works without Eye; calibrated gaze remains optional.
 
 ## Run
 
@@ -20,7 +20,7 @@ Choose USB or Network separately in each panel and press Connect. Use three dist
 
 Network feeds connect directly from the browser, using v3's MJPEG and browser-readable video pipeline. The camera must allow CORS on stream and redirect responses, and the browser may require local-network permission. For a local ESP32 `/stream` URL without an explicit port, an initial CORS/network failure can retry the stream on port 81. No app relay is required. Unsupported codecs/transports need conversion outside this viewer. RTSP URLs do not play directly in a browser. Source type, device and ordinary stream URLs are remembered locally. URLs containing credentials, a query string or a fragment stay in memory and must be entered again after reload.
 
-Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Eye and Scene orientation share the tracker setup preferences, so the same transformed image appears in both views. Auxiliary orientation has its own viewer key. Changing Eye or Scene orientation invalidates incompatible calibration.
+Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Eye and Scene orientation share the tracker setup preferences, so the same transformed image appears in both views. Target orientation has its own viewer key. Changing Eye or Scene orientation invalidates incompatible calibration.
 
 ## Setup and calibration
 
@@ -28,7 +28,7 @@ The default view shows the camera panels and a compact command bar that stays vi
 
 Choose **Gaze setup**, configure Eye camera → Eye region → Eye model → Scene camera → Calibration, then choose **Use in viewer**. Setup runs inside this page. Both views share one eye worker, the same camera connections and the live scene calibration session; switching views does not refit or discard the model. The viewer Eye feed draws the same pupil and model overlays as setup. Temporary frame gaps preserve the scene mapping; stale pupil and gaze overlays disappear and fresh evidence restores them automatically. Changing a source, orientation or image size still invalidates calibration. Viewer speech stops while setup is open. Finish or cancel capture/recording before returning.
 
-A compact status distinguishes eye setup needed, a ready eye model, a loaded saved mapping, an estimated mapping and a current accuracy check. The existing v3 readiness, saved-profile compatibility and accuracy checks still apply. Camera allocation prevents reuse of the Auxiliary USB device during setup and blocks view/step changes while a connection is pending.
+A compact status distinguishes eye setup needed, a ready eye model, a loaded saved mapping, an estimated mapping and a current accuracy check. The existing v3 readiness, saved-profile compatibility and accuracy checks still apply. Camera allocation prevents reuse of the Target USB device during setup and blocks view/step changes while a connection is pending.
 
 On a fresh page load, saved source fields, orientation, eye-region/model settings and scene profiles load from this browser origin. Connect explicitly, rebuild and lock the live eye model, then load the compatible saved scene profile or calibrate again. The fitted automatic model is held by the worker and cannot survive a full page reload. A previous setup page that has already unmounted cannot supply its old worker/model. Browser ports/origins have separate local preferences.
 
@@ -36,22 +36,22 @@ After calibration, the Scene preview shows a red gaze bubble. It uses the same l
 
 ## Object matching
 
-Connect Scene and Auxiliary. Click an object in Scene, then press **Select** or say `select` while voice is Listening. If no object box is detected, drag a rectangle around it and Select again. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Without a manual point, a fresh calibrated gaze can choose the Scene point; there is no implicit center fallback.
+Connect Scene and Target. Click an object in Scene to select it and start tracking immediately, or drag a rectangle around it. The Scene view shows the selected reference. Target is a passive tracking view and never accepts manual selections. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Button, typed and spoken `select` always use Scene, regardless of the active photo camera. Fresh calibrated gaze takes priority over an older clicked point; otherwise the last current Scene point/rectangle is retried. There is no implicit center fallback.
 
-The third view shows **Searching**, **Ambiguous**, or a cyan box with the match score. A box requires a geometric match score strictly above 80%, at least eight inliers and valid coverage/geometry. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Auxiliary source changes reacquire. Temporary frame loss hides the box and recovery resumes from the same fixed reference.
+The third view shows **Searching**, **Ambiguous**, or a cyan box marked **Locked** with the match score. A box requires a geometric match score strictly above 80%, at least eight inliers and valid coverage/geometry. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Target source changes reacquire. Temporary frame loss hides the box and recovery resumes from the same fixed reference.
 
 The web launcher owns a loopback-only local Python service using pinned YOLOE nano models, MPS when available and CPU otherwise. Model preparation downloads ~26.7 MiB of verified weights once; the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
 
 ## Commands
 
-Click a camera's heading to make it active. Click its preview to pin a static image point, or focus the preview and press Enter/Space to choose its center. The marker stays at that image position and clears from view after reconnecting, changing orientation, or losing fresh frames.
+Click a camera's heading to choose it for photos. Scene alone accepts clicks and rectangles for object selection; its focused preview also supports Enter/Space to explicitly select the center. Eye and Target previews are passive. Reference markers hide when frames are stale; changing the Scene source or orientation invalidates the reference.
 
 Typed commands and buttons work in supported modern browsers:
 
-- `select` / `select it` (**Select**): in Scene, start matching the clicked/boxed object or a current calibrated gaze point. In Eye/Auxiliary, confirm the manual point. Never implicitly use the center.
+- `select` / `select it` (**Select**): always select in Scene: use fresh calibrated gaze, otherwise retry the current mouse point/rectangle. Never implicitly use the center.
 - `clear` / `clear selection`: stop matching and remove the active marker.
-- `switch camera`: cycle Eye → Scene → Auxiliary.
-- `eye camera`, `scene camera`, `auxiliary camera`: choose a feed.
+- `switch camera`: cycle Eye → Scene → Target.
+- `eye camera`, `scene camera`, `target camera`: choose a feed for photos. The previous `auxiliary camera` phrase is still supported.
 - `take photo` / `take a photo`: download one PNG from the active fresh transformed frame.
 - `stop cameras` / `stop all cameras`: disconnect all feeds and stop voice.
 - `stop voice`: turn off microphone recognition.
@@ -64,9 +64,15 @@ Tap **Voice off** and allow microphone access. Wait until the button says **List
 
 Development and production builds prepare the pinned WASM assets and a checksum-verified English model (about 40 MB) from the official Vosk model host. The model is cached in this worktree and served from the app's own origin. Preparation requires standard unzip/tar tools. Runtime audio stays on this device; loading the model does not upload audio. Voice stops on microphone/worker errors, page hiding, stop cameras, opening setup and leaving the viewer. Stop also cancels model startup and releases any late microphone stream.
 
-Only selected Scene and Auxiliary analysis frames are sent to the authenticated service on this same computer. They stay in bounded memory and are cleared or expired; model predictor caches are also released. Eye frames, audio, photos, transcripts and the supplied reference video are not sent to any external service. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. This feature has no hardware-control output or firing commands. See [vision dependency notice](../vision/NOTICE.md).
+Only selected Scene and Target analysis frames are sent to the authenticated service on this same computer. They stay in bounded memory and are cleared or expired; model predictor caches are also released. Eye frames, audio, photos, transcripts and the supplied reference video are not sent to any external service. Source URLs are not logged; credential-bearing URLs are not persisted. Local settings and saved profiles follow the existing v3 setup storage. This feature has no hardware-control output or firing commands. See [vision dependency notice](../vision/NOTICE.md).
 
 ## Verification on this branch
+
+### Scene-only selection and Target overlay — 2026-10-05
+
+A Scene click or rectangle now starts selection without a second button press. Eye and Target previews cannot create manual points. Select always routes to Scene, and fresh calibrated gaze takes priority over an old clicked point. The command bar labels the Scene → Target flow; camera activation chooses photo source only. Target shows a fresh cyan box marked Locked above the existing strict 80% threshold, Searching, Ambiguous or an actionable error. Camera settings keep their internal auxiliary storage keys so this visible rename does not discard preferences.
+
+The initial regression run reproduced missing automatic selection, wrong-camera voice selection and a missing-service fetch error. The corrected flow passed 32 focused tests and the 773-test frontend suite. Review found that gaze was overwriting manual fallback and an old completion could replace newer feedback; both have red-to-green regression coverage. Mouse fallback remains separate from gaze selection, and neither input changes the active photo camera. Browser validation used the real local models with public images and Eye disconnected: one click acquired the Target box; Target taps were inert; blank frames removed it and restoration reacquired it. Generated spoken select ran through the real decoder while preserving the Target photo source. The 390px layout had no horizontal overflow and kept commands pinned. Lint, typecheck and production build passed. Port 4016 was restored as a detached project-owned process, with its PID and log under ignored .local-reference. No personal camera frames or microphone audio were captured. No hardware output was added.
 
 ### Real object matching — 2026-10-05
 

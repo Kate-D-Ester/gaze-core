@@ -1,3 +1,4 @@
+import { calibrate } from "../scene-eye-tracking/fixtures"
 import { ObjectTracking } from "../../apps/web/src/features/camera-viewer/object-tracking"
 import { spyOn } from "bun:test"
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
@@ -58,7 +59,7 @@ async function command(text: string) {
 test("the public viewer opens with three independent camera source and orientation panels", async () => {
   await render()
   expect(host.querySelector("h1")?.textContent).toBe("Three-camera viewer")
-  for (const name of ["Eye camera", "Scene camera", "Auxiliary camera"]) {
+  for (const name of ["Eye camera", "Scene camera", "Target camera"]) {
     expect(host.querySelector(`[aria-label='${name} source']`)).not.toBeNull()
     expect(
       host.querySelector(`[aria-label='${name} rotation angle']`)
@@ -77,7 +78,7 @@ test("typed commands switch the active camera and reject disconnected selection 
   await command("auxiliary camera")
   expect(
     host
-      .querySelector("[aria-label='Use Auxiliary camera']")
+      .querySelector("[aria-label='Use Target camera']")
       ?.getAttribute("aria-pressed")
   ).toBe("true")
   await command("switch camera")
@@ -123,7 +124,7 @@ test("multiple voice commands execute in order before a React render", async () 
     ).toBe("true")
     expect(
       host
-        .querySelector("[aria-label='Use Auxiliary camera']")
+        .querySelector("[aria-label='Use Target camera']")
         ?.getAttribute("aria-pressed")
     ).toBe("false")
   } finally {
@@ -210,7 +211,7 @@ test("select requires a manually chosen point and keeps its feedback in the comm
   ).toBe(true)
 })
 
-test("select submits the clicked Scene object without copying coordinates into another camera", async () => {
+test("clicking Scene starts object selection without copying coordinates into Target", async () => {
   const camera = new SceneCamera()
   const snapshot = liveSnapshot()
   snapshot.frame!.timestamp = performance.now()
@@ -239,17 +240,17 @@ test("select submits the clicked Scene object without copying coordinates into a
       new MouseEvent("click", { bubbles: true, clientX: 50, clientY: 90 })
     )
   )
-  await command("select")
+  expect(tracking.getSnapshot().reference?.token).toBe("selected-token")
   const marker = host.querySelector<HTMLElement>(
     "[aria-label='Scene camera static selection']"
   )!
   expect(marker.style.left).toBe("25%")
   expect(marker.style.top).toBe("90%")
   expect(
-    host.querySelector("[aria-label='Auxiliary camera static selection']")
+    host.querySelector("[aria-label='Target camera static selection']")
   ).toBeNull()
   expect(host.querySelector("[role='status']")?.textContent).toContain(
-    "reference selected"
+    "selected"
   )
   snapshot.frame!.timestamp = performance.now() - 2000
   await command("select")
@@ -308,10 +309,10 @@ test("auxiliary tracking status explains how to start without requiring Eye", as
   camera.getSnapshot = () => snapshot
   await render({ auxiliaryCamera: camera })
   expect(
-    host.querySelector("[aria-label='auxiliary object tracking']")?.textContent
+    host.querySelector("[aria-label='target object tracking']")?.textContent
   ).toContain("Select an object in Scene")
   expect(
-    host.querySelector("[aria-label='auxiliary matched object box']")
+    host.querySelector("[aria-label='target matched object box']")
   ).toBeNull()
 })
 
@@ -349,23 +350,23 @@ test("real controller results render third-camera geometry and clear removes it"
   await act(async () => tracking.select(scene, { point: [0.2, 0.3] }))
   await act(async () => tracking.tick(scene, auxiliary))
   const box = host.querySelector<HTMLElement>(
-    "[aria-label='auxiliary matched object box']"
+    "[aria-label='target matched object box']"
   )!
   expect(box.style.left).toBe("60%")
   expect(box.style.top).toBe("30%")
   expect(
-    host.querySelector("[aria-label='auxiliary object tracking']")?.textContent
-  ).toContain("Match 91%")
+    host.querySelector("[aria-label='target object tracking']")?.textContent
+  ).toContain("Locked · 91%")
   auxiliaryState.frame!.timestamp = performance.now() - 2000
   await command("auxiliary camera")
   expect(
-    host.querySelector("[aria-label='auxiliary matched object box']")
+    host.querySelector("[aria-label='target matched object box']")
   ).toBeNull()
   auxiliaryState.frame!.timestamp = performance.now()
   await command("switch camera")
   await command("clear")
   expect(
-    host.querySelector("[aria-label='auxiliary matched object box']")
+    host.querySelector("[aria-label='target matched object box']")
   ).toBeNull()
   expect(tracking.getSnapshot().reference).toBeNull()
 })
@@ -455,4 +456,192 @@ test("a Scene drag spanning a source change cannot select a rectangle", async ()
     )
   })
   expect(host.querySelector("[aria-label='scene reference box']")).toBeNull()
+})
+
+test("Eye and Target previews cannot select points or replace a Scene reference", async () => {
+  const scene = new SceneCamera()
+  const eye = new SceneCamera()
+  const target = new SceneCamera()
+  const state = liveSnapshot()
+  state.frame!.timestamp = performance.now()
+  scene.getSnapshot = eye.getSnapshot = target.getSnapshot = () => state
+  const tracking = new ObjectTracking({
+    encode: () => "jpeg",
+    request: async (request) =>
+      request.action === "select"
+        ? {
+            token: "scene-reference",
+            box: [0.1, 0.2, 0.4, 0.6],
+            label: "Bottle",
+          }
+        : { status: "searching" },
+  })
+  await render({
+    sceneCamera: scene,
+    eyeCamera: eye,
+    auxiliaryCamera: target,
+    objectTracking: tracking,
+  })
+  await act(async () => tracking.select(scene, { point: [0.2, 0.3] }))
+  for (const label of ["Eye camera", "Target camera"]) {
+    expect(
+      !!host.querySelector(`[aria-label='Choose a point in ${label}']`)
+    ).toBe(false)
+    const preview = host.querySelector<HTMLElement>(
+      `[aria-label='${label} preview']`
+    )!
+    expect(preview).not.toBeNull()
+    await act(async () => {
+      preview.click()
+      preview.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+      )
+    })
+    expect(tracking.getSnapshot().reference?.token).toBe("scene-reference")
+    expect(
+      host.querySelector(`[aria-label='${label} static selection']`)
+    ).toBeNull()
+  }
+})
+
+test("spoken select uses fresh Scene gaze while Target is active instead of an old clicked point", async () => {
+  const scene = new SceneCamera()
+  const target = new SceneCamera()
+  const state = liveSnapshot()
+  state.frame!.timestamp = performance.now()
+  scene.getSnapshot = target.getSnapshot = () => state
+  const { s: session } = calibrate()
+  const stamp = performance.now()
+  const gazeState = {
+    ...session.getSnapshot(),
+    measurement: {
+      timestamp: stamp,
+      eyeId: 1,
+      sceneId: 1,
+      eyeTimestamp: stamp,
+      sceneTimestamp: stamp,
+      confidence: 0.95,
+      position: [0.72, 0.31] as [number, number],
+      pixels: [460.8, 148.8] as [number, number],
+      valid: true,
+      reason: "",
+      extrapolated: false,
+    },
+  }
+  session.getSnapshot = () => gazeState
+  const points: unknown[] = []
+  const tracking = new ObjectTracking({
+    encode: () => "jpeg",
+    request: async (request) => {
+      if (request.action === "select") {
+        points.push(request.point)
+        return {
+          token: "gaze-reference",
+          box: [0.6, 0.2, 0.85, 0.45],
+          label: "Bottle",
+        }
+      }
+      return { status: "searching" }
+    },
+  })
+  let deliver!: (text: string) => void
+  await render({
+    sceneCamera: scene,
+    auxiliaryCamera: target,
+    gazeSession: session,
+    objectTracking: tracking,
+    voiceSessionFactory: async (handler) => {
+      deliver = handler
+      return { stop() {} }
+    },
+  })
+  const preview = host.querySelector<HTMLButtonElement>(
+    "[aria-label='Choose a point in Scene camera']"
+  )!
+  preview.getBoundingClientRect = () => new DOMRect(0, 0, 200, 100)
+  await act(async () =>
+    preview.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 50, clientY: 40 })
+    )
+  )
+  await command("auxiliary camera")
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>("[aria-label='Enable local voice']")!
+      .click()
+  )
+  gazeState.measurement.eyeTimestamp =
+    gazeState.measurement.sceneTimestamp =
+    state.frame!.timestamp =
+      performance.now()
+  await act(async () => deliver("select"))
+  expect(points.at(-1)).toEqual([0.72, 0.31])
+  expect(tracking.getSnapshot().reference?.token).toBe("gaze-reference")
+  expect(host.querySelector("[aria-label='Voice feedback']")?.textContent).toBe(
+    "Heard: select"
+  )
+  expect(
+    host.querySelector("[aria-label='scene reference box']")
+  ).not.toBeNull()
+  gazeState.measurement.eyeTimestamp = performance.now() - 1000
+  state.frame!.timestamp = performance.now()
+  await act(async () => deliver("select"))
+  expect(points.at(-1)).toEqual([0.25, 0.4])
+  expect(
+    host
+      .querySelector("[aria-label='Use Target camera']")
+      ?.getAttribute("aria-pressed")
+  ).toBe("true")
+})
+
+test("an older selection completion cannot replace feedback for a newer pending selection", async () => {
+  const scene = new SceneCamera()
+  const state = liveSnapshot()
+  state.frame!.timestamp = performance.now()
+  scene.getSnapshot = () => state
+  let finishFirst!: (result: Record<string, unknown>) => void
+  let finishSecond!: (result: Record<string, unknown>) => void
+  let requests = 0
+  const first = new Promise<Record<string, unknown>>((resolve) => {
+    finishFirst = resolve
+  })
+  const second = new Promise<Record<string, unknown>>((resolve) => {
+    finishSecond = resolve
+  })
+  const tracking = new ObjectTracking({
+    encode: () => "jpeg",
+    request: async (request) => {
+      if (request.action !== "select") {
+        return {}
+      }
+      return ++requests === 1 ? first : second
+    },
+  })
+  await render({ sceneCamera: scene, objectTracking: tracking })
+  const preview = host.querySelector<HTMLButtonElement>(
+    "[aria-label='Choose a point in Scene camera']"
+  )!
+  preview.getBoundingClientRect = () => new DOMRect(0, 0, 200, 100)
+  await act(async () =>
+    preview.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 50, clientY: 40 })
+    )
+  )
+  await act(async () =>
+    preview.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 150, clientY: 50 })
+    )
+  )
+  await act(async () => {
+    finishFirst({ token: "old", box: [0.1, 0.2, 0.4, 0.6], label: "First" })
+    await Promise.resolve()
+  })
+  const feedback = host.querySelector(
+    "section[aria-labelledby='viewer-command-title'] [role='status']"
+  )?.textContent
+  await act(async () =>
+    finishSecond({ token: "new", box: [0.6, 0.3, 0.9, 0.7], label: "Second" })
+  )
+  expect(feedback).toContain("Selecting")
+  expect(tracking.getSnapshot().reference?.token).toBe("new")
 })

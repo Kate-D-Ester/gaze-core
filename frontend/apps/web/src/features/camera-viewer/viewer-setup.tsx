@@ -25,7 +25,9 @@ export function ViewerSetup({ onSetup, status, disabled }: ViewerSetupProps) {
           <ol className="list-decimal space-y-2 pl-4">
             <li>Connect a USB device or network stream.</li>
             <li>Use Orientation to rotate or mirror the image.</li>
-            <li>Choose a camera, then click its preview or use a command.</li>
+            <li>
+              Click an object in Scene, or use calibrated gaze and Select.
+            </li>
           </ol>
           <div className="mt-3 flex gap-3 text-primary">
             <a
@@ -44,7 +46,7 @@ export function ViewerSetup({ onSetup, status, disabled }: ViewerSetupProps) {
               href="#auxiliary-camera-panel"
               className="underline underline-offset-4"
             >
-              Auxiliary
+              Target
             </a>
           </div>
           <p className="mt-3 text-muted-foreground">

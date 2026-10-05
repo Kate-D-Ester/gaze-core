@@ -25,6 +25,7 @@ export function CameraPreview({
   const pointer = useRef<PointerRegion | null>(null)
   const suppressClick = useRef(false)
   const [draft, setDraft] = useState<ObjectBox | null>(null)
+  const Preview = onPoint ? "button" : "div"
   const frame = state.frame
   const live = state.connection === "live" && !!frame
   const eyePreview = camera.eyePreview
@@ -53,10 +54,10 @@ export function CameraPreview({
     }
   }, [camera, frame, live, eyePreview, pupilFrame, pupilFresh])
   return (
-    <button
-      type="button"
-      aria-label={`Choose a point in ${label}`}
-      disabled={!live}
+    <Preview
+      type={onPoint ? "button" : undefined}
+      aria-label={onPoint ? `Choose a point in ${label}` : `${label} preview`}
+      disabled={onPoint ? !live : undefined}
       className="relative block w-full overflow-hidden bg-[#090909] text-muted-foreground disabled:opacity-100!"
       style={{
         aspectRatio: frame ? `${frame.width}/${frame.height}` : "4/3",
@@ -162,7 +163,7 @@ export function CameraPreview({
         }
         const bounds = event.currentTarget.getBoundingClientRect()
         if (bounds.width && bounds.height) {
-          onPoint([
+          onPoint?.([
             (event.clientX - bounds.left) / bounds.width,
             (event.clientY - bounds.top) / bounds.height,
           ])
@@ -171,7 +172,7 @@ export function CameraPreview({
       onKeyDown={(event) => {
         if (live && (event.key === "Enter" || event.key === " ")) {
           event.preventDefault()
-          onPoint([0.5, 0.5])
+          onPoint?.([0.5, 0.5])
         }
       }}
     >
@@ -210,6 +211,6 @@ export function CameraPreview({
           }}
         />
       )}
-    </button>
+    </Preview>
   )
 }
