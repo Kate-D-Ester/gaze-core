@@ -102,3 +102,21 @@ def test_sparse_correspondences_cannot_extrapolate_an_unstable_extent():
     corners = np.float32([[0, 0], [200, 0], [200, 180], [0, 180]]).reshape(-1, 1, 2)
     assert stable_projection(source, destination, corners, corners + [10, 20])
     assert not stable_projection(source, destination, corners, corners * 3 + [10, 20])
+
+
+def test_fractional_region_coordinates_use_the_same_pixel_rounding_as_tracker_initialization():
+    image = np.zeros((240, 320, 3), np.uint8)
+    image[50:180, 60:160] = [70, 120, 220]
+    reference = Reference(image, (0.1875, 0.208333, 0.5, 0.75))
+    assert reference.image.shape == (130, 100, 3)
+    assert tuple(reference.image[0, 0]) == (70, 120, 220)
+
+
+def test_a_subpixel_region_at_the_image_edge_keeps_one_valid_pixel():
+    image = np.full((60, 80, 3), 100, np.uint8)
+    reference = Reference(image, (0.9999, 0.9999, 1, 1))
+    assert reference.image.shape == (1, 1, 3)
+    assert tuple(reference.image[0, 0]) == (100, 100, 100)
+    assert reference.compare(image, Candidate((0, 0, 1, 1), 0.9)) is None
+    detailed = Reference(textured_image(), (0, 0, 1, 1))
+    assert detailed.compare(image, Candidate((0.9999, 0.9999, 1, 1), 0.9)) is None

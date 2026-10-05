@@ -129,7 +129,7 @@ class VisionEngine:
                 "reference": reference,
                 "embedding": embedding,
                 "label": label,
-                "scene": TemporalTracker(image, box),
+                "scene": TemporalTracker(image, box, reference=reference),
                 "target": None,
                 "stream": None,
             }
@@ -141,13 +141,14 @@ class VisionEngine:
         selected = self.sessions.get(token)
         result = selected["scene"].update(image)
         if result["status"] == "matched":
-            selected["sceneReference"] = Reference(image, valid_box(result["box"]))
             return result
         if selected["scene"].active:
             return result
-        acquired = self.find(token, image, "scene")
+        acquired = self.find(token, image)
         if acquired["status"] == "matched":
-            selected["scene"] = TemporalTracker(image, acquired["box"])
+            selected["scene"] = TemporalTracker(
+                image, acquired["box"], reference=selected["reference"]
+            )
         return acquired
 
     def match(self, token, image, stream=0):
@@ -159,36 +160,30 @@ class VisionEngine:
         if tracker is not None:
             result = tracker.update(image)
             if result["status"] == "matched":
-                selected["targetReference"] = Reference(image, valid_box(result["box"]))
                 return result
             if tracker.active:
                 return result
-        result = self.find(token, image, "target")
+        result = self.find(token, image)
         if result["status"] == "matched":
-            selected["target"] = TemporalTracker(image, result["box"])
+            selected["target"] = TemporalTracker(
+                image, result["box"], reference=selected["reference"]
+            )
         return result
 
-    def find(self, token, image, role="target"):
+    def find(self, token, image):
         selected = self.sessions.get(token)
         deadline = time.monotonic() + 0.25
-        references = []
-        for key in (role + "Reference", "sceneReference", "reference"):
-            reference = selected.get(key)
-            if reference is not None and reference not in references:
-                references.append(reference)
+        # Reacquisition must use the user's immutable selection. Recent temporal
+        # crops can be contaminated by drift, even when a model score stays high.
+        reference = selected["reference"]
         # Try cheap global corroboration first. Proposal inference and dense
         # searches must not multiply across every reference and candidate.
-        for reference in references:
-            if time.monotonic() >= deadline:
-                return {"status": "searching"}
-            result = choose_match(reference, image, [Candidate((0, 0, 1, 1), 0.0)])
-            if result["status"] != "searching":
-                return result
+        result = choose_match(reference, image, [Candidate((0, 0, 1, 1), 0.0)], deadline=deadline)
+        if result["status"] != "searching":
+            return result
         if time.monotonic() >= deadline:
             return {"status": "searching"}
-        attempt = selected.get(role + "Search", 0)
-        selected[role + "Search"] = attempt + 1
-        result = choose_appearance(references[attempt % len(references)], image)
+        result = choose_appearance(reference, image)
         if result["status"] != "searching":
             return result
         if time.monotonic() >= deadline:
@@ -207,13 +202,7 @@ class VisionEngine:
             )
             if box[2] > box[0] and box[3] > box[1]:
                 candidates.append(Candidate(box, float(detected.conf[0])))
-        for reference in references:
-            if time.monotonic() >= deadline:
-                break
-            result = choose_match(reference, image, candidates, deadline=deadline)
-            if result["status"] != "searching":
-                return result
-        return {"status": "searching"}
+        return choose_match(reference, image, candidates, deadline=deadline)
 
     def expire(self):
         self.sessions.expire()

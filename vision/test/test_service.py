@@ -172,34 +172,6 @@ def test_clearing_last_reference_releases_predictor_camera_buffers():
     assert engine.detector.predictor is None
 
 
-def test_only_a_verified_scene_motion_result_refreshes_the_reacquisition_crop():
-    from types import SimpleNamespace
-
-    from engine import VisionEngine
-
-    engine = VisionEngine.__new__(VisionEngine)
-    engine.sessions = Sessions()
-    image = np.zeros((240, 320, 3), np.uint8)
-    image[50:180, 60:160] = [30, 80, 130]
-    tracker = SimpleNamespace(
-        active=True,
-        update=lambda frame: {
-            "status": "matched",
-            "box": [0.1875, 50 / 240, 0.5, 0.75],
-            "score": 0.95,
-            "method": "temporal",
-        },
-    )
-    token = engine.sessions.add({"scene": tracker})
-    engine.track(token, image)
-    reference = engine.sessions.get(token)["sceneReference"]
-    assert reference.image.shape == (130, 100, 3)
-    assert tuple(reference.image[30, 30]) == (30, 80, 130)
-    tracker.update = lambda frame: {"status": "searching"}
-    engine.track(token, np.full_like(image, 255))
-    assert engine.sessions.get(token)["sceneReference"] is reference
-
-
 def test_acquisition_budget_stops_before_slow_proposals_can_starve_scene(monkeypatch):
     from types import SimpleNamespace
 
@@ -226,3 +198,79 @@ def test_acquisition_budget_stops_before_slow_proposals_can_starve_scene(monkeyp
     monkeypatch.setattr(module, "choose_match", search)
     monkeypatch.setattr(module, "choose_appearance", forbidden)
     assert engine.find(token, np.zeros((240, 320, 3), np.uint8)) == {"status": "searching"}
+
+
+def test_reacquisition_uses_original_selection_instead_of_a_drifted_recent_crop():
+    from types import SimpleNamespace
+
+    from test_matching import textured_image
+
+    from engine import VisionEngine
+    from matching import Reference
+
+    selected = textured_image(42)
+    unrelated = textured_image(88)
+    engine = VisionEngine.__new__(VisionEngine)
+    engine.sessions = Sessions()
+    original = Reference(selected, (0, 0, 1, 1))
+    drifted = Reference(unrelated, (0, 0, 1, 1))
+    token = engine.sessions.add(
+        {
+            "reference": original,
+            "sceneReference": drifted,
+            "targetReference": drifted,
+            "embedding": None,
+        }
+    )
+    engine.active = token
+    engine.visual = SimpleNamespace(predict=lambda *args, **kwargs: [SimpleNamespace(boxes=[])])
+    engine.options = {}
+    assert engine.find(token, unrelated)["status"] == "searching"
+    recovered = engine.find(token, selected)
+    assert recovered["status"] == "matched"
+    assert recovered["score"] > 0.8
+    assert engine.sessions.get(token)["reference"] is original
+
+
+@pytest.mark.parametrize("role", ["scene", "target"])
+def test_a_new_tracker_after_acquisition_still_confirms_the_original_scene_selection(
+    monkeypatch, role
+):
+    from functools import partial
+    from types import SimpleNamespace
+
+    from test_matching import textured_image
+    from test_temporal import InferenceBoundary
+
+    import engine as module
+    from matching import Reference
+    from temporal import TemporalTracker
+
+    selected, unrelated = textured_image(42), textured_image(88)
+    engine = module.VisionEngine.__new__(module.VisionEngine)
+    engine.sessions = Sessions()
+    token = engine.sessions.add(
+        {
+            "reference": Reference(selected, (0, 0, 1, 1)),
+            "scene": SimpleNamespace(active=False, update=lambda frame: {"status": "searching"}),
+            "target": None,
+            "stream": 0,
+        }
+    )
+    # Acquisition can be noisy; it must not change the later acceptance anchor.
+    engine.find = lambda *args: {"status": "matched", "box": [0, 0, 1, 1], "score": 0.99}
+    monkeypatch.setattr(
+        module,
+        "TemporalTracker",
+        partial(
+            TemporalTracker,
+            factory=lambda: InferenceBoundary(0.99, (0, 0, 320, 240)),
+            flow=lambda *args: None,
+        ),
+    )
+    if role == "scene":
+        engine.track(token, unrelated)
+    else:
+        engine.match(token, unrelated)
+    tracker = engine.sessions.get(token)[role]
+    assert tracker.update(unrelated) == {"status": "searching"}

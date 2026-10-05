@@ -1,7 +1,8 @@
 """Local, per-region motion evaluation with hand-labeled checkpoint IoU.
 
-The Target view is a transformed copy of one supplied video. It tests overlapping
-views, not unseen 3-D viewpoints or a calibrated identity probability.
+Scene and Target use independent tracking state from one supplied recording.
+Identical frames are the default; transformed copies remain an optional stress test.
+Neither mode measures unseen 3-D viewpoints or calibrated identity probability.
 """
 
 import argparse
@@ -117,9 +118,20 @@ def draw_result(image, result, name, seconds, truth=None):
     return image
 
 
-def run_case(engine, video, fps, case, output, analysis_fps=15):
+def status_events(rows, role):
+    events = []
+    for row in rows:
+        status = row[role]["status"]
+        if not events or events[-1]["status"] != status:
+            events.append({"time": row["time"], "status": status})
+    return events
+
+
+def run_case(engine, video, fps, case, output, analysis_fps=15, target_mode="same-video"):
+    if target_mode not in ("same-video", "transformed"):
+        raise ValueError("Unknown Target video mode.")
     first = round(case["start"] * fps)
-    last = round(case["end"] * fps)
+    last = min(round(case["end"] * fps), int(video.get(cv2.CAP_PROP_FRAME_COUNT)) - 1)
     step = max(1, round(fps / analysis_fps))
     checkpoints = checkpoint_frames(case.get("truth", {}), fps)
     video.set(cv2.CAP_PROP_POS_FRAMES, first)
@@ -135,8 +147,10 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
         engine.clear(token)
         raise RuntimeError("Video writer unavailable.")
     rows, timing, measured = [], [], []
-    transform = cv2.getRotationMatrix2D((480, 270), 3, 0.98)
-    transform[:, 2] += [16, -4]
+    transform = None
+    if target_mode == "transformed":
+        transform = cv2.getRotationMatrix2D((480, 270), 3, 0.98)
+        transform[:, 2] += [16, -4]
     snapshots = []
     try:
         for index in range(first, last + 1):
@@ -145,11 +159,13 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
             else:
                 ok, frame = video.read()
                 if not ok:
-                    break
+                    raise ValueError(f"Cannot decode video frame {index}.")
                 image = cv2.resize(frame, (960, 540))
             if not analyzed_frame(index, first, step, checkpoints):
                 continue
-            target = cv2.warpAffine(image, transform, (960, 540))
+            target = (
+                image.copy() if transform is None else cv2.warpAffine(image, transform, (960, 540))
+            )
             before = time.monotonic()
             scene_result = engine.track(token, image)
             target_result = engine.match(token, target)
@@ -163,7 +179,10 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
                         "frameTime": index / fps,
                         "sceneIoU": overlap(scene_result.get("box"), annotation),
                         "targetIoU": overlap(
-                            target_result.get("box"), transformed_box(annotation, transform)
+                            target_result.get("box"),
+                            annotation
+                            if transform is None
+                            else transformed_box(annotation, transform),
                         ),
                     }
                 )
@@ -174,9 +193,13 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
                     draw_result(
                         target,
                         target_result,
-                        "Target (transformed copy)",
+                        "Target (same video)" if transform is None else "Target (transformed copy)",
                         index / fps,
-                        transformed_box(truth, transform) if truth else None,
+                        truth
+                        if transform is None
+                        else transformed_box(truth, transform)
+                        if truth
+                        else None,
                     ),
                 ],
                 axis=1,
@@ -211,8 +234,17 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
         ],
         check=True,
     )
+    target_events = status_events(rows, "target")
+    first_match = next((row for row in rows if row["target"]["status"] == "matched"), None)
     summary = {
         "case": case["name"],
+        "firstAnalyzedTime": rows[0]["time"],
+        "lastAnalyzedTime": rows[-1]["time"],
+        "targetMode": target_mode,
+        "targetFirstAcquiredTime": first_match["time"] if first_match else None,
+        "targetInitialAcquisition": first_match["target"] if first_match else None,
+        "targetStatusEvents": target_events,
+        "sceneStatusEvents": status_events(rows, "scene"),
         "analyzedFrames": len(rows),
         "analysisFps": fps / step,
         "sceneVisibleFraction": sum(row["scene"]["status"] == "matched" for row in rows)
@@ -237,7 +269,11 @@ def run_case(engine, video, fps, case, output, analysis_fps=15):
         "medianPairAnalysisMs": statistics.median(timing),
         "p95PairAnalysisMs": float(np.percentile(timing, 95)),
         "checkpoints": measured,
-        "targetTest": "3 degree rotated/scaled/translated copy; not an independent real viewpoint",
+        "targetTest": (
+            "Identical video pixels; Target independently searches from the Scene selection"
+            if transform is None
+            else "3 degree rotated/scaled/translated copy; not an independent real viewpoint"
+        ),
     }
     (output / (case["name"] + ".json")).write_text(
         json.dumps({"summary": summary, "frames": rows}, indent=2)
@@ -260,6 +296,9 @@ def main():
     parser.add_argument("--cases", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analysis-fps", type=float, default=15)
+    parser.add_argument(
+        "--target-mode", choices=("same-video", "transformed"), default="same-video"
+    )
     args = parser.parse_args()
     if not math.isfinite(args.analysis_fps) or not 1 <= args.analysis_fps <= 60:
         raise ValueError("Analysis rate must be between 1 and 60 frames per second.")
@@ -273,7 +312,9 @@ def main():
         engine = VisionEngine()
         summaries = []
         for case in cases:
-            summary = run_case(engine, video, fps, case, args.output, args.analysis_fps)
+            summary = run_case(
+                engine, video, fps, case, args.output, args.analysis_fps, args.target_mode
+            )
             summaries.append(summary)
             print(json.dumps(summary), flush=True)
         (args.output / "summary.json").write_text(json.dumps(summaries, indent=2))

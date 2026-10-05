@@ -40,7 +40,7 @@ def test_continuous_boxes_move_and_remain_normalized():
     assert result["status"] == "matched"
     assert result["method"] == "temporal"
     assert result["box"] == [0.28125, 70 / 240, 0.59375, 200 / 240]
-    assert result["score"] == 0.91
+    assert result["score"] > 0.92
 
 
 def test_low_scores_and_blank_frames_never_produce_a_box():
@@ -66,8 +66,7 @@ def test_long_gaps_and_dimension_changes_invalidate_the_temporal_tracker():
 
 
 def test_a_high_score_cannot_hide_a_drift_to_another_region():
-    # Forward model confidently proposes a different object; reverse verification
-    # returns to that object, not the last selected region.
+    # A confident proposal outside the selected appearance must stay unconfirmed.
     tracker = TemporalTracker(
         textured(),
         (0.1875, 0.208333, 0.5, 0.75),
@@ -97,3 +96,20 @@ def test_strong_flow_contradiction_rejects_a_similar_object_switch():
         image, (0, 0, 0.5, 1), factory=lambda: InferenceBoundary(0.99, (320, 0, 320, 240))
     )
     assert tracker.update(image) == {"status": "searching"}
+
+
+def test_gradual_appearance_drift_cannot_replace_the_selected_object():
+    from test_matching import textured_image
+
+    selected = textured_image(42)
+    unrelated = textured_image(88)
+    tracker = TemporalTracker(
+        selected, (0, 0, 1, 1), factory=lambda: InferenceBoundary(0.99, (0, 0, 320, 240))
+    )
+    # Each adjacent image stays similar, while the final region is entirely
+    # different. Verification against only the previous frame permits this drift.
+    for index in range(1, 11):
+        frame = cv2.addWeighted(selected, 1 - index / 10, unrelated, index / 10, 0)
+        result = tracker.update(frame)
+    assert result == {"status": "searching"}
+    assert not tracker.active

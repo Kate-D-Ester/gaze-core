@@ -27,3 +27,14 @@ Video evaluation outcome: 49 sparse checkpoints in six sequential cases at 15 Hz
 
 
 Final verification: 39 Python tests; 778 Bun tests; Ruff, frontend lint, types, production build and diff whitespace checks passed. Public real-model smoke: maximum healthy Scene/nonmatching Target pair 147.9 ms, zero Scene deactivations. Browser fixture verified moving Scene/Target box styles, blank Target box removal with Scene still Tracking, Target reacquisition, dropped Scene frame expiry/resumption and Clear. Production 4016 now reports YOLOE-26n + NanoTrack-v3 on MPS. Private accuracy is still failed, independently of these passing functional checks. No OBS framing changes were made.
+
+
+## Original-reference drift guard and same-video replay (2026-10-05)
+
+Regression tests reproduced gradual drift and contaminated recent-crop reacquisition. Both temporal verification and every acquisition/recovery now use the immutable original Scene reference. Newly acquired Target crops cannot replace it. Crop rounding is consistent, and tiny regions avoid unsupported ORB pyramid processing. Ongoing confirmed responses retain the Tracking label and the actual confirmation score.
+
+Six identical-video cases processed all 3,966 frame pairs from selection through the final decoded frame at a 30 fps video cadence. Target independently searched from the Scene token, without a Target rectangle. Correct sparse checkpoints (IoU >=0.5, missing boxes fail): face 7/14 Scene and 7/14 Target; glasses 3/12 Scene and 3/12 Target; clothing 0/8 Scene and 1/8 Target; hand-open 1/7 Scene and 1/7 Target; hand-closed 1/4 Scene and 1/4 Target; phone 1/4 Scene and 1/4 Target. All initial Target acquisitions succeeded. No accepted boxes were wrong at the 49 reviewed checkpoints, but rejection/gaps increased substantially. **Reliable continuous tracking remains failed; rejecting reference drift does not establish accurate posture tracking or recovery.** Sparse checks do not rule out wrong matches between checkpoints. Hand annotations stop at 20s and phone annotations at 30s, although status logs and videos continue through the endpoint.
+
+The final Python suite passes 48 tests and Ruff. Private case definitions, full-frame JSON, clips, checkpoint sheets and the report remain ignored under .local-reference/motion-tests/same-video-original-reference. Identical frame replay is not an independent physical-camera benchmark, and processing every recorded frame is not a live FPS claim.
+
+Release verification: the final public-image real-model check passed 0/5/15-degree views, blank/unrelated rejection and 12 healthy Scene/nonmatching Target pairs, with zero Scene deactivations (maximum pair 288.2 ms). The restarted isolated 4016 viewer returns HTTP 200 and its local service reports ready on MPS. The source commit excludes all private recordings and test artifacts.

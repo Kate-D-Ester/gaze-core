@@ -53,7 +53,9 @@ def test_case_evaluation_accounts_for_each_annotation_through_the_real_loop(monk
 
     box = [0.2, 0.2, 0.5, 0.6]
     video = SimpleNamespace(
-        set=lambda *args: None, read=lambda: (True, np.full((60, 80, 3), 100, np.uint8))
+        set=lambda *args: None,
+        get=lambda *args: 4,
+        read=lambda: (True, np.full((60, 80, 3), 100, np.uint8)),
     )
     engine = SimpleNamespace(
         select=lambda *args: {"token": "test"},
@@ -70,3 +72,117 @@ def test_case_evaluation_accounts_for_each_annotation_through_the_real_loop(monk
     assert [item["time"] for item in summary["checkpoints"]] == [0.05, 0.06]
     assert summary["sceneCheckpointSuccessFraction"] == 1
     assert summary["targetCheckpointSuccessFraction"] == 0
+
+
+def test_default_target_feed_uses_identical_pixels_without_a_target_selection(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    import evaluate_video as module
+
+    image = np.arange(60 * 80 * 3, dtype=np.uint8).reshape(60, 80, 3)
+    box = [0.2, 0.2, 0.5, 0.6]
+    captured = {"scene": [], "target": []}
+
+    class EngineBoundary:
+        def select(self, frame, point, rectangle):
+            assert rectangle == box
+            return {"token": "scene-only-selection"}
+
+        def track(self, token, frame):
+            captured["scene"].append(frame.copy())
+            return {"status": "matched", "box": box}
+
+        def match(self, token, frame):
+            # The real match API receives a token and pixels, never a Target box.
+            captured["target"].append(frame.copy())
+            return {"status": "searching"}
+
+        def clear(self, token):
+            pass
+
+    video = SimpleNamespace(set=lambda *args: None, get=lambda *args: 3, read=lambda: (True, image))
+    writer = SimpleNamespace(isOpened=lambda: True, write=lambda *args: None, release=lambda: None)
+    monkeypatch.setattr(module.cv2, "VideoWriter", lambda *args: writer)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: None)
+    case = {"name": "same-video", "start": 0, "end": 0.2, "box": box, "truth": {"0": box}}
+    result = module.run_case(EngineBoundary(), video, 10, case, tmp_path, analysis_fps=10)
+    for scene, target in zip(captured["scene"], captured["target"], strict=True):
+        np.testing.assert_array_equal(target, scene)
+    assert result["targetMode"] == "same-video"
+    assert result["analyzedFrames"] == 3
+    assert result["lastAnalyzedTime"] == 0.2
+    assert result["targetFirstAcquiredTime"] is None
+
+
+def test_acquisition_timeline_records_loss_and_recovery_without_hiding_gaps():
+    from evaluate_video import status_events
+
+    rows = [
+        {"time": 6.0, "target": {"status": "searching"}},
+        {"time": 6.1, "target": {"status": "matched"}},
+        {"time": 6.2, "target": {"status": "matched"}},
+        {"time": 6.3, "target": {"status": "searching"}},
+        {"time": 6.4, "target": {"status": "ambiguous"}},
+        {"time": 6.5, "target": {"status": "matched"}},
+    ]
+    assert status_events(rows, "target") == [
+        {"time": 6.0, "status": "searching"},
+        {"time": 6.1, "status": "matched"},
+        {"time": 6.3, "status": "searching"},
+        {"time": 6.4, "status": "ambiguous"},
+        {"time": 6.5, "status": "matched"},
+    ]
+
+
+def test_video_decode_failure_does_not_produce_a_partial_success_report(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    import evaluate_video as module
+
+    reads = iter([(True, np.full((60, 80, 3), 100, np.uint8)), (False, None)])
+    box = [0.2, 0.2, 0.5, 0.6]
+    video = SimpleNamespace(set=lambda *args: None, get=lambda *args: 3, read=lambda: next(reads))
+    engine = SimpleNamespace(
+        select=lambda *args: {"token": "test"},
+        track=lambda *args: {"status": "matched", "box": box},
+        match=lambda *args: {"status": "searching"},
+        clear=lambda *args: None,
+    )
+    writer = SimpleNamespace(isOpened=lambda: True, write=lambda *args: None, release=lambda: None)
+    monkeypatch.setattr(module.cv2, "VideoWriter", lambda *args: writer)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: None)
+    case = {"name": "decode-failure", "start": 0, "end": 0.2, "box": box}
+    with pytest.raises(ValueError, match="Cannot decode.*frame"):
+        module.run_case(engine, video, 10, case, tmp_path, analysis_fps=10)
+    assert not (tmp_path / "decode-failure.json").exists()
+
+
+def test_full_clip_end_is_bounded_to_the_last_real_frame(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    import evaluate_video as module
+
+    frames = iter([(True, np.full((60, 80, 3), 100, np.uint8))] * 3 + [(False, None)])
+    video = SimpleNamespace(set=lambda *args: None, get=lambda *args: 3, read=lambda: next(frames))
+    box = [0.2, 0.2, 0.5, 0.6]
+    engine = SimpleNamespace(
+        select=lambda *args: {"token": "test"},
+        track=lambda *args: {"status": "matched", "box": box},
+        match=lambda *args: {"status": "searching"},
+        clear=lambda *args: None,
+    )
+    writer = SimpleNamespace(isOpened=lambda: True, write=lambda *args: None, release=lambda: None)
+    monkeypatch.setattr(module.cv2, "VideoWriter", lambda *args: writer)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: None)
+    case = {"name": "full-clip", "start": 0, "end": 0.3, "box": box}
+    result = module.run_case(engine, video, 10, case, tmp_path, analysis_fps=10)
+    assert result["analyzedFrames"] == 3
+    assert result["lastAnalyzedTime"] == 0.2

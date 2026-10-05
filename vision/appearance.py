@@ -7,7 +7,7 @@ Uniform regions, weak results and similar non-overlapping peaks stay unconfirmed
 import cv2
 import numpy as np
 
-from matching import box_overlap
+from matching import Candidate, box_overlap, crop
 
 
 def choose_appearance(reference, image):
@@ -80,3 +80,28 @@ def choose_appearance(reference, image):
     if len(distinct) > 1 and distinct[0]["score"] - distinct[1]["score"] < 0.08:
         return {"status": "ambiguous"}
     return {"status": "matched", **distinct[0]}
+
+
+def confirm_region(reference, image, box):
+    """Corroborate a proposed track against its fixed initial appearance."""
+    match = reference.compare(image, Candidate(tuple(box), 0.0))
+    if match and box_overlap(match["box"], box) >= 0.5:
+        return {"status": "matched", **match}
+    original = cv2.resize(reference.image, (48, 48))
+    proposed = cv2.resize(crop(image, box), (48, 48))
+    first = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY).astype(float)
+    second = cv2.cvtColor(proposed, cv2.COLOR_BGR2GRAY).astype(float)
+    if min(first.std(), second.std()) < 8:
+        return {"status": "searching"}
+    similarity = float(
+        np.mean((first - first.mean()) * (second - second.mean())) / (first.std() * second.std())
+    )
+    color_change = np.max(np.abs(original.mean(axis=(0, 1)) - proposed.mean(axis=(0, 1))))
+    if similarity <= 0.92 or color_change >= 30:
+        return {"status": "searching"}
+    return {
+        "status": "matched",
+        "box": list(box),
+        "score": min(1.0, similarity),
+        "method": "appearance",
+    }

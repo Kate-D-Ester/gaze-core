@@ -40,10 +40,11 @@ def stable_projection(source, destination, corners, projected):
 def crop(image, box: Box):
     height, width = image.shape[:2]
     x1, y1, x2, y2 = box
-    roi = image[
-        int(y1 * height) : max(int(y2 * height), int(y1 * height) + 1),
-        int(x1 * width) : max(int(x2 * width), int(x1 * width) + 1),
-    ]
+    left = min(width - 1, round(x1 * width))
+    top = min(height - 1, round(y1 * height))
+    right = min(width, max(left + 1, round(x2 * width)))
+    bottom = min(height, max(top + 1, round(y2 * height)))
+    roi = image[top:bottom, left:right]
     scale = min(1, 800 / max(roi.shape[:2]))
     return cv2.resize(
         roi, (max(1, round(roi.shape[1] * scale)), max(1, round(roi.shape[0] * scale)))
@@ -60,12 +61,16 @@ class Reference:
     def __init__(self, image, box: Box):
         self.image = crop(image, valid_box(box))
         self.orb = cv2.ORB_create(nfeatures=1500, fastThreshold=10, edgeThreshold=12)
-        self.points, self.descriptors = self.orb.detectAndCompute(self.image, None)
+        self.points, self.descriptors = ([], None)
+        if min(self.image.shape[:2]) >= 32:
+            self.points, self.descriptors = self.orb.detectAndCompute(self.image, None)
 
     def compare(self, image, candidate: Candidate):
         if self.descriptors is None or len(self.points) < 8:
             return None
         target = crop(image, valid_box(candidate.box))
+        if min(target.shape[:2]) < 32:
+            return None
         points, descriptors = self.orb.detectAndCompute(target, None)
         if descriptors is None or len(points) < 8:
             return None
