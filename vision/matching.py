@@ -1,6 +1,7 @@
 """Instance corroboration; detector category confidence alone is never a match."""
 
 import math
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -23,6 +24,19 @@ def valid_box(value) -> Box:
     return tuple(float(x) for x in value)
 
 
+def stable_projection(source, destination, corners, projected):
+    affine, _ = cv2.estimateAffinePartial2D(
+        np.float32(source), np.float32(destination), method=cv2.LMEDS
+    )
+    if affine is None or not np.isfinite(affine).all():
+        return False
+    expected = cv2.transform(corners, affine)
+    area = cv2.contourArea(expected)
+    # A sparse projective fit must agree with the extent implied by local motion.
+    # Large disagreement makes the selected region's unobserved edges uncertain.
+    return area > 0 and 0.5 < cv2.contourArea(np.float32(projected)) / area < 2
+
+
 def crop(image, box: Box):
     height, width = image.shape[:2]
     x1, y1, x2, y2 = box
@@ -30,7 +44,7 @@ def crop(image, box: Box):
         int(y1 * height) : max(int(y2 * height), int(y1 * height) + 1),
         int(x1 * width) : max(int(x2 * width), int(x1 * width) + 1),
     ]
-    scale = 400 / max(roi.shape[:2])
+    scale = min(1, 800 / max(roi.shape[:2]))
     return cv2.resize(
         roi, (max(1, round(roi.shape[1] * scale)), max(1, round(roi.shape[0] * scale)))
     )
@@ -87,26 +101,73 @@ class Reference:
         target_area = target.shape[0] * target.shape[1]
         area = cv2.contourArea(projected)
         if (
-            not np.isfinite(projected).all()
+            not stable_projection(
+                source_points[accepted], target_points[accepted], corners, projected
+            )
+            or not np.isfinite(projected).all()
             or not cv2.isContourConvex(projected)
-            or not 0.2 * target_area < area < 4 * target_area
+            or not 0.0005 * target_area < area < 4 * target_area
         ):
             return None
+        x1, y1, x2, y2 = candidate.box
+        coordinates = projected.reshape(-1, 2)
+        low = coordinates.min(axis=0) / [target.shape[1], target.shape[0]]
+        high = coordinates.max(axis=0) / [target.shape[1], target.shape[0]]
+        box = [
+            max(0, x1 + low[0] * (x2 - x1)),
+            max(0, y1 + low[1] * (y2 - y1)),
+            min(1, x1 + high[0] * (x2 - x1)),
+            min(1, y1 + high[1] * (y2 - y1)),
+        ]
+        if box[0] >= box[2] or box[1] >= box[3]:
+            return None
         return {
-            "box": list(candidate.box),
+            "box": box,
             "score": score,
             "inliers": inliers,
             "detectionConfidence": candidate.confidence,
         }
 
 
-def choose_match(reference: Reference, image, candidates: list[Candidate]):
-    matches = [
-        result for candidate in candidates if (result := reference.compare(image, candidate))
-    ]
+def choose_match(reference: Reference, image, candidates: list[Candidate], *, deadline=None):
+    matches = []
+    for candidate in candidates:
+        if deadline is not None and time.monotonic() >= deadline:
+            return {"status": "searching"}
+        result = reference.compare(image, candidate)
+        if result:
+            matches.append(result)
+            if candidate.box == (0, 0, 1, 1):
+                # A whole-view homography can choose one of two similar objects.
+                # Exclude that region and require no equally plausible instance.
+                remaining = image.copy()
+                h, w = image.shape[:2]
+                x1, y1, x2, y2 = result["box"]
+                remaining[
+                    max(0, math.floor(y1 * h) - 2) : min(h, math.ceil(y2 * h) + 2),
+                    max(0, math.floor(x1 * w) - 2) : min(w, math.ceil(x2 * w) + 2),
+                ] = 0
+                if deadline is not None and time.monotonic() >= deadline:
+                    return {"status": "searching"}
+                second = reference.compare(remaining, candidate)
+                if second:
+                    matches.append(second)
     matches.sort(key=lambda result: result["score"], reverse=True)
+    distinct = []
+    for match in matches:
+        if not any(box_overlap(match["box"], other["box"]) > 0.5 for other in distinct):
+            distinct.append(match)
+    matches = distinct
     if not matches:
         return {"status": "searching"}
     if len(matches) > 1 and matches[0]["score"] - matches[1]["score"] < 0.08:
         return {"status": "ambiguous"}
     return {"status": "matched", **matches[0]}
+
+
+def box_overlap(first, second):
+    x1, y1, x2, y2 = first
+    a1, b1, a2, b2 = second
+    intersection = max(0, min(x2, a2) - max(x1, a1)) * max(0, min(y2, b2) - max(y1, b1))
+    union = (x2 - x1) * (y2 - y1) + (a2 - a1) * (b2 - b1) - intersection
+    return intersection / union if union > 0 else 0

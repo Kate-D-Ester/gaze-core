@@ -236,7 +236,12 @@ const drawPublicFrames = () => {
     return
   }
   const scene = cameras[1].camera.rawCanvas.getContext("2d")!
+  scene.fillStyle = "#111"
+  scene.fillRect(0, 0, 640, 480)
+  scene.save()
+  scene.translate(Math.sin(performance.now() / 1600) * 28, 0)
   scene.drawImage(publicImage, 0, 0, 640, 480)
+  scene.restore()
   const auxiliary = cameras[2].camera.rawCanvas.getContext("2d")!
   auxiliary.fillStyle = "#111"
   auxiliary.fillRect(0, 0, 640, 480)

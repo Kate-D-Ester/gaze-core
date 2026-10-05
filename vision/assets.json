@@ -1,4 +1,22 @@
 [
-  {"name":"yoloe-26n-seg.pt","url":"https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg.pt","sha256":"1741c1f8da3cea47e2c01829c334a50dc0b9bbd05e685b90a3ce84fae32c8c1b"},
-  {"name":"yoloe-26n-seg-pf.pt","url":"https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg-pf.pt","sha256":"ae805a9ac11c85214588b32da8248d68a516e1d071465e1e86a03cbfadb66ba7"}
+  {
+    "name": "yoloe-26n-seg.pt",
+    "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg.pt",
+    "sha256": "1741c1f8da3cea47e2c01829c334a50dc0b9bbd05e685b90a3ce84fae32c8c1b"
+  },
+  {
+    "name": "yoloe-26n-seg-pf.pt",
+    "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26n-seg-pf.pt",
+    "sha256": "ae805a9ac11c85214588b32da8248d68a516e1d071465e1e86a03cbfadb66ba7"
+  },
+  {
+    "name": "v3-nanotrack_backbone.onnx",
+    "url": "https://raw.githubusercontent.com/HonglinChu/SiamTrackers/248663fde6bf7c40190cf10ee396d5662919ecd3/NanoTrack/models/nanotrackv3/nanotrack_backbone.onnx",
+    "sha256": "50be1320abf9384fd3479ea829f95e244cf3f3838190c5ab60c750fb8c1ce828"
+  },
+  {
+    "name": "v3-nanotrack_head.onnx",
+    "url": "https://raw.githubusercontent.com/HonglinChu/SiamTrackers/248663fde6bf7c40190cf10ee396d5662919ecd3/NanoTrack/models/nanotrackv3/nanotrack_head.onnx",
+    "sha256": "75357903be3f4817c965af16cb5a11fd32b1467f597a408405a98635ac63f61d"
+  }
 ]

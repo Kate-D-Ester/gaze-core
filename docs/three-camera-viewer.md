@@ -36,11 +36,11 @@ After calibration, the Scene preview shows a red gaze bubble. It uses the same l
 
 ## Object matching
 
-Connect Scene and Target. Click an object in Scene to select it and start tracking immediately, or drag a rectangle around it. The Scene view shows the selected reference. Target is a passive tracking view and never accepts manual selections. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Button, typed and spoken `select` always use Scene, regardless of the active photo camera. Fresh calibrated gaze takes priority over an older clicked point; otherwise the last current Scene point/rectangle is retried. There is no implicit center fallback.
+Connect Scene and Target. Click an object in Scene to select it and start tracking immediately, or drag a rectangle around it. The Scene box follows the selected region as it moves. Drag a rectangle to select a part such as specs, a hand or a patch of clothing. Target is a passive tracking view and never accepts manual selections. Small objects such as glasses can use this visual example, but enough visible detail must exist to verify the instance. Button, typed and spoken `select` always use Scene, regardless of the active photo camera. Fresh calibrated gaze takes priority over an older clicked point; otherwise the last current Scene point/rectangle is retried. There is no implicit center fallback.
 
-The third view shows **Searching**, **Ambiguous**, or a cyan box marked **Locked** with the match score. A box requires a geometric match score strictly above 80%, at least eight inliers and valid coverage/geometry. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Target source changes reacquire. Temporary frame loss hides the box and recovery resumes from the same fixed reference.
+The third view shows **Searching**, **Ambiguous**, or a cyan tracking box. Geometric acquisition displays **Locked** with its score; ongoing motion displays **Tracking**, and dense acquisition displays **Matched appearance**. Geometric acquisition requires a score strictly above 80%, at least eight inliers and valid coverage/geometry. Ongoing NanoTrack motion requires a score above 80% plus local appearance and motion corroboration; dense acquisition requires >92% correlation. This score is not a calibrated identity probability. Detector confidence alone never establishes an instance match. Similar plausible candidates remain Ambiguous; plain, blurry, occluded, tiny or substantially changed views can stay Searching. Clear stops matching. A new Scene source/orientation discards the reference. Target source changes reacquire. Temporary frame loss hides both boxes; recovery resumes from the original and last verified appearance references.
 
-The web launcher owns a loopback-only local Python service using pinned YOLOE nano models, MPS when available and CPU otherwise. Model preparation downloads ~26.7 MiB of verified weights once; the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
+The web launcher owns a loopback-only local Python service using pinned YOLOE nano and NanoTrack v3 models, MPS for YOLOE when available and CPU otherwise. Model preparation downloads ~29.2 MiB of verified weights once; the isolated runtime environment is larger. The first startup warms models in the background; if Select reports warming up, retry in a moment. Nothing downloads from an image request. [Model research](object-tracking-model-research.md) explains why NanoTrack alone cannot perform the second-camera search.
 
 ## Commands
 
@@ -142,3 +142,21 @@ Verified with 755 frontend tests, lint, typecheck and production build. Independ
 ### Previous simulated HUD (superseded by real object matching)
 
 The decorative auxiliary HUD passed 757 full-suite frontend tests, lint, typecheck and production build. Review found no Critical/Important issues; its point-preservation test suggestion was addressed and the nine workspace tests passed again. Synthetic browser checks disconnected Eye and Scene, observed the auxiliary scan effect, clicked an off-center auxiliary point, and confirmed it with generated spoken `select` through the real decoder/controller. The 390×844 layout had no horizontal overflow, kept commands pinned, and retained the point across HUD off/on. Only synthetic feed images were saved. The synthetic eye source now implements disconnect by stopping its generated frames, and stopped sources clear their latest frame reference.
+
+
+### Continuous arbitrary-region tracking
+
+Selection stays in Scene; Target remains passive. The selected box now follows fresh motion in Scene, including with Target disconnected. After verified Target acquisition its box follows independently. Both expire after 500ms and reject late results from previous sources, transforms, generations or selections. Commands and the existing layout are unchanged; the OBS framing complaint was withdrawn.
+
+To evaluate a local clip, create a JSON case list with unique names, start/end seconds, a normalized initial box and optional truth boxes keyed by seconds. Run from this worktree root:
+
+```sh
+uv run --project vision vision/evaluate_video.py --video /path/to/clip.mov --cases /path/to/cases.json --output .local-reference/motion-results
+```
+
+The output directory must be new. The tool runs cases one by one and creates one annotated MP4/JSON per case, checkpoint images and summary.json. Yellow boxes are hand-reviewed truth; cyan boxes are accepted tracker results. Success means IoU >=0.5 at a checkpoint, including missing boxes as failures. Scores and visible-frame fractions are not accuracy measurements. The Target test is a transformed copy, not an independently recorded viewpoint. The supplied original video is opened read-only and remains untouched.
+
+
+### Current motion accuracy limits
+
+The 2026-10-05 local video evaluation fails reliable specs and open/closed hand tracking. Clothing boxes can drift in extent, and occlusion can distort face tracking. Continuous overlays and stale-frame handling are implemented, but an overlay or >80% evidence score is not proof of correct tracking. See object-tracking-model-research.md for measured checkpoint results. Private case definitions, per-frame JSON, annotated clips and the report remain under ignored .local-reference/motion-tests/continuous-final-v9; no personal recording is versioned. The Target test is a transformed Scene copy, not an independent second camera.

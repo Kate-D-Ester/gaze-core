@@ -53,7 +53,16 @@ class ImageBoundary:
         assert image.shape == (80, 120, 3)
         return {"token": "test-token", "box": [0, 0, 1, 1], "label": "Object"}
 
-    def match(self, token, image):
+    def track(self, token, image):
+        assert image.shape == (80, 120, 3)
+        return {
+            "status": "matched",
+            "box": [0.1, 0.2, 0.5, 0.7],
+            "score": 0.9,
+            "method": "temporal",
+        }
+
+    def match(self, token, image, stream=0):
         return {"status": "searching"}
 
     def clear(self, token):
@@ -102,6 +111,22 @@ def test_http_requires_secret_and_rejects_malformed_and_oversized_input():
         )
         assert status == 200
         assert result["label"] == "Object"
+        status, result = send(
+            json.dumps({"action": "track", "token": "test-token", "image": jpeg()}).encode()
+        )
+        assert (
+            status == 200
+            and result["method"] == "temporal"
+            and result["box"] == [0.1, 0.2, 0.5, 0.7]
+        )
+        assert (
+            send(
+                json.dumps(
+                    {"action": "match", "token": "test-token", "image": jpeg(), "stream": True}
+                ).encode()
+            )[0]
+            == 400
+        )
         assert send(b'{"action":"url","url":"https://camera/stream"}')[0] == 400
     finally:
         server.shutdown()
@@ -145,3 +170,59 @@ def test_clearing_last_reference_releases_predictor_camera_buffers():
     assert not engine.sessions.items
     assert engine.visual.predictor is None
     assert engine.detector.predictor is None
+
+
+def test_only_a_verified_scene_motion_result_refreshes_the_reacquisition_crop():
+    from types import SimpleNamespace
+
+    from engine import VisionEngine
+
+    engine = VisionEngine.__new__(VisionEngine)
+    engine.sessions = Sessions()
+    image = np.zeros((240, 320, 3), np.uint8)
+    image[50:180, 60:160] = [30, 80, 130]
+    tracker = SimpleNamespace(
+        active=True,
+        update=lambda frame: {
+            "status": "matched",
+            "box": [0.1875, 50 / 240, 0.5, 0.75],
+            "score": 0.95,
+            "method": "temporal",
+        },
+    )
+    token = engine.sessions.add({"scene": tracker})
+    engine.track(token, image)
+    reference = engine.sessions.get(token)["sceneReference"]
+    assert reference.image.shape == (130, 100, 3)
+    assert tuple(reference.image[30, 30]) == (30, 80, 130)
+    tracker.update = lambda frame: {"status": "searching"}
+    engine.track(token, np.full_like(image, 255))
+    assert engine.sessions.get(token)["sceneReference"] is reference
+
+
+def test_acquisition_budget_stops_before_slow_proposals_can_starve_scene(monkeypatch):
+    from types import SimpleNamespace
+
+    import engine as module
+
+    engine = module.VisionEngine.__new__(module.VisionEngine)
+    engine.sessions = Sessions()
+    reference = object()
+    token = engine.sessions.add({"reference": reference, "embedding": None})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Work continued after acquisition budget was exhausted")
+
+    engine.visual = SimpleNamespace(predict=forbidden)
+    engine.options = {}
+    engine.active = token
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+
+    def search(*args, **kwargs):
+        clock[0] += 0.3
+        return {"status": "searching"}
+
+    monkeypatch.setattr(module, "choose_match", search)
+    monkeypatch.setattr(module, "choose_appearance", forbidden)
+    assert engine.find(token, np.zeros((240, 320, 3), np.uint8)) == {"status": "searching"}

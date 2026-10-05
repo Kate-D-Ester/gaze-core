@@ -28,7 +28,7 @@ export function useObjectTracking(
       if (!document.hidden) {
         void tracking.tick(scene, auxiliary)
       }
-    }, 100)
+    }, 33)
     return () => {
       clearInterval(timer)
       document.removeEventListener("visibilitychange", hidden)

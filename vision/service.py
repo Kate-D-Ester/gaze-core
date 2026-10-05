@@ -66,6 +66,9 @@ class LoadingEngine:
     def select(self, *args):
         return self.ready().select(*args)
 
+    def track(self, *args):
+        return self.ready().track(*args)
+
     def match(self, *args):
         return self.ready().match(*args)
 
@@ -124,12 +127,21 @@ def create_server(engine, secret):
                     result = engine.select(
                         decode_image(body.get("image")), body.get("point"), body.get("box")
                     )
-                elif action in ("match", "clear"):
+                elif action in ("match", "track", "clear"):
                     token = body.get("token")
                     if not isinstance(token, str) or not 1 <= len(token) <= 64:
                         raise ValueError("Select an object first.")
                     if action == "match":
-                        result = engine.match(token, decode_image(body.get("image")))
+                        stream = body.get("stream", 0)
+                        if (
+                            not isinstance(stream, int)
+                            or isinstance(stream, bool)
+                            or not 0 <= stream <= 1_000_000
+                        ):
+                            raise ValueError("Invalid camera stream revision.")
+                        result = engine.match(token, decode_image(body.get("image")), stream)
+                    elif action == "track":
+                        result = engine.track(token, decode_image(body.get("image")))
                     else:
                         engine.clear(token)
                         result = {"status": "cleared"}

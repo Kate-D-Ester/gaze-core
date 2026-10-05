@@ -81,3 +81,6 @@ __pycache__/
 
 # Independent viewer verification build
 .next-vision-preview/
+
+# Continuous tracking verification build
+.next-continuous-preview/

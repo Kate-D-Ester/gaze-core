@@ -15,16 +15,22 @@ export type ObjectReference = FrameContext & {
   label: string
   token: string
 }
-export type ObjectMatch = FrameContext & { box: ObjectBox; score: number }
+export type ObjectMatch = FrameContext & {
+  box: ObjectBox
+  score: number
+  method?: "temporal" | "appearance" | "flow"
+}
 export type ObjectTrackingSnapshot = {
   status: "idle" | "selecting" | "searching" | "matched" | "ambiguous" | "error"
   reference: ObjectReference | null
   match: ObjectMatch | null
+  scene?: ObjectMatch | null
   error: string
 }
 export type VisionRequest =
   | { action: "select"; image: string; point?: PreviewPoint; box?: ObjectBox }
-  | { action: "match"; token: string; image: string }
+  | { action: "match"; token: string; image: string; stream?: number }
+  | { action: "track"; token: string; image: string }
   | { action: "clear"; token: string }
 export type VisionRecord = Record<string, unknown>
 export type VisionTransport = (

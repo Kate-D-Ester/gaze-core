@@ -242,10 +242,10 @@ test("clicking Scene starts object selection without copying coordinates into Ta
   )
   expect(tracking.getSnapshot().reference?.token).toBe("selected-token")
   const marker = host.querySelector<HTMLElement>(
-    "[aria-label='Scene camera static selection']"
+    "[aria-label='scene reference box']"
   )!
-  expect(marker.style.left).toBe("25%")
-  expect(marker.style.top).toBe("90%")
+  expect(marker.style.left).toBe("10%")
+  expect(marker.style.top).toBe("70%")
   expect(
     host.querySelector("[aria-label='Target camera static selection']")
   ).toBeNull()

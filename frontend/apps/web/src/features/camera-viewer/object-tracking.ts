@@ -5,9 +5,12 @@ import type {
   FrameContext,
   ObjectBox,
   ObjectChoice,
+  ObjectMatch,
+  ObjectReference,
   ObjectTrackingSnapshot,
   TrackingDependencies,
   VisionRecord,
+  VisionRequest,
   VisionTransport,
 } from "./object-tracking.types"
 
@@ -15,6 +18,7 @@ const empty = (): ObjectTrackingSnapshot => ({
   status: "idle",
   reference: null,
   match: null,
+  scene: null,
   error: "",
 })
 export function validObjectBox(value: unknown): value is ObjectBox {
@@ -46,6 +50,9 @@ function context(state: SceneCameraSnapshot): FrameContext {
     generation: state.frame!.generation,
     timestamp: state.frame!.timestamp,
   }
+}
+function frameKey(state: SceneCameraSnapshot) {
+  return `${state.source!.key}:${transformKey(state)}:${state.frame!.generation}:${state.frame!.id}`
 }
 function encodeFrame(camera: ViewerCamera) {
   const source = camera.rawCanvas
@@ -102,6 +109,9 @@ export class ObjectTracking {
   private pending: Promise<void> | null = null
   private abort = new AbortController()
   private lastFrame = ""
+  private lastSceneFrame = ""
+  private targetContext: FrameContext | null = null
+  private targetStream = 0
   private readonly request: VisionTransport
   private readonly encode: (camera: ViewerCamera) => string
   private readonly now: () => number
@@ -146,6 +156,8 @@ export class ObjectTracking {
     const token = this.state.reference?.token
     this.revision++
     this.lastFrame = ""
+    this.lastSceneFrame = ""
+    this.targetContext = null
     this.publish(empty())
     if (token) {
       void this.enqueue(() => this.cleanup(token))
@@ -177,6 +189,7 @@ export class ObjectTracking {
       return
     }
     const stamp = context(source)
+    this.lastSceneFrame = frameKey(source)
     this.publish({ ...empty(), status: "selecting" })
     await this.enqueue(async () => {
       if (revision !== this.revision) {
@@ -210,6 +223,7 @@ export class ObjectTracking {
         this.publish({
           ...empty(),
           status: "searching",
+          scene: { ...stamp, box: result.box, score: 1, method: "temporal" },
           reference: {
             ...stamp,
             token,
@@ -229,93 +243,173 @@ export class ObjectTracking {
     if (!selected) {
       return
     }
-    if (!sameSource(selected, scene.getSnapshot())) {
+    const sceneState = scene.getSnapshot()
+    if (!sameSource(selected, sceneState)) {
       this.clear()
       return
     }
-    const source = auxiliary.getSnapshot()
-    if (!hasFreshFrame(source, this.now())) {
-      if (this.state.match || this.state.status === "matched") {
+    const targetState = auxiliary.getSnapshot()
+    if (!hasFreshFrame(sceneState, this.now()) && this.state.scene) {
+      this.publish({ ...this.state, scene: null })
+    }
+    if (
+      !hasFreshFrame(targetState, this.now()) ||
+      (this.state.match && !sameSource(this.state.match, targetState))
+    ) {
+      if (this.state.match) {
         this.publish({ ...this.state, status: "searching", match: null })
       }
+    }
+    if (this.pending) {
       return
     }
-    if (this.state.match && !sameSource(this.state.match, source)) {
-      this.publish({ ...this.state, status: "searching", match: null })
-    }
-    if (this.pending || this.state.status === "error") {
+    const sceneFrame = hasFreshFrame(sceneState, this.now())
+      ? frameKey(sceneState)
+      : ""
+    const targetFrame = hasFreshFrame(targetState, this.now())
+      ? frameKey(targetState)
+      : ""
+    const updateScene = !!sceneFrame && sceneFrame !== this.lastSceneFrame
+    const updateTarget = !!targetFrame && targetFrame !== this.lastFrame
+    if (!updateScene && !updateTarget) {
       return
     }
-    const frame = `${source.source!.key}:${source.frame!.generation}:${source.frame!.id}`
-    if (frame === this.lastFrame) {
-      return
-    }
-    this.lastFrame = frame
-    const stamp = context(source)
     const revision = this.revision
     await this.enqueue(async () => {
-      try {
-        const image = this.encode(auxiliary)
-        const result = await this.request(
-          { action: "match", token: selected.token, image },
-          this.abort.signal
-        )
-        if (
-          revision !== this.revision ||
-          !sameSource(stamp, auxiliary.getSnapshot()) ||
-          !sameSource(selected, scene.getSnapshot())
-        ) {
-          return
-        }
-        if (
-          !hasFreshFrame(auxiliary.getSnapshot(), this.now()) ||
-          this.now() - stamp.timestamp > 500
-        ) {
-          this.publish({ ...this.state, status: "searching", match: null })
-          return
-        }
-        if (result.status === "matched") {
-          if (
-            !validObjectBox(result.box) ||
-            typeof result.score !== "number" ||
-            !Number.isFinite(result.score) ||
-            result.score <= 0.8 ||
-            result.score > 1 ||
-            typeof result.inliers !== "number" ||
-            !Number.isInteger(result.inliers) ||
-            result.inliers < 8
-          ) {
-            throw new Error("Vision could not verify this match. Retry Select.")
-          }
-          this.publish({
-            ...this.state,
-            status: "matched",
-            error: "",
-            match: { ...stamp, box: result.box, score: result.score },
-          })
-        } else if (
-          result.status === "searching" ||
-          result.status === "ambiguous"
-        ) {
-          this.publish({
-            ...this.state,
-            status: result.status,
-            error: "",
-            match: null,
-          })
-        } else {
-          throw new Error("Vision returned an invalid match. Retry Select.")
-        }
-      } catch (failure) {
-        if (
-          revision === this.revision &&
-          sameSource(stamp, auxiliary.getSnapshot()) &&
-          sameSource(selected, scene.getSnapshot())
-        ) {
-          this.fail(failure)
-        }
+      if (revision !== this.revision) {
+        return
+      }
+      if (updateScene) {
+        await this.analyze(scene, scene, selected, revision, "scene")
+      }
+      if (revision === this.revision) {
+        await this.analyze(auxiliary, scene, selected, revision, "target")
       }
     })
+  }
+  private async analyze(
+    camera: ViewerCamera,
+    scene: ViewerCamera,
+    selected: ObjectReference,
+    revision: number,
+    role: "scene" | "target"
+  ) {
+    // Snapshot the same frame whose pixels are about to be encoded. A previous
+    // camera snapshot can be stale after waiting for the other view's inference.
+    const source = camera.getSnapshot()
+    if (
+      !hasFreshFrame(source, this.now()) ||
+      !sameSource(selected, scene.getSnapshot())
+    ) {
+      return
+    }
+    const key = frameKey(source)
+    if (key === (role === "scene" ? this.lastSceneFrame : this.lastFrame)) {
+      return
+    }
+    const stamp = context(source)
+    if (role === "scene") {
+      this.lastSceneFrame = key
+    } else {
+      this.lastFrame = key
+      if (!this.targetContext || !sameSource(this.targetContext, source)) {
+        this.targetStream++
+        this.targetContext = stamp
+      }
+    }
+    try {
+      const image = this.encode(camera)
+      const request: VisionRequest =
+        role === "scene"
+          ? { action: "track", token: selected.token, image }
+          : {
+              action: "match",
+              token: selected.token,
+              image,
+              stream: this.targetStream,
+            }
+      const result = await this.request(request, this.abort.signal)
+      if (
+        revision !== this.revision ||
+        !sameSource(stamp, camera.getSnapshot()) ||
+        !sameSource(selected, scene.getSnapshot())
+      ) {
+        return
+      }
+      const fresh =
+        hasFreshFrame(camera.getSnapshot(), this.now()) &&
+        this.now() >= stamp.timestamp &&
+        this.now() - stamp.timestamp <= 500
+      let match: ObjectMatch | null = null
+      if (result.status === "matched" && fresh) {
+        const temporal = result.method === "temporal"
+        const appearance = result.method === "appearance"
+        const flow = result.method === "flow"
+        if (
+          !validObjectBox(result.box) ||
+          typeof result.score !== "number" ||
+          !Number.isFinite(result.score) ||
+          result.score <= 0.8 ||
+          result.score > 1 ||
+          (appearance && result.score <= 0.92) ||
+          (!temporal &&
+            !appearance &&
+            (typeof result.inliers !== "number" ||
+              !Number.isInteger(result.inliers) ||
+              result.inliers < 8))
+        ) {
+          throw new Error("Vision could not verify this match. Retry Select.")
+        }
+        let method: ObjectMatch["method"]
+        if (temporal) {
+          method = "temporal"
+        }
+        if (appearance) {
+          method = "appearance"
+        }
+        if (flow) {
+          method = "flow"
+        }
+        match = {
+          ...stamp,
+          box: result.box,
+          score: result.score,
+          method,
+        }
+      } else if (
+        !["matched", "searching", "ambiguous"].includes(String(result.status))
+      ) {
+        throw new Error("Vision returned an invalid match. Retry Select.")
+      }
+      if (role === "scene") {
+        this.publish({
+          ...this.state,
+          error: "",
+          status:
+            this.state.status === "error" ? "searching" : this.state.status,
+          scene: match,
+        })
+      } else {
+        let status: ObjectTrackingSnapshot["status"] = "searching"
+        if (match) {
+          status = "matched"
+        } else if (result.status === "ambiguous" && fresh) {
+          status = "ambiguous"
+        }
+        this.publish({ ...this.state, status, error: "", match })
+      }
+    } catch (failure) {
+      if (
+        revision === this.revision &&
+        sameSource(stamp, camera.getSnapshot()) &&
+        sameSource(selected, scene.getSnapshot())
+      ) {
+        if (role === "scene") {
+          this.publish({ ...this.state, scene: null })
+        }
+        this.fail(failure)
+      }
+    }
   }
   private fail(failure: unknown) {
     this.publish({

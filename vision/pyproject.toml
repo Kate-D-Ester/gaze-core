@@ -2,7 +2,10 @@
 name = "gaze-viewer-vision"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
-dependencies = ["ultralytics==8.4.173"]
+dependencies = [
+    "opencv-python>=4.13,<5",
+    "ultralytics==8.4.173",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.3,<9", "ruff>=0.12,<1"]

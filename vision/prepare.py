@@ -1,4 +1,4 @@
-"""Explicit, checksum-verified download of the two official model assets."""
+"""Explicit, checksum-verified download of the pinned official model assets."""
 
 import hashlib
 import json

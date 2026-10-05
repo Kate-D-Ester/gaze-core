@@ -14,14 +14,19 @@ export function ObjectOverlay({
   let box: ObjectBox | null = null
   let text = "Select an object in Scene"
   if (role === "scene") {
-    box =
-      region ??
-      (tracking.reference && sameSource(tracking.reference, camera)
-        ? tracking.reference.box
-        : null)
-    text = tracking.reference ? "Selected" : "Selection"
-    if (tracking.status === "selecting") {
-      text = "Selecting…"
+    const followed = tracking.scene
+    const current =
+      fresh &&
+      followed &&
+      sameSource(followed, camera) &&
+      now >= followed.timestamp &&
+      now - followed.timestamp <= 500
+    if (tracking.reference) {
+      box = current ? followed.box : null
+      text = current ? "Tracking" : "Searching"
+    } else {
+      box = region ?? null
+      text = tracking.status === "selecting" ? "Selecting…" : "Selection"
     }
   } else {
     const match = tracking.match
@@ -34,6 +39,12 @@ export function ObjectOverlay({
     if (current) {
       box = match.box
       text = `Locked · ${Math.round(match.score * 100)}%`
+      if (match.method === "temporal" || match.method === "flow") {
+        text = "Tracking"
+      }
+      if (match.method === "appearance") {
+        text = "Matched appearance"
+      }
     } else if (tracking.status === "selecting") {
       text = "Selecting…"
     } else if (tracking.status === "error") {
@@ -48,7 +59,7 @@ export function ObjectOverlay({
   if (!fresh) {
     box = null
   }
-  if (role === "scene" && !box) {
+  if (role === "scene" && !box && !tracking.reference) {
     return null
   }
   return (

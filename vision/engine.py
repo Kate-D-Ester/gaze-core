@@ -1,6 +1,7 @@
 """YOLOE visual proposals with independent geometric instance verification."""
 
 import os
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,9 +17,11 @@ import torch  # noqa: E402
 from ultralytics import YOLOE, settings  # noqa: E402
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor  # noqa: E402
 
+from appearance import choose_appearance  # noqa: E402
 from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
 from prepare import MODELS, verify  # noqa: E402
 from sessions import Sessions  # noqa: E402
+from temporal import TemporalTracker  # noqa: E402
 
 
 class VisionEngine:
@@ -47,6 +50,9 @@ class VisionEngine:
             }
         )
         torch.set_num_threads(4)
+        import cv2
+
+        cv2.setNumThreads(4)
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.detector = YOLOE(str(MODELS / "yoloe-26n-seg-pf.pt"))
         self.visual = YOLOE(str(MODELS / "yoloe-26n-seg.pt"))
@@ -72,7 +78,7 @@ class VisionEngine:
         )
 
     def status(self):
-        return {"status": "ready", "model": "YOLOE-26n", "device": self.device}
+        return {"status": "ready", "model": "YOLOE-26n + NanoTrack-v3", "device": self.device}
 
     def select(self, image, point, box):
         height, width = image.shape[:2]
@@ -109,8 +115,6 @@ class VisionEngine:
         if (box[2] - box[0]) * width < 12 or (box[3] - box[1]) * height < 12:
             raise ValueError("Choose a larger object rectangle.")
         reference = Reference(image, box)
-        if reference.descriptors is None or len(reference.points) < 8:
-            raise ValueError("Not enough visual detail. Choose a larger, clearer object.")
         pixels = np.array([[box[0] * width, box[1] * height, box[2] * width, box[3] * height]])
         self.visual.predict(
             image,
@@ -120,19 +124,82 @@ class VisionEngine:
             **self.options,
         )
         embedding = self.visual.model.pe.detach().clone()
-        token = self.sessions.add({"reference": reference, "embedding": embedding, "label": label})
+        token = self.sessions.add(
+            {
+                "reference": reference,
+                "embedding": embedding,
+                "label": label,
+                "scene": TemporalTracker(image, box),
+                "target": None,
+                "stream": None,
+            }
+        )
         self.active = token
         return {"token": token, "box": list(box), "label": label}
 
-    def match(self, token, image):
+    def track(self, token, image):
         selected = self.sessions.get(token)
+        result = selected["scene"].update(image)
+        if result["status"] == "matched":
+            selected["sceneReference"] = Reference(image, valid_box(result["box"]))
+            return result
+        if selected["scene"].active:
+            return result
+        acquired = self.find(token, image, "scene")
+        if acquired["status"] == "matched":
+            selected["scene"] = TemporalTracker(image, acquired["box"])
+        return acquired
+
+    def match(self, token, image, stream=0):
+        selected = self.sessions.get(token)
+        if selected["stream"] != stream:
+            selected["target"] = None
+            selected["stream"] = stream
+        tracker = selected["target"]
+        if tracker is not None:
+            result = tracker.update(image)
+            if result["status"] == "matched":
+                selected["targetReference"] = Reference(image, valid_box(result["box"]))
+                return result
+            if tracker.active:
+                return result
+        result = self.find(token, image, "target")
+        if result["status"] == "matched":
+            selected["target"] = TemporalTracker(image, result["box"])
+        return result
+
+    def find(self, token, image, role="target"):
+        selected = self.sessions.get(token)
+        deadline = time.monotonic() + 0.25
+        references = []
+        for key in (role + "Reference", "sceneReference", "reference"):
+            reference = selected.get(key)
+            if reference is not None and reference not in references:
+                references.append(reference)
+        # Try cheap global corroboration first. Proposal inference and dense
+        # searches must not multiply across every reference and candidate.
+        for reference in references:
+            if time.monotonic() >= deadline:
+                return {"status": "searching"}
+            result = choose_match(reference, image, [Candidate((0, 0, 1, 1), 0.0)])
+            if result["status"] != "searching":
+                return result
+        if time.monotonic() >= deadline:
+            return {"status": "searching"}
+        attempt = selected.get(role + "Search", 0)
+        selected[role + "Search"] = attempt + 1
+        result = choose_appearance(references[attempt % len(references)], image)
+        if result["status"] != "searching":
+            return result
+        if time.monotonic() >= deadline:
+            return {"status": "searching"}
         if self.active != token:
             self.visual.set_classes(["selected object"], selected["embedding"])
             self.active = token
         prediction = self.visual.predict(image, **self.options)[0]
         height, width = image.shape[:2]
         candidates = []
-        for detected in prediction.boxes:
+        for detected in prediction.boxes[:5]:
             x1, y1, x2, y2 = detected.xyxy[0].cpu().tolist()
             box = tuple(
                 max(0, min(1, value))
@@ -140,7 +207,13 @@ class VisionEngine:
             )
             if box[2] > box[0] and box[3] > box[1]:
                 candidates.append(Candidate(box, float(detected.conf[0])))
-        return choose_match(selected["reference"], image, candidates)
+        for reference in references:
+            if time.monotonic() >= deadline:
+                break
+            result = choose_match(reference, image, candidates, deadline=deadline)
+            if result["status"] != "searching":
+                return result
+        return {"status": "searching"}
 
     def expire(self):
         self.sessions.expire()

@@ -200,7 +200,7 @@ export function CameraPreview({
           region={draft ?? region}
         />
       )}
-      {selection && live && (
+      {selection && live && !tracking?.reference && (
         <span
           role="img"
           aria-label={`${label} static selection`}

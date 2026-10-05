@@ -67,7 +67,7 @@ export async function proxyVision(
       !body ||
       typeof body !== "object" ||
       !("action" in body) ||
-      !["status", "select", "match", "clear"].includes(String(body.action))
+      !["status", "select", "track", "match", "clear"].includes(String(body.action))
     ) {
       return error("Unknown vision action.", 400)
     }
