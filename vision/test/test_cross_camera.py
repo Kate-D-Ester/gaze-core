@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
+import pytest
 from test_memory_tracking import SegmentationBoundary
 
 from engine import VisionEngine
@@ -52,9 +53,12 @@ def setup_case(color=(160, 55, 15)):
     return engine, token, scene, target, target_box
 
 
-def test_different_camera_quality_can_acquire_without_a_target_rectangle():
+def test_different_camera_quality_can_acquire_without_a_target_rectangle(monkeypatch):
+    # This tests evidence policy; the deadline has its own controlled-clock test.
+    monkeypatch.setattr("engine.time.monotonic", lambda: 0.0)
     engine, token, _, target, target_box = setup_case()
     original = engine.sessions.get(token)["reference"]
+    engine.sessions.get(token)["cross_acquisition"].clock = lambda: 0.0
     assert engine.match(token, target)["status"] != "matched"
     result = engine.match(token, target)
     assert result["status"] == "matched"
@@ -105,11 +109,12 @@ def test_acquisition_budget_exhaustion_discards_confirmation(monkeypatch):
     assert acquisition.update(target, candidates, float("inf"))["status"] == "matched"
 
 
-def test_two_matching_cases_remain_ambiguous():
+def test_two_matching_cases_remain_ambiguous(monkeypatch):
     from collections import deque
 
     import torch
 
+    monkeypatch.setattr("engine.time.monotonic", lambda: 0.0)
     engine, token, _, target, first = setup_case()
     target[100:292, 140:236] = target[100:292, 260:356]
     second = [140 / 480, 100 / 360, 236 / 480, 292 / 360]
@@ -140,9 +145,11 @@ def test_quality_acquisition_requires_both_learned_checks():
         assert engine.sessions.get(token)["target"] is None
 
 
-def test_target_generation_change_requires_two_new_quality_observations():
+def test_target_generation_change_requires_two_new_quality_observations(monkeypatch):
+    monkeypatch.setattr("engine.time.monotonic", lambda: 0.0)
     engine, token, _, target, _ = setup_case()
     scene = engine.sessions.get(token)["scene"]
+    engine.sessions.get(token)["cross_acquisition"].clock = lambda: 0.0
     assert engine.match(token, target, stream=0)["status"] == "searching"
     assert engine.match(token, target, stream=1)["status"] == "searching"
     assert engine.match(token, target, stream=1)["status"] == "matched"
@@ -300,3 +307,92 @@ def test_cross_success_discards_unused_context_confirmation(monkeypatch):
     assert engine.match(token, target)["status"] == "matched"
     assert context.pending is None
     assert selected["cross_acquisition"].pending is None
+
+
+def test_rejected_dense_patch_does_not_starve_independent_camera_acquisition():
+    from appearance import choose_appearance, confirm_region
+
+    engine, token, scene, target, expected = setup_case()
+    # Only the interior resembles the blurry selection. Its bright perimeter
+    # makes the full proposed crop fail the original-reference verification.
+    target[10:74, 10:42] = scene[60:124, 80:112]
+    target[10:16, 10:42] = 255
+    target[68:74, 10:42] = 255
+    target[10:74, 10:13] = 255
+    target[10:74, 39:42] = 255
+    reference = engine.sessions.get(token)["reference"]
+    decoy = choose_appearance(reference, target)
+    assert decoy["status"] == "matched"
+    assert confirm_region(reference, target, decoy["box"])["status"] == "searching"
+
+    assert engine.match(token, target)["status"] == "searching"
+    result = engine.match(token, target)
+    assert result["status"] == "matched"
+    assert np.allclose(result["box"], expected)
+
+
+def test_blurry_visual_prompt_can_use_generic_proposals_without_category_matching():
+    import torch
+
+    engine, token, _, target, expected = setup_case()
+    engine.visual.predict = lambda *args, **kwargs: [SimpleNamespace(boxes=[])]
+    # A busy frame has many detections. Only the selected object's immutable
+    # colour/shape evidence qualifies for the expensive identity checks.
+    boxes = [[0.0, 0.0, 100.0, 80.0]] * 8 + [[260.0, 100.0, 356.0, 292.0]]
+    detections = [
+        SimpleNamespace(xyxy=torch.tensor([box]), conf=torch.tensor([0.7])) for box in boxes
+    ]
+    engine.detector = SimpleNamespace(
+        predict=lambda *args, **kwargs: [SimpleNamespace(boxes=detections)]
+    )
+    assert engine.match(token, target)["status"] == "searching"
+    result = engine.match(token, target)
+    assert result["status"] == "matched"
+    assert np.allclose(result["box"], expected)
+
+
+def test_too_many_quality_candidates_cannot_lock_by_verifying_only_a_subset():
+    from matching import Candidate
+
+    engine, token, _, target, box = setup_case()
+    acquisition = engine.sessions.get(token)["cross_acquisition"]
+    result = acquisition.update(target, [Candidate(tuple(box), 0.7)] * 6, float("inf"))
+    assert result["status"] == "ambiguous"
+    assert acquisition.pending is None
+
+
+@pytest.mark.parametrize("generic", [False, True])
+def test_proposal_beyond_the_first_five_still_prevents_a_false_lock(monkeypatch, generic):
+    from collections import deque
+
+    import torch
+
+    monkeypatch.setattr("engine.time.monotonic", lambda: 0.0)
+    engine, token, _, target, first = setup_case()
+    target[100:292, 140:236] = target[100:292, 260:356]
+    second = [140 / 480, 100 / 360, 236 / 480, 292 / 360]
+    engine.segmentation.predictions = deque([(first, 0.99, 0.95), (second, 0.99, 0.95)] * 3)
+    engine.visual.predict = lambda *args, **kwargs: [SimpleNamespace(boxes=[])]
+    boxes = [[260.0, 100.0, 356.0, 292.0]] + [[0.0, 0.0, 100.0, 80.0]] * 4
+    boxes.append([140.0, 100.0, 236.0, 292.0])
+    detections = [
+        SimpleNamespace(xyxy=torch.tensor([box]), conf=torch.tensor([0.7])) for box in boxes
+    ]
+    engine.detector = SimpleNamespace(
+        predict=lambda *args, **kwargs: [SimpleNamespace(boxes=detections)]
+    )
+    engine.visual.predict = lambda *args, **kwargs: [
+        SimpleNamespace(boxes=[] if generic else detections)
+    ]
+
+    # Isolate the expensive feature extraction boundary: global comparison has
+    # insufficient corners, while either local proposal geometrically matches.
+    def compare(image, candidate):
+        for box in (first, second):
+            if np.allclose(candidate.box, box):
+                return {"box": box, "score": 0.96, "inliers": 18}
+        return None
+
+    engine.sessions.get(token)["reference"].compare = compare
+    assert engine.match(token, target)["status"] == "ambiguous"
+    assert engine.sessions.get(token)["target"] is None

@@ -29,16 +29,22 @@ class CrossCameraAcquisition:
         # Consume old proof before inference: an invalid result or backend error
         # cannot leave it available to a later frame.
         self.pending = None
-        if not candidates or len(candidates) > 5 or self.appearance is None:
-            self.pending = None
-            return {"status": "ambiguous" if len(candidates) > 5 else "searching"}
-        verified = []
+        if not candidates or len(candidates) > 20 or self.appearance is None:
+            return {"status": "ambiguous" if len(candidates) > 20 else "searching"}
+        plausible = []
         for candidate in candidates:
             if time.monotonic() >= deadline:
-                self.pending = None
                 return {"status": "searching"}
-            if quality_pair(self.reference.image, crop(image, candidate.box)) is None:
-                continue
+            if quality_pair(self.reference.image, crop(image, candidate.box)) is not None:
+                plausible.append(candidate)
+        # Do cheap verification across the bounded detector output first. Never
+        # accept a winner while another plausible candidate remains unchecked.
+        if len(plausible) > 5:
+            return {"status": "ambiguous"}
+        verified = []
+        for candidate in plausible:
+            if time.monotonic() >= deadline:
+                return {"status": "searching"}
             prediction = self.backend.predict(
                 image, candidate.box, 0, {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
             )

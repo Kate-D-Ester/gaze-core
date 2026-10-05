@@ -17,7 +17,7 @@ import torch  # noqa: E402
 from ultralytics import YOLOE, settings  # noqa: E402
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor  # noqa: E402
 
-from appearance import choose_appearance  # noqa: E402
+from appearance import choose_appearance, confirm_region  # noqa: E402
 from context_acquisition import ContextAcquisition  # noqa: E402
 from cross_camera import CrossCameraAcquisition  # noqa: E402
 from matching import Candidate, Reference, choose_match, valid_box  # noqa: E402
@@ -272,6 +272,12 @@ class VisionEngine:
             if time.monotonic() >= deadline:
                 return ordinary({"status": "searching"})
             result = choose_appearance(reference, image)
+            if result["status"] == "matched":
+                # Dense search compares the crop interior. A clipped or different
+                # perimeter can fail the full-reference check required to start a
+                # track; rejecting it here lets independent proposals run.
+                if confirm_region(reference, image, result["box"])["status"] != "matched":
+                    result = {"status": "searching"}
             if result["status"] != "searching":
                 return ordinary(result)
             if time.monotonic() >= deadline:
@@ -280,6 +286,19 @@ class VisionEngine:
                 self.visual.set_classes(["selected object"], selected["embedding"])
                 self.active = token
             prediction = self.visual.predict(image, **self.options)[0]
+            generic = False
+            if (
+                acquisition is not None
+                and self.appearance is not None
+                and len(prediction.boxes) == 0
+            ):
+                # Severe query blur can suppress visual-prompt detections entirely.
+                # Generic detections propose locations only; original Scene
+                # evidence still has to independently verify each candidate.
+                if time.monotonic() >= deadline:
+                    return ordinary({"status": "searching"})
+                prediction = self.detector.predict(image, **self.options)[0]
+                generic = True
             height, width = image.shape[:2]
             candidates = []
             for detected in prediction.boxes:
@@ -290,7 +309,9 @@ class VisionEngine:
                 )
                 if box[2] > box[0] and box[3] > box[1]:
                     candidates.append(Candidate(box, float(detected.conf[0])))
-            result = choose_match(reference, image, candidates[:5], deadline=deadline)
+            if generic:
+                return acquisition.update(image, candidates, deadline)
+            result = choose_match(reference, image, candidates, deadline=deadline)
             if result["status"] == "searching" and acquisition is not None:
                 return acquisition.update(image, candidates, deadline)
             return ordinary(result)
