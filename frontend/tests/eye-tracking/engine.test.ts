@@ -419,3 +419,68 @@ test("fresh pupil arcs sustain measured position through long occlusion and stop
   expect(frame.detection.ellipse).toBeNull()
   expect(frame.gaze).toBeNull()
 })
+
+test("full raster pupil evidence supports bounded translation correction before gaze mapping", () => {
+  engine.reset()
+  const settings: FrameSettings = {
+    format: "spatial",
+    roi: { x: 0, y: 0, width: 320, height: 240 },
+    thresholdMode: "auto",
+    threshold: 0,
+    fov: 45,
+    radiusMm: 12,
+    corners: null,
+    locked: false,
+  }
+  let id = 0
+  const process = (index: number, offset: Point = [0, 0]) => {
+    const angle = (index * 2 * Math.PI) / 48
+    const nx = 0.55 * Math.cos(angle)
+    const ny = 0.45 * Math.sin(angle)
+    const ellipse = {
+      center: [160 + 60 * nx + offset[0], 120 + 60 * ny + offset[1]],
+      major: 18,
+      minor: 18 * Math.sqrt(1 - nx * nx - ny * ny),
+      angle: Math.atan2(ny, nx) + Math.PI / 2,
+    }
+    const pixels = new Uint8ClampedArray(320 * 240 * 4).fill(180)
+    const cosine = Math.cos(ellipse.angle)
+    const sine = Math.sin(ellipse.angle)
+    for (let y = 0; y < 240; y++) {
+      for (let x = 0; x < 320; x++) {
+        const dx = x - ellipse.center[0]
+        const dy = y - ellipse.center[1]
+        const inside =
+          ((dx * cosine + dy * sine) / ellipse.major) ** 2 +
+            ((-dx * sine + dy * cosine) / ellipse.minor) ** 2 <=
+          1
+        const value = inside ? 25 : 180
+        const pixel = (y * 320 + x) * 4
+        pixels[pixel] = pixels[pixel + 1] = pixels[pixel + 2] = value
+      }
+    }
+    id++
+    return engine.process(pixels, 320, 240, settings, id, id * 40, false)
+  }
+  for (let index = 0; index < 96; index++) {
+    process(index)
+  }
+  settings.locked = true
+  const baseline = process(0)
+  expect(baseline.model?.ready).toBe(true)
+  const shifted = process(0, [8, -6])
+  for (let index = 1; index < 192; index++) {
+    process(index, [8, -6])
+  }
+  const corrected = process(0, [8, -6])
+  // Rasterization and fitted axis orientation introduce subpixel center error.
+  expect(Math.abs(corrected.slippage!.offset[0] - 8)).toBeLessThan(0.5)
+  expect(Math.abs(corrected.slippage!.offset[1] + 6)).toBeLessThan(0.5)
+  expect(
+    Math.abs(shifted.gaze!.direction[0] - baseline.gaze!.direction[0])
+  ).toBeGreaterThan(0.1)
+  expect(
+    Math.abs(corrected.gaze!.direction[0] - baseline.gaze!.direction[0])
+  ).toBeLessThan(0.01)
+  expect(corrected.model).toEqual(baseline.model)
+})

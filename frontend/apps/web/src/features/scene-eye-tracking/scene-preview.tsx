@@ -54,12 +54,15 @@ export function ScenePreview({
   gazeSnapshotRef,
 }: ScenePreviewProps) {
   const canvas = useRef<HTMLCanvasElement | null>(null)
-  const attachCanvas = useCallback((element: HTMLCanvasElement | null) => {
-    canvas.current = element
-    if (canvasRef) {
-      canvasRef.current = element
-    }
-  }, [canvasRef])
+  const attachCanvas = useCallback(
+    (element: HTMLCanvasElement | null) => {
+      canvas.current = element
+      if (canvasRef) {
+        canvasRef.current = element
+      }
+    },
+    [canvasRef]
+  )
   useEffect(() => {
     const element = canvas.current
     const raw = camera.rawCanvas
@@ -243,10 +246,8 @@ export function ScenePreview({
           {...gazeDisplay}
           snapshotRef={gazeSnapshotRef}
           point={
-            !capturing &&
-            connection === "live" &&
-            (gaze?.valid || gaze?.preview)
-              ? gaze.position
+            !capturing && connection === "live"
+              ? (gaze?.position ?? null)
               : null
           }
           timestamp={gaze?.eyeTimestamp ?? null}

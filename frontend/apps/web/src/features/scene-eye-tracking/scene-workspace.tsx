@@ -45,6 +45,8 @@ export function SceneWorkspace({
   onStatus,
   eyeRevision,
 }: SceneWorkspaceProps) {
+  const [correctionRequest, setCorrectionRequest] = useState(0)
+  const requestCorrection = () => setCorrectionRequest((value) => value + 1)
   const [recording, setRecording] = useState(false)
   const scenePreview = useRef<HTMLCanvasElement | null>(null)
   const gazePreview = useRef<GazeBubbleOverlaySnapshot | null>(null)
@@ -235,6 +237,14 @@ export function SceneWorkspace({
               : null,
             verified: hasCurrentAccuracyCheck(state),
             resetKey: state.calibration,
+            correction:
+              state.calibration && !state.capture && !recording
+                ? {
+                    request: correctionRequest,
+                    maxAgeMs: MAX_FRAME_AGE_MS + Math.abs(state.delayMs),
+                    onChange: (value) => state.session.setOffset(value),
+                  }
+                : undefined,
             offset: state.offset,
             maxAgeMs: MAX_FRAME_AGE_MS + Math.abs(state.delayMs),
           }}
@@ -313,6 +323,7 @@ export function SceneWorkspace({
         )}
         {(active === 1 || state.capture) && (
           <FingerControls
+            onCorrect={requestCorrection}
             session={state.session}
             state={state}
             hands={referenceTracker}
@@ -323,6 +334,7 @@ export function SceneWorkspace({
         )}
         {active === 2 && !state.capture && (
           <SceneLiveControls
+            onCorrect={requestCorrection}
             session={state.session}
             state={state}
             sceneDimensions={scene.frame ?? undefined}

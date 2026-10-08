@@ -1,11 +1,15 @@
-FROM oven/bun:1.3.14-alpine AS builder
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS base
 WORKDIR /app
-COPY . .
+
+FROM base AS builder
+COPY package.json bun.lock ./
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages/ui/package.json ./packages/ui/package.json
 RUN bun install --frozen-lockfile
+COPY . .
 RUN bun run build
 
-FROM oven/bun:1.3.14-alpine AS runner
-WORKDIR /app
+FROM base AS runner
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=4001

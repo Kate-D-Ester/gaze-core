@@ -172,6 +172,7 @@ export function SceneSourceControls({
   )
 }
 export function FingerControls({
+  onCorrect,
   session,
   state,
   hands,
@@ -288,6 +289,7 @@ export function FingerControls({
         !state.capture &&
         (!state.validation || state.validation.passed) && (
           <GazeOffsetControls
+            onCorrect={onCorrect}
             offset={state.offset}
             width={dimensions.width}
             height={dimensions.height}
@@ -392,6 +394,7 @@ export function FingerControls({
       )}
       {state.validation && !state.validation.passed && !state.capture && (
         <ValidationRecoveryControls
+          onCorrect={onCorrect}
           session={session}
           state={state}
           canCapture={canCapture}
@@ -502,6 +505,7 @@ export function FingerControls({
   )
 }
 export function SceneLiveControls({
+  onCorrect,
   session,
   state,
   onCalibrate,
@@ -520,6 +524,7 @@ export function SceneLiveControls({
     return (
       <>
         <ValidationRecoveryControls
+          onCorrect={onCorrect}
           session={session}
           state={state}
           canCapture={canValidate && !recording}
@@ -613,6 +618,7 @@ export function SceneLiveControls({
       </div>
       {dimensions && (
         <GazeOffsetControls
+          onCorrect={onCorrect}
           offset={state.offset}
           width={dimensions.width}
           height={dimensions.height}

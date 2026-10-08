@@ -11,6 +11,7 @@ export type LiveControlsProps = {
   headCompensated: boolean
   onRetryHeadCalibration?: () => void
   retryHeadDisabled?: boolean
+  onCorrect: () => void
   onFocus: () => void
   onValidate: () => void
   onRecalibrate: () => void

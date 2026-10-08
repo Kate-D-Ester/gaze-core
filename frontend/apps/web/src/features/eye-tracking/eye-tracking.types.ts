@@ -1,3 +1,5 @@
+import type { EyeSlippage } from "./eye-slippage.types"
+
 export type Point = [number, number]
 export type Vector3 = [number, number, number]
 export type TrackerFormat = "classic" | "spatial"
@@ -72,6 +74,7 @@ export type TrackingFrame = {
   detection: Detection
   model: EyeModel | null
   gaze: Gaze | null
+  slippage?: EyeSlippage
   processingMs: number
 }
 export type { Calibration, CalibrationSample } from "./calibration.types"

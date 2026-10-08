@@ -30,7 +30,12 @@ export type ScenePreviewProps = {
   gaze: GazeMeasurement | null
   gazeDisplay?: Pick<
     GazeBubbleOverlayProps,
-    "errorRadiusPx" | "verified" | "resetKey" | "offset" | "maxAgeMs"
+    | "errorRadiusPx"
+    | "verified"
+    | "resetKey"
+    | "offset"
+    | "maxAgeMs"
+    | "correction"
   >
   trace: GazeMeasurement[]
   holds: CalibrationHold[]

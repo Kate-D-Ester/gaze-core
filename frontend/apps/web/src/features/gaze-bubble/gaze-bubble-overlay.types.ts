@@ -1,3 +1,4 @@
+import type { GazeCorrectionOptions } from "../gaze-correction/gaze-correction.types"
 import type { Point } from "../eye-tracking/eye-tracking.types"
 import type { MutableRefObject } from "react"
 import type {
@@ -12,6 +13,7 @@ export type GazeBubbleOverlaySnapshot = {
 }
 
 export type GazeBubbleOverlayProps = {
+  correction?: GazeCorrectionOptions
   point: Point | null
   timestamp: number | null
   errorRadiusPx?: number | null

@@ -12,6 +12,8 @@ import type { LiveGazeOverlayProps } from "./live-gaze-overlay.types"
 /** Uses the same full-viewport origin and normalized coordinates as calibration. */
 export function LiveGazeOverlay({
   point,
+  onOffsetChange,
+  initiallyCorrecting = false,
   timestamp,
   validationErrorPixels,
   resetKey,
@@ -35,7 +37,7 @@ export function LiveGazeOverlay({
     >
       <button
         autoFocus
-        className={`eye-icon-button ${EyeIconButtonStyles}`}
+        className={`eye-icon-button z-[110] ${EyeIconButtonStyles}`}
         onClick={onClose}
         aria-label="Close gaze view"
         title="Close gaze view (Esc)"
@@ -48,7 +50,8 @@ export function LiveGazeOverlay({
         </span>
         <h2>{title}</h2>
         <p>
-          The bubble steadies while you look at one spot. Its size stays capped.
+          Use the crosshair to correct a steady offset. The ring shows measured
+          error when available.
         </p>
       </div>
       {head.enabled && (
@@ -57,6 +60,11 @@ export function LiveGazeOverlay({
         </div>
       )}
       <GazeBubbleOverlay
+        correction={{
+          onChange: onOffsetChange,
+          initiallyActive: initiallyCorrecting,
+        }}
+        stabilize={false}
         point={point}
         timestamp={timestamp}
         errorRadiusPx={validationErrorPixels}

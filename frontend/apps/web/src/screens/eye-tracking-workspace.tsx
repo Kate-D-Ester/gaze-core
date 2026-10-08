@@ -150,6 +150,7 @@ export function EyeTrackingWorkspace({
   const [capture, setCapture] = useState<"calibration" | "validation" | null>(
     null
   )
+  const [focusCorrection, setFocusCorrection] = useState(false)
   const [focus, setFocus] = useState(false)
   const [notice, setNotice] = useState("")
   const [savedGazeGrid, setSavedGazeGrid] = useState<CalibrationSample[]>([])
@@ -701,7 +702,14 @@ export function EyeTrackingWorkspace({
                   canRetryHead ? retryHeadCalibration : undefined
                 }
                 retryHeadDisabled={head.status !== "tracking"}
-                onFocus={() => setFocus(true)}
+                onFocus={() => {
+                  setFocusCorrection(false)
+                  setFocus(true)
+                }}
+                onCorrect={() => {
+                  setFocusCorrection(true)
+                  setFocus(true)
+                }}
                 onValidate={() => setCapture("validation")}
                 onRecalibrate={() => {
                   clearCalibration()
@@ -794,6 +802,11 @@ export function EyeTrackingWorkspace({
       )}
       {focus && (
         <LiveGazeOverlay
+          initiallyCorrecting={focusCorrection}
+          onOffsetChange={(value) => {
+            setOffset(value)
+            setValidation(null)
+          }}
           point={screenPoint}
           timestamp={gazeReading.timestamp ?? null}
           validationErrorPixels={validation}

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import type {
   RemoteObservation,
@@ -221,16 +221,40 @@ test("complete labeled calibration, validation, resize recovery, and camera-disc
     const originalLeft = parseFloat(
       host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
     )
-    const offsetInput = host.querySelector<HTMLInputElement>(
-      '[aria-label="Gaze offset X (pixels)"]'
-    )!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )!.set!.call(offsetInput, "20")
-      offsetInput.dispatchEvent(new Event("input", { bubbles: true }))
+    await click("Correct gaze with a click")
+    for (let i = 0; i < 10; i++) {
+      await tick()
+    }
+    const rectangle = spyOn(
+      HTMLElement.prototype,
+      "getBoundingClientRect"
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      bottom: window.innerHeight,
+      right: window.innerWidth,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      toJSON() {},
     })
+    try {
+      await act(async () =>
+        host
+          .querySelector('[aria-label="Click the target to correct gaze"]')!
+          .dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              button: 0,
+              clientX: (originalLeft / 100) * window.innerWidth + 20,
+              clientY: window.innerHeight / 2,
+            })
+          )
+      )
+    } finally {
+      rectangle.mockRestore()
+    }
     const adjustedLeft = parseFloat(
       host.querySelector<HTMLElement>(".remote-live-dot")!.style.left
     )

@@ -54,6 +54,7 @@ test("the primary recovery action retries only the named point and survives canc
       hands: { status: "ready", error: "" },
       canCapture: true,
       retry() {},
+      onCorrect() {},
       onLive() {},
     })
   }
@@ -97,6 +98,7 @@ test("Space starts one-point capture once and automatically opens live gaze with
       hands: { status: "ready", error: "" },
       canCapture: true,
       retry() {},
+      onCorrect() {},
       onLive() {
         live++
       },
@@ -209,8 +211,10 @@ test("completing a pending camera connection cannot navigate away from another s
 test("a successful automatic startup retry advances calibration once while the connection panel is active", async () => {
   expect(await runConnection(true)).toBe(1)
 })
-test("live X/Y pixel controls preserve the mapping, reset together, and are disabled during recording", async () => {
+test("click correction preserves the mapping, resets both axes, and is disabled during recording", async () => {
   const { s } = calibrate()
+  const mapping = s.getSnapshot().calibration
+  let requests = 0
   host = document.createElement("div")
   document.body.append(host)
   root = createRoot(host)
@@ -222,58 +226,50 @@ test("live X/Y pixel controls preserve the mapping, reset together, and are disa
           state: s.getSnapshot(),
           canValidate: true,
           onCalibrate() {},
+          onCorrect() {
+            requests++
+          },
           recording,
         })
       )
     )
   await render()
-  const x = host.querySelector<HTMLInputElement>(
-    "[aria-label='Gaze offset X (pixels)']"
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Correct gaze with a click"]'
+      )!
+      .click()
   )
-  const y = host.querySelector<HTMLInputElement>(
-    "[aria-label='Gaze offset Y (pixels)']"
-  )
-  expect(x).not.toBeNull()
-  expect(y).not.toBeNull()
-  const edit = async (input: HTMLInputElement, value: string) =>
-    act(async () => {
-      input.focus()
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )!.set!.call(input, value)
-      input.dispatchEvent(new Event("input", { bubbles: true }))
-      input.blur()
-    })
-  await edit(x!, "16")
+  expect(requests).toBe(1)
+  expect(host.querySelector('input[type="range"]')).toBeNull()
+  // The preview correction layer supplies both normalized offsets in one update.
+  s.setOffset([0.025, -0.025])
   await render()
-  await edit(y!, "-12")
-  expect(s.getSnapshot().offset).toEqual([0.025, -0.025])
-  await render()
+  expect(s.getSnapshot().calibration).toBe(mapping)
   expect(host.textContent).toContain("Previous accuracy check")
   await act(async () =>
-    (
-      host.querySelector(
-        "[aria-label='Reset gaze offset']"
-      ) as HTMLButtonElement
-    ).click()
+    host
+      .querySelector<HTMLButtonElement>('[aria-label="Reset gaze offset"]')!
+      .click()
   )
   expect(s.getSnapshot().offset).toEqual([0, 0])
   await render(true)
   expect(
-    host.querySelector<HTMLInputElement>(
-      "[aria-label='Gaze offset X (pixels)']"
+    host.querySelector<HTMLButtonElement>(
+      '[aria-label="Correct gaze with a click"]'
     )!.disabled
   ).toBe(true)
   expect(
-    host.querySelector<HTMLButtonElement>("[aria-label='Reset gaze offset']")!
+    host.querySelector<HTMLButtonElement>('[aria-label="Reset gaze offset"]')!
       .disabled
   ).toBe(true)
 })
 
-test("the completed calibration step exposes X/Y adjustments without another calibration", async () => {
+test("completed calibration can open click correction without another calibration", async () => {
   const { s } = calibrate()
   const mapping = s.getSnapshot().calibration
+  let requests = 0
   function Controls() {
     const state = useSyncExternalStore(s.subscribe, s.getSnapshot)
     return createElement(FingerControls, {
@@ -283,33 +279,23 @@ test("the completed calibration step exposes X/Y adjustments without another cal
       canCapture: true,
       retry() {},
       onLive() {},
+      onCorrect() {
+        requests++
+      },
     })
   }
   host = document.createElement("div")
   document.body.append(host)
   root = createRoot(host)
   await act(async () => root!.render(createElement(Controls)))
-
-  for (const [axis, pixels] of [
-    ["X", "12.8"],
-    ["Y", "-9.6"],
-  ]) {
-    const input = host.querySelector<HTMLInputElement>(
-      `[aria-label='Gaze offset ${axis} (pixels)']`
-    )
-    expect(input).not.toBeNull()
-    expect(input!.disabled).toBe(false)
-    await act(async () => {
-      input!.focus()
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )!.set!.call(input, pixels)
-      input!.dispatchEvent(new Event("input", { bubbles: true }))
-      input!.blur()
-    })
-  }
-  expect(s.getSnapshot().offset).toEqual([0.02, -0.02])
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Correct gaze with a click"]'
+      )!
+      .click()
+  )
+  expect(requests).toBe(1)
   expect(s.getSnapshot().calibration).toBe(mapping)
   expect(s.getSnapshot().capture).toBeNull()
   expect(
@@ -338,7 +324,7 @@ test("a failed accuracy check exposes pixel errors, offset controls and a correc
   expect(host.textContent).toContain("Unverified preview")
   expect(host.textContent).toContain("42.9 px RMS")
   expect(
-    host.querySelector("[aria-label='Gaze offset X (pixels)']")
+    host.querySelector("[aria-label='Correct gaze with a click']")
   ).not.toBeNull()
   const apply = host.querySelector<HTMLButtonElement>(
     "[aria-label='Apply suggested offset and check accuracy']"

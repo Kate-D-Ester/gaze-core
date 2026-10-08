@@ -1,4 +1,5 @@
 import type { AffineCoefficients } from "./calibration-mapping.types"
+import type { QuadraticMapping } from "./calibration-polynomial.types"
 import type { Point } from "./eye-tracking.types"
 import type { HeadCompensation } from "./head-tracking/head-calibration.types"
 import type { HeadPose } from "./head-tracking/head-pose.types"
@@ -15,5 +16,7 @@ export type CalibrationSample = {
 export type Calibration = {
   coefficients: AffineCoefficients
   validationError: number
+  /** Selected only when withheld target holds support a nonlinear eye-only map. */
+  quadraticMapping?: QuadraticMapping
   headCompensation?: HeadCompensation
 }

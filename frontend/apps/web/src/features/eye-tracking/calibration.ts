@@ -3,6 +3,10 @@ import {
   fitAffineMapping,
   mappingValidationError,
 } from "./calibration-mapping"
+import {
+  applyQuadraticMapping,
+  selectQuadraticMapping,
+} from "./calibration-polynomial"
 import { DEFAULT_GAZE_ORIENTATION } from "./calibration-orientation"
 import type { GazeOrientation } from "./calibration.types"
 import type {
@@ -58,6 +62,13 @@ export function mapGaze(
       headPose
     )
   }
+  if (calibration.quadraticMapping) {
+    return applyQuadraticMapping(
+      calibration.quadraticMapping,
+      calibration.coefficients,
+      feature
+    )
+  }
   return applyAffineMapping(calibration.coefficients, feature)
 }
 function fitMapping(
@@ -93,6 +104,14 @@ function fitMapping(
       return null
     }
     validationError = error
+    const nonlinear = selectQuadraticMapping(samples, coefficients, error)
+    if (nonlinear) {
+      return {
+        coefficients,
+        quadraticMapping: nonlinear.mapping,
+        validationError: nonlinear.validationError,
+      }
+    }
   }
   return { coefficients, validationError }
 }

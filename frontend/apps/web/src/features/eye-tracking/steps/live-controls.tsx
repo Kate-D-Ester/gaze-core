@@ -30,6 +30,7 @@ export function LiveControls({
   onRetryHeadCalibration,
   retryHeadDisabled = false,
   onFocus,
+  onCorrect,
   onValidate,
   onRecalibrate,
   onExport,
@@ -120,6 +121,7 @@ export function LiveControls({
         </EyeActionButton>
       </div>
       <GazeOffsetControls
+        onCorrect={onCorrect}
         offset={offset}
         width={window.innerWidth}
         height={window.innerHeight}

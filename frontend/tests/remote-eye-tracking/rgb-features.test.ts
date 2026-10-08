@@ -119,7 +119,7 @@ describe("RGB observations", () => {
     )!
     expect(turned).not.toEqual(neutral)
     expect(turned[6]).toBeCloseTo(0.3)
-    expect(turned.length).toBeLessThanOrEqual(24)
+    expect(turned.length).toBeLessThanOrEqual(64)
     expect(turned.every(Number.isFinite)).toBe(true)
   })
 
@@ -128,7 +128,7 @@ describe("RGB observations", () => {
     const mobile = buildRgbFeatures("mobile", geometry, [0.2, 0.8])!
     const webcam = buildRgbFeatures("webcam", geometry, [0.2, 0.8])!
     expect(mobile).not.toEqual(webcam)
-    expect(mobile.length).toBeLessThanOrEqual(24)
+    expect(mobile.length).toBeLessThanOrEqual(64)
     expect(mobile.every(Number.isFinite)).toBe(true)
     const shifted = structuredClone(geometry)
     shifted.pose.x = 0.55

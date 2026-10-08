@@ -117,6 +117,7 @@ export function RemoteEyeTrackingPage() {
   >([])
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [capture, setCapture] = useState<"calibrate" | "validate" | null>(null)
+  const [correctionRequest, setCorrectionRequest] = useState(0)
   const [showGaze, setShowGaze] = useState(false)
   const [notice, setNotice] = useState("")
   function clearCalibration() {
@@ -820,6 +821,10 @@ export function RemoteEyeTrackingPage() {
                   </div>
                 )}
                 <GazeOffsetControls
+                  onCorrect={() => {
+                    setShowGaze(true)
+                    setCorrectionRequest((value) => value + 1)
+                  }}
                   offset={offset}
                   width={viewport.width}
                   height={viewport.height}
@@ -896,6 +901,12 @@ export function RemoteEyeTrackingPage() {
       )}
       {showGaze && !capture && (
         <GazeBubbleOverlay
+          correction={
+            activeCalibration
+              ? { onChange: setOffset, request: correctionRequest }
+              : undefined
+          }
+          stabilize={false}
           point={point}
           timestamp={observation?.timestamp ?? null}
           errorRadiusPx={

@@ -21,7 +21,7 @@ function getMaximumRadius(width: number, height: number) {
   // The ROI contains pupil movement, not the full projected eyeball.
   return Math.min(width, height) * 0.75
 }
-function hasTwoDimensionalMovement(
+export function hasTwoDimensionalMovement(
   observations: Ellipse[],
   minimumMovement: number
 ) {
@@ -29,17 +29,19 @@ function hasTwoDimensionalMovement(
   if (count < 3) {
     return false
   }
-  const meanX = observations.reduce((sum, item) => sum + item.center[0], 0) / count
-  const meanY = observations.reduce((sum, item) => sum + item.center[1], 0) / count
+  const meanX =
+    observations.reduce((sum, item) => sum + item.center[0], 0) / count
+  const meanY =
+    observations.reduce((sum, item) => sum + item.center[1], 0) / count
   let varianceX = 0
   let varianceY = 0
   let covariance = 0
   for (const item of observations) {
     const dx = item.center[0] - meanX
     const dy = item.center[1] - meanY
-    varianceX += dx * dx / count
-    varianceY += dy * dy / count
-    covariance += dx * dy / count
+    varianceX += (dx * dx) / count
+    varianceY += (dy * dy) / count
+    covariance += (dx * dy) / count
   }
   // The smaller covariance eigenvalue measures spread perpendicular to the
   // main movement direction. A diagonal line must not count as a full sweep.

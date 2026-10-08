@@ -1,4 +1,8 @@
 import { pointDistance as distance } from "@/lib/tracking-math"
+import {
+  buildFacePerspectiveFeatures,
+  MIN_FACE_SCALE,
+} from "./face-perspective"
 import type { Point } from "./remote-eye-tracking.types"
 import type {
   RgbFaceGeometry,
@@ -157,7 +161,7 @@ export function inspectRgbFace(
     (eyeReferences[0][1] + eyeReferences[1][1]) / 2,
   ]
   const scale = distance(eyeReferences[0], eyeReferences[1]) / width
-  if (scale < 0.025 || !Number.isFinite(scale)) {
+  if (scale < MIN_FACE_SCALE || !Number.isFinite(scale)) {
     return reject("eyes-too-small")
   }
   const facePoints = requireIris ? landmarks : landmarks.slice(0, 468)
@@ -230,10 +234,14 @@ export function buildRgbFeatures(
   if (!basePoint || !basePoint.every(Number.isFinite)) {
     return null
   }
-  const { yaw, pitch, roll, scale } = geometry.pose
-  if (!(scale > 0)) {
+  const perspective = buildFacePerspectiveFeatures({
+    pose: geometry.pose,
+    offsets: geometry.irisOffsets,
+  })
+  if (!perspective) {
     return null
   }
+  const { yaw, pitch, roll, scale } = geometry.pose
   const gx = basePoint[0] - 0.5
   const gy = basePoint[1] - 0.5
   const x = geometry.pose.x - 0.5
@@ -275,7 +283,7 @@ export function buildRgbFeatures(
           y * pitch,
           (roll * (rx + lx)) / 2,
         ]
-  const features = [...common, ...interactions]
+  const features = [...common, ...interactions, ...perspective]
   return features.every(Number.isFinite) ? features : null
 }
 const multiply = (m: number[][], v: number[]) =>

@@ -7,6 +7,7 @@ import type { SceneSession, SceneSessionSnapshot } from "./scene-session"
 import type { CalibrationMethod } from "./scene.types"
 
 export type SceneLiveControlsProps = {
+  onCorrect: () => void
   session: SceneSession
   state: SceneSessionSnapshot
   onCalibrate: () => void
@@ -25,6 +26,7 @@ export type SceneSourceControlsProps = {
 }
 
 export type FingerControlsProps = {
+  onCorrect: () => void
   session: SceneSession
   state: SceneSessionSnapshot
   hands: Pick<HandTrackerSnapshot, "status" | "error">

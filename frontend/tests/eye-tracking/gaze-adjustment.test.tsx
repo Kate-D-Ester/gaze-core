@@ -25,6 +25,7 @@ test("session adjustments survive rerenders but reset on a new calibration or re
       width: 1000,
       height: 500,
       onChange: current.setOffset,
+      onCorrect: () => {},
     })
   }
   const model = {}
@@ -35,10 +36,9 @@ test("session adjustments survive rerenders but reset on a new calibration or re
     await render(model)
     await act(async () => current.setOffset([0.02, -0.04]))
     expect(
-      host.querySelector<HTMLInputElement>(
-        '[aria-label="Gaze offset X (pixels)"]'
-      )!.value
-    ).toBe("20.0")
+      host.querySelector('[aria-label="Correct gaze with a click"]')
+    ).not.toBeNull()
+    expect(host.querySelector('input[type="range"]')).toBeNull()
     await render(model)
     expect(lastOffset).toEqual([0.02, -0.04])
     await render(null)

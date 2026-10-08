@@ -166,12 +166,13 @@ export function RemoteCalibrationOverlay({
     "Keep looking at the dot. When it pops, follow the next one."
   let instruction = progress.reason
   if (extended && !calibration) {
-    introduction = "Follow the dots. On the second pass, move your head gently."
+    introduction =
+      "Follow the dots. On the second pass, move a little nearer and farther."
   }
   if (movingPass) {
     label = "Head positions"
     if (!instruction) {
-      instruction = "Move your head gently. Keep looking at the dot."
+      instruction = "Move gently nearer or farther. Keep looking at the dot."
     }
   }
   if (calibration) {

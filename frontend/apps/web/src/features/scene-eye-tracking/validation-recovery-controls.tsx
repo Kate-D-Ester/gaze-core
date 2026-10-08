@@ -14,6 +14,7 @@ import {
 import { download } from "./download"
 import type { ValidationRecoveryControlsProps } from "./validation-recovery-controls.types"
 export function ValidationRecoveryControls({
+  onCorrect,
   session,
   state,
   canCapture,
@@ -106,6 +107,7 @@ export function ValidationRecoveryControls({
         </div>
       </div>
       <GazeOffsetControls
+        onCorrect={onCorrect}
         offset={state.offset}
         width={dimensions.width}
         height={dimensions.height}

@@ -1,4 +1,5 @@
 import { pointInPolygon } from "../eye-tracking/geometry"
+import { buildFacePerspectiveFeatures } from "./face-perspective"
 import type {
   IrEyeSearchBounds,
   IrFaceFeatureResult,
@@ -136,6 +137,13 @@ export function buildIrFaceFeatures(
   })
   const gx = (offsets[0] + offsets[2]) / 2
   const gy = (offsets[1] + offsets[3]) / 2
+  const perspective = buildFacePerspectiveFeatures({
+    pose: geometry.pose,
+    offsets,
+  })
+  if (!perspective) {
+    return null
+  }
   const { yaw, pitch, roll, x, y, scale } = geometry.pose
   const depth = Math.log(scale)
   const feature = [
@@ -156,6 +164,7 @@ export function buildIrFaceFeatures(
     gx * depth,
     gy * depth,
     yaw * pitch,
+    ...perspective,
   ]
   if (!feature.every(Number.isFinite)) {
     return null

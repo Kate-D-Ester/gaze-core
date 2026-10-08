@@ -1,10 +1,12 @@
 import { gazeVector3D } from "./manual-gaze-vector"
 import { createManualEyeModel, EyeModelEstimator } from "./eye-model"
+import { EyeSlippageTracker } from "./eye-slippage"
 import type {
   Detection,
   EyeModel,
   FrameSettings,
   Gaze,
+  Point,
   TrackingFrame,
 } from "./eye-tracking.types"
 import {
@@ -16,6 +18,7 @@ import type { CV } from "./opencv.types"
 import { PupilTracker } from "./pupil-tracker"
 export class TrackingEngine {
   private readonly model = new EyeModelEstimator()
+  private readonly slippage = new EyeSlippageTracker()
   private configKey = ""
   private readonly pupils: PupilTracker
   private gray = new Uint8Array(0)
@@ -24,6 +27,7 @@ export class TrackingEngine {
   }
   reset() {
     this.model.reset()
+    this.slippage.reset()
     this.configKey = ""
     this.pupils.reset()
   }
@@ -112,22 +116,6 @@ export class TrackingEngine {
           roi.height
         )
       }
-      const k = cameraIntrinsics(width, height, settings.fov)
-      if (e && detection.tracking === "tracking" && model?.ready && k) {
-        const sphere = sphereFromProjection(
-          model.center,
-          model.radius,
-          settings.radiusMm,
-          k
-        )
-        if (sphere) {
-          gaze = gazeFromPupil(
-            [e.center[0] + roi.x, e.center[1] + roi.y],
-            sphere,
-            k
-          )
-        }
-      }
     } else {
       model = createManualEyeModel(settings.corners, width, height)
       const center = model?.center ?? [
@@ -151,19 +139,37 @@ export class TrackingEngine {
         roi.width,
         roi.height
       )
-      const e = detection.ellipse
-      if (model) {
-        if (e && detection.tracking === "tracking") {
-          const v = gazeVector3D(
-            e.center,
-            [center[0] - roi.x, center[1] - roi.y],
-            model.radius
-          )
-          gaze = {
-            origin: [0, 0, 0],
-            direction: [v[0], v[1], -v[2]],
-            pupil: [...v],
-          }
+    }
+    const slippage = this.slippage.observe(detection, {
+      width,
+      height,
+      roi,
+      model,
+      locked: settings.locked,
+      timestamp,
+    })
+    const ellipse = detection.ellipse
+    if (ellipse && detection.tracking === "tracking" && model?.ready) {
+      // Return the pupil to the image coordinates used by the locked model.
+      // Detection and preview remain the fresh, unmodified image evidence.
+      const pupil: Point = [
+        ellipse.center[0] + roi.x - slippage.offset[0],
+        ellipse.center[1] + roi.y - slippage.offset[1],
+      ]
+      if (settings.format === "spatial") {
+        const k = cameraIntrinsics(width, height, settings.fov)
+        const sphere =
+          k &&
+          sphereFromProjection(model.center, model.radius, settings.radiusMm, k)
+        if (sphere && k) {
+          gaze = gazeFromPupil(pupil, sphere, k)
+        }
+      } else {
+        const v = gazeVector3D(pupil, model.center, model.radius)
+        gaze = {
+          origin: [0, 0, 0],
+          direction: [v[0], v[1], -v[2]],
+          pupil: [...v],
         }
       }
     }
@@ -176,6 +182,7 @@ export class TrackingEngine {
       detection,
       model,
       gaze,
+      slippage,
       processingMs: performance.now() - start,
     }
   }

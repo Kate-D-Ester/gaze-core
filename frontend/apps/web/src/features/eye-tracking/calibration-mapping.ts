@@ -1,7 +1,10 @@
 import type {
   AffineCoefficients,
+  MappingFitter,
+  MappingPrediction,
   MappingSample,
 } from "./calibration-mapping.types"
+import { fitScreenCoordinates } from "./calibration-least-squares"
 import type { Point } from "./eye-tracking.types"
 /** Fit a small affine mapping using centered, scaled QR least squares. */
 export function fitAffineMapping(
@@ -33,44 +36,21 @@ export function fitAffineMapping(
   if (scale.some((value) => value < 0.002)) {
     return null
   }
-  const columns = [
-    samples.map(() => 1),
-    samples.map((sample) => (sample.feature[0] - mean[0]) / scale[0]),
-    samples.map((sample) => (sample.feature[1] - mean[1]) / scale[1]),
-  ]
-  const orthogonal: number[][] = []
-  const triangular = Array.from({ length: 3 }, () => [0, 0, 0])
-  for (let column = 0; column < 3; column++) {
-    const values = columns[column].slice()
-    for (let previous = 0; previous < column; previous++) {
-      triangular[previous][column] = orthogonal[previous].reduce(
-        (sum, value, row) => sum + value * values[row],
-        0
-      )
-      for (let row = 0; row < count; row++) {
-        values[row] -= triangular[previous][column] * orthogonal[previous][row]
-      }
-    }
-    triangular[column][column] = Math.hypot(...values)
-    if (triangular[column][column] < 0.001 * Math.sqrt(count)) {
-      return null
-    }
-    orthogonal.push(values.map((value) => value / triangular[column][column]))
+  const rows = samples.map((sample) => [
+    1,
+    (sample.feature[0] - mean[0]) / scale[0],
+    (sample.feature[1] - mean[1]) / scale[1],
+  ])
+  const solution = fitScreenCoordinates(
+    rows,
+    samples.map((sample) => sample.target)
+  )
+  if (!solution) {
+    return null
   }
   const coefficients: AffineCoefficients = [[], []]
   for (let axis = 0; axis < 2; axis++) {
-    const values = orthogonal.map((column) =>
-      column.reduce(
-        (sum, value, row) => sum + value * samples[row].target[axis],
-        0
-      )
-    )
-    for (let row = 2; row >= 0; row--) {
-      for (let column = row + 1; column < 3; column++) {
-        values[row] -= triangular[row][column] * values[column]
-      }
-      values[row] /= triangular[row][row]
-    }
+    const values = solution[axis]
     coefficients[axis] = [
       values[0] -
         (values[1] * mean[0]) / scale[0] -
@@ -95,9 +75,19 @@ export function applyAffineMapping(
   }
   return point
 }
+function fitAffinePrediction(
+  samples: MappingSample[]
+): MappingPrediction | null {
+  const coefficients = fitAffineMapping(samples)
+  if (!coefficients) {
+    return null
+  }
+  return (feature) => applyAffineMapping(coefficients, feature)
+}
 /** Hold out each whole target, rather than adjacent frames of the same fixation. */
 export function mappingValidationError(
-  samples: MappingSample[]
+  samples: MappingSample[],
+  fit: MappingFitter = fitAffinePrediction
 ): number | null {
   const targets = new Set(samples.map((sample) => sample.target.join(",")))
   let squaredError = 0
@@ -108,13 +98,13 @@ export function mappingValidationError(
     const heldOut = samples.filter(
       (sample) => sample.target.join(",") === target
     )
-    const coefficients = fitAffineMapping(training)
-    if (!coefficients) {
+    const predict = fit(training)
+    if (!predict) {
       return null
     }
     let targetError = 0
     for (const sample of heldOut) {
-      const point = applyAffineMapping(coefficients, sample.feature)
+      const point = predict(sample.feature)
       if (!point) {
         return null
       }

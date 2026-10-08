@@ -1,3 +1,4 @@
+import { GazeCorrectionLayer } from "../gaze-correction/gaze-correction-layer"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getGazeBubbleMaxDiameter, getGazeView } from "./gaze-bubble"
 import type {
@@ -53,6 +54,7 @@ export function GazeBubbleOverlay({
   markerClassName = "",
   maxAgeMs,
   snapshotRef,
+  correction,
 }: GazeBubbleOverlayProps) {
   const container = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<GazeView | null>(null)
@@ -199,7 +201,7 @@ export function GazeBubbleOverlay({
                 position: "absolute",
                 left: 12,
                 right: 12,
-                ...(fixed ? { bottom: 16 } : { top: 12 }),
+                bottom: fixed ? 16 : 40,
                 textAlign: "center",
                 color: "#e9b65e",
                 fontSize: 11,
@@ -211,6 +213,16 @@ export function GazeBubbleOverlay({
             </span>
           )}
         </div>
+      )}
+      {correction && (
+        <GazeCorrectionLayer
+          point={point}
+          timestamp={timestamp}
+          offset={offset ?? [0, 0]}
+          resetKey={resetKey}
+          imageSize={imageSize}
+          options={correction}
+        />
       )}
     </div>
   )
