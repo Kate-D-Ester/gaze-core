@@ -224,6 +224,36 @@ describe("RGB observations", () => {
     expect(model.faceOrigin[2]).toBeGreaterThan(0)
     expect(model.faceWidthCm).toBeCloseTo(38.4) // Floor to pixels, matching model preprocessing.
   })
+
+  test("preserves exact reconstructed geometry when reusing previous physical estimates", () => {
+    // Captured from the original implementation before hoisting its transpose.
+    const cases = [
+      { yaw: 0, headVector: [0, -0, -1], originX: 2.220446049250313e-16 },
+      {
+        yaw: 0.3,
+        headVector: [-0.29552020666133955, -0, -0.955336489125606],
+        originX: 4.440892098500626e-16,
+      },
+      {
+        yaw: -0.5,
+        headVector: [0.479425538604203, 0, -0.8775825618903728],
+        originX: 4.440892098500626e-16,
+      },
+    ]
+    for (const fixture of cases) {
+      const geometry = validGeometry(face(fixture.yaw), 1280, 720)
+      expect(
+        prepareBlazeGazeGeometry(geometry, 1280, 720, {
+          faceWidthCm: 15,
+          depth: 65,
+        })
+      ).toEqual({
+        headVector: fixture.headVector,
+        faceOrigin: [fixture.originX, -1.3500000000000005, 58.651005053784566],
+        faceWidthCm: 15,
+      })
+    }
+  })
 })
 
 describe("BlazeGaze eye strip", () => {

@@ -7,6 +7,7 @@ import type {
 import type { SessionState } from "../session.types"
 export type RemoteCameraPreviewProps = {
   observation: RemoteObservation | null
+  showVectors?: boolean
   mode: RemoteMode | null
   roi: Rect
   replaying: boolean

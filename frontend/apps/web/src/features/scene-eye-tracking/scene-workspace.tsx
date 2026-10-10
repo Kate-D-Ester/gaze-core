@@ -29,13 +29,17 @@ import {
   canUseSceneCalibration,
   hasCurrentAccuracyCheck,
 } from "./scene-session"
-import type { SceneWorkspaceProps } from "./scene-workspace.types"
+import type {
+  SceneSetupCache,
+  SceneWorkspaceProps,
+} from "./scene-workspace.types"
 import { ScreenCalibrationMarker } from "./screen-calibration-marker"
+import { useCameraIdentity } from "../tracking-calibration/use-camera-identity"
 import { useCalibrationProfiles } from "./use-calibration-profiles"
 import { useHandTracker } from "./use-hand-tracker"
 import { useMarkerTracker } from "./use-marker-tracker"
 import { useSceneCamera } from "./use-scene-camera"
-import { useSceneSession } from "./use-scene-session"
+import { stableSceneSetupKey, useSceneSession } from "./use-scene-session"
 export type { SceneStatus } from "./scene-workspace.types"
 const NAMES = ["Scene camera", "Calibration", "Live scene gaze"]
 export function SceneWorkspace({
@@ -61,30 +65,47 @@ export function SceneWorkspace({
     return () => clearInterval(timer)
   }, [step])
   const scene = useSceneCamera()
-  const identity = JSON.stringify([
-    eyeRevision,
-    tracker.source,
-    tracker.settings,
-    tracker.dimensions,
-    tracker.transform,
-    scene.transform,
-    scene.source?.key,
-    scene.camera.rawCanvas.width,
-    scene.camera.rawCanvas.height,
-  ])
+  const [setupCache, setSetupCache] = useState<SceneSetupCache>({
+    revision: eyeRevision,
+    model: null,
+    key: null,
+  })
+  const cached =
+    setupCache.revision === eyeRevision
+      ? setupCache
+      : { revision: eyeRevision, model: null, key: null }
+  let model = cached.model
+  if (tracker.settings.locked && tracker.frame?.model?.ready) {
+    model = tracker.frame.model
+  }
+  const setupKey =
+    stableSceneSetupKey(tracker, scene.camera, model) ?? cached.key
+  if (
+    setupCache.revision !== eyeRevision ||
+    setupCache.key !== setupKey ||
+    setupCache.model?.radius !== model?.radius ||
+    setupCache.model?.center[0] !== model?.center[0] ||
+    setupCache.model?.center[1] !== model?.center[1]
+  ) {
+    setSetupCache({ revision: eyeRevision, model, key: setupKey })
+  }
+  const identity = JSON.stringify([eyeRevision, setupKey])
+  const fingerprint = useCameraIdentity(setupKey ?? "")
   const state = useSceneSession(tracker, scene.camera, identity)
   const profiles = useCalibrationProfiles({
     session: state.session,
     state,
     setup: {
       trackerFormat: tracker.settings.format,
+      fingerprint: fingerprint || undefined,
       orientation: { eye: tracker.transform, scene: scene.transform },
     },
     ready:
       step >= 1 &&
       scene.connection === "live" &&
       !!scene.frame &&
-      tracker.settings.locked,
+      tracker.settings.locked &&
+      !!fingerprint,
     disabled: recording || !!state.capture,
     onLoaded: () => onStepChange(2),
   })
@@ -345,7 +366,6 @@ export function SceneWorkspace({
               onStepChange(1)
             }}
             onCalibrate={() => {
-              state.session.invalidate("Headset moved. Collect a new mapping.")
               onStepChange(1)
             }}
           />

@@ -24,6 +24,7 @@ export function useTrackerWorker(
       type: "module",
     })
     c.worker = worker
+    let requestSourceEpoch = c.sourceEpoch
     const fail = (message: string) => {
       c.ready = false
       c.inflight = false
@@ -51,6 +52,12 @@ export function useTrackerWorker(
       }
       c.inflight = false
       c.inflightGeneration = -1
+      if (
+        message.generation !== undefined &&
+        requestSourceEpoch !== c.sourceEpoch
+      ) {
+        return
+      }
       if (message.type === "error") {
         fail(message.message)
         return
@@ -242,6 +249,7 @@ export function useTrackerWorker(
       }
       c.inflight = true
       c.inflightGeneration = c.generation
+      requestSourceEpoch = c.sourceEpoch
       worker.postMessage(request, [request.data.buffer])
     }
     raf = requestAnimationFrame(loop)

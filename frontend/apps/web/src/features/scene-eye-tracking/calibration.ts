@@ -4,6 +4,7 @@ import type {
   CalibrationFitResult,
   EvidenceIssue,
   PairInspectionResult,
+  ValidationResidual,
 } from "./calibration.types"
 import type {
   CalibrationHold,
@@ -699,6 +700,15 @@ export function inspectSceneCalibration(
     )
   }
   const { fit, error, training } = selected
+  const candidate: SceneCalibration = {
+    ...fit,
+    trainingRms: training.rms,
+    maxTrainingError: training.maximum,
+    crossValidationRms: error.rms,
+    maxValidationError: error.maximum,
+    bounds: { min, max },
+    holds: [...holds],
+  }
   // Leaving a corner out tests extrapolation beyond the remaining sample hull.
   // Use it to compare models. A bounded fit can proceed to the five fresh
   // physical checks even when collection noise exceeds the final RMS limit.
@@ -706,15 +716,7 @@ export function inspectSceneCalibration(
   // the worst point does not necessarily resolve noise across several holds.
   if (training.maximum <= MAX_CALIBRATION_POINT_ERROR) {
     return {
-      calibration: {
-        ...fit,
-        trainingRms: training.rms,
-        maxTrainingError: training.maximum,
-        crossValidationRms: error.rms,
-        maxValidationError: error.maximum,
-        bounds: { min, max },
-        holds: [...holds],
-      },
+      calibration: candidate,
       reason: "",
       retryIndex: null,
       rms: error.rms,
@@ -726,6 +728,7 @@ export function inspectSceneCalibration(
   const retryLabel = sceneRegionLabel(holds[retryIndex].region).toLowerCase()
   return {
     calibration: null,
+    previewCalibration: candidate,
     reason: `Refine ${retryLabel}. The other eight points are saved.`,
     retryIndex,
     rms: training.rms,
@@ -746,41 +749,60 @@ export function validateSceneCalibration(
   let maxNormalizedError = 0
   let maxPixelError = 0
   const points: ValidationPoint[] = []
+  const residuals: ValidationResidual[] = []
   for (const [index, h] of holds.entries()) {
-    const mapped = mapSceneGaze(calibration, h.feature)
-    const pair = h.pairs[0]
-    const p: Point | null = mapped
-      ? [mapped[0] + offset[0], mapped[1] + offset[1]]
-      : null
-    if (
-      !p ||
-      !finite(p) ||
-      !pair ||
-      !finite(h.target) ||
-      !finite([pair.width, pair.height]) ||
-      pair.width <= 0 ||
-      pair.height <= 0
-    ) {
+    if (!h.pairs.length) {
       return null
     }
-    const error = distance(p, h.target)
-    const delta: Point = [p[0] - h.target[0], p[1] - h.target[1]]
-    const pixelDelta: Point = [delta[0] * pair.width, delta[1] * pair.height]
-    const pixelSquared =
-      ((p[0] - h.target[0]) * pair.width) ** 2 +
-      ((p[1] - h.target[1]) * pair.height) ** 2
-    normalized += error ** 2
-    pixels += pixelSquared
-    maxNormalizedError = Math.max(maxNormalizedError, error)
-    maxPixelError = Math.max(maxPixelError, Math.sqrt(pixelSquared))
+    let holdNormalized = 0
+    let holdPixels = 0
+    const delta: Point = [0, 0]
+    const pixelDelta: Point = [0, 0]
+    const target: Point = [0, 0]
+    for (const pair of h.pairs) {
+      const mapped = mapSceneGaze(calibration, pair.feature)
+      if (
+        !mapped ||
+        !finite(mapped) ||
+        !finite(pair.target) ||
+        !finite([pair.width, pair.height]) ||
+        pair.width <= 0 ||
+        pair.height <= 0
+      ) {
+        return null
+      }
+      const rawDelta: Point = [
+        mapped[0] + offset[0] - pair.target[0],
+        mapped[1] + offset[1] - pair.target[1],
+      ]
+      const error = Math.hypot(...rawDelta)
+      const pixelError = Math.hypot(
+        rawDelta[0] * pair.width,
+        rawDelta[1] * pair.height
+      )
+      const weight = 1 / h.pairs.length
+      holdNormalized += error ** 2 * weight
+      holdPixels += pixelError ** 2 * weight
+      maxNormalizedError = Math.max(maxNormalizedError, error)
+      maxPixelError = Math.max(maxPixelError, pixelError)
+      delta[0] += rawDelta[0] * weight
+      delta[1] += rawDelta[1] * weight
+      pixelDelta[0] += rawDelta[0] * pair.width * weight
+      pixelDelta[1] += rawDelta[1] * pair.height * weight
+      target[0] += pair.target[0] * weight
+      target[1] += pair.target[1] * weight
+      residuals.push({ delta: rawDelta, weight: weight / holds.length })
+    }
+    normalized += holdNormalized
+    pixels += holdPixels
     points.push({
       index,
-      target: [...h.target],
-      position: p,
+      target,
+      position: [target[0] + delta[0], target[1] + delta[1]],
       delta,
       pixelDelta,
-      normalizedError: error,
-      pixelError: Math.sqrt(pixelSquared),
+      normalizedError: Math.sqrt(holdNormalized),
+      pixelError: Math.sqrt(holdPixels),
     })
   }
   const normalizedRms = Math.sqrt(normalized / holds.length)
@@ -795,9 +817,12 @@ export function validateSceneCalibration(
       bias[0] += point.delta[0] / points.length
       bias[1] += point.delta[1] / points.length
     }
-    const centeredErrors = points.map((point) => distance(point.delta, bias))
+    const centeredErrors = residuals.map((point) => distance(point.delta, bias))
     const centeredRms = Math.sqrt(
-      centeredErrors.reduce((sum, e) => sum + e ** 2, 0) / points.length
+      centeredErrors.reduce(
+        (sum, e, index) => sum + e ** 2 * residuals[index].weight,
+        0
+      )
     )
     const candidate: Point = [offset[0] - bias[0], offset[1] - bias[1]]
     // This is a proposed correction, not an accuracy pass. It must be checked

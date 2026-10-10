@@ -40,11 +40,11 @@ export function evaluateCalibration(
   }
   if (!screenCalibration || screenCalibration.validationError > 0.16) {
     return {
-      calibration: null,
+      calibration: screenCalibration,
       issue: {
         code: "screen-fit",
         message:
-          "The gaze dots did not give a consistent screen mapping. Check eye-camera orientation and repeat the gaze dots.",
+          "The gaze dots did not give a consistent screen mapping. A finite mapping can be used as an unverified preview; accuracy needs checking.",
         measuredError: screenCalibration?.validationError,
       },
     }

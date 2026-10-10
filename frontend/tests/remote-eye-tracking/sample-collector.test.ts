@@ -53,6 +53,22 @@ test("blinks and invalid frames do not advance a target; sufficient valid sample
   expect(collector.samples).toHaveLength(18)
 })
 
+test("a head hold keeps collecting after its minimum until required motion is observed", () => {
+  const collector = new TargetCollector([0.5, 0.5], 0, 0, {
+    minimumSamples: 18,
+    minimumDurationMs: 0,
+    canComplete: (samples) =>
+      samples.some((sample) => sample.observation.pose!.yaw! > 0.05),
+  })
+  for (let frame = 0; frame < 18; frame++) {
+    const timestamp = 800 + frame * 100
+    collector.add(observation(timestamp, 0), timestamp)
+  }
+  expect(collector.complete).toBe(false)
+  expect(collector.add(observation(2700, 0.1), 2700)).toBe(true)
+  expect(collector.complete).toBe(true)
+})
+
 test("unlabeled recorded observations cannot train or validate screen calibration", () => {
   const collector = new TargetCollector([0.5, 0.5], 0, 0)
   expect(
@@ -62,4 +78,66 @@ test("unlabeled recorded observations cannot train or validate screen calibratio
   expect(
     collector.add({ ...observation(900, 0.1), source: "camera" }, 900)
   ).toBe(true)
+})
+
+test.each([3, 7, 30])(
+  "comfortable hold uses elapsed time and unique frames at %p FPS",
+  (fps) => {
+    const collector = new TargetCollector([0.5, 0.5], 0, 0, {
+      minimumSamples: 4,
+      minimumDurationMs: 700,
+    })
+    const interval = 1000 / fps
+    for (let timestamp = 700; timestamp < 1400; timestamp += interval) {
+      collector.add(observation(timestamp, 0), timestamp)
+      collector.add(observation(timestamp, 0), timestamp)
+      expect(collector.complete).toBe(false)
+    }
+    for (
+      let timestamp = 1400;
+      timestamp < 2300 && !collector.complete;
+      timestamp += interval
+    )
+      collector.add(observation(timestamp, 0), timestamp)
+    expect(collector.complete).toBe(true)
+    expect(
+      collector.samples.at(-1)!.observation.timestamp -
+        collector.samples[0]!.observation.timestamp
+    ).toBeGreaterThanOrEqual(700)
+  }
+)
+
+test("delayed 3 FPS inference retains a fixation while polling its accepted frame", () => {
+  const collector = new TargetCollector([0.5, 0.5], 0, 0, {
+    minimumSamples: 18,
+    minimumDurationMs: 600,
+    resetOnInvalid: true,
+  })
+  let latest: RemoteObservation | null = null
+  for (let now = 1000; now < 10000 && !collector.complete; now += 16) {
+    const timestamp = 700 + Math.floor((now - 1000) / 333) * 333
+    if (latest?.timestamp !== timestamp) {
+      latest = observation(timestamp, 0)
+    }
+    collector.add(latest, now)
+  }
+  expect(collector.complete).toBe(true)
+  expect(collector.samples).toHaveLength(18)
+})
+
+test("a genuine frame outage or blink still resets an uninterrupted fixation", () => {
+  const collector = new TargetCollector([0.5, 0.5], 0, 0, {
+    minimumSamples: 18,
+    minimumDurationMs: 600,
+    resetOnInvalid: true,
+  })
+  const first = observation(800, 0)
+  collector.add(first, 1100)
+  collector.add(first, 1400)
+  expect(collector.samples).toHaveLength(1)
+  collector.add(first, 1801)
+  expect(collector.samples).toHaveLength(0)
+  collector.add(observation(1900, 0), 2200)
+  collector.add({ ...observation(2300, 0), reason: "blink" }, 2400)
+  expect(collector.samples).toHaveLength(0)
 })

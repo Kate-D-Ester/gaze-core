@@ -207,10 +207,9 @@ test("repainting the same source sample does not establish a fixation or refresh
   )
 })
 
-test("invalid, offscreen, future and lost data hide the bubble and clear its anchor", () => {
+test("invalid, future and lost data hide the bubble and clear its anchor", () => {
   for (const input of [
     null,
-    { point: [-0.1, 0.5], timestamp: 200 },
     { point: [NaN, 0.5], timestamp: 200 },
     { point: [0.5, 0.5], timestamp: 500 },
   ]) {

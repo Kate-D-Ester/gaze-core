@@ -5,11 +5,10 @@ import type {
   IrFaceFeatureResult,
 } from "./ir-face-features.types"
 import type { Point, Rect } from "./remote-eye-tracking.types"
-import type { RgbFaceGeometry } from "./rgb-features"
-export const IR_EYE_CORNERS = [
-  [33, 133],
-  [362, 263],
-] as const
+import type { RgbFaceGeometry } from "./rgb-features.types"
+import { EYE_CANTHI, measureEyeMovement } from "./tracking-vectors"
+import type { IrFeatureStrategy } from "./ir-face-features.types"
+export const IR_EYE_CORNERS = EYE_CANTHI
 const LIDS = [
   [158, 160, 144, 153],
   [385, 387, 373, 380],
@@ -121,20 +120,55 @@ export function irEyeRegions(
 /** Stable, binocular pupil/canthus inputs plus independently observed head pose. Glints are optional. */
 export function buildIrFaceFeatures(
   geometry: RgbFaceGeometry,
-  pupils: Point[]
+  pupils: Point[],
+  strategy: IrFeatureStrategy = "legacy"
 ): IrFaceFeatureResult | null {
   if (pupils.length !== 2 || !pupils.flat().every(Number.isFinite)) {
     return null
   }
-  const offsets = pupils.flatMap((p, i) => {
-    const [a, b] = IR_EYE_CORNERS[i].map((index) => geometry.landmarks[index])
-    const span = Math.hypot(b[0] - a[0], b[1] - a[1])
-    const ux = (b[0] - a[0]) / span
-    const uy = (b[1] - a[1]) / span
-    const dx = p[0] - (a[0] + b[0]) / 2
-    const dy = p[1] - (a[1] + b[1]) / 2
-    return [(dx * ux + dy * uy) / span, (-dx * uy + dy * ux) / span]
+  const movements = pupils.map((pupil, index) => {
+    return measureEyeMovement(geometry.landmarks, index, pupil, "ir-pupil")
   })
+  const right = movements[0]
+  const left = movements[1]
+  if (!right || !left) {
+    return null
+  }
+  const offsets = [...right.local, ...left.local]
+  if (strategy === "camera-axes-v2") {
+    const roll = geometry.pose.roll
+    if (roll === null) {
+      return null
+    }
+    const { yaw, pitch, x, y, scale } = geometry.pose
+    if (yaw === null || pitch === null || scale <= 0) {
+      return null
+    }
+    const feature = [
+      ...offsets,
+      ...right.camera,
+      ...left.camera,
+      yaw,
+      pitch,
+      roll,
+      x - 0.5,
+      y - 0.5,
+      Math.log(scale),
+    ]
+    if (!feature.every(Number.isFinite)) {
+      return null
+    }
+    return {
+      feature,
+      cameraOcularOffsets: [...right.camera, ...left.camera],
+      featureVersion: "ir-camera-axes-v2",
+      pose: geometry.pose,
+      basePoint: [
+        (right.camera[0] + left.camera[0]) / 2 + 0.5,
+        (right.camera[1] + left.camera[1]) / 2 + 0.5,
+      ],
+    }
+  }
   const gx = (offsets[0] + offsets[2]) / 2
   const gy = (offsets[1] + offsets[3]) / 2
   const perspective = buildFacePerspectiveFeatures({
@@ -169,5 +203,10 @@ export function buildIrFaceFeatures(
   if (!feature.every(Number.isFinite)) {
     return null
   }
-  return { feature, pose: geometry.pose, basePoint: [gx + 0.5, gy + 0.5] }
+  return {
+    feature,
+    pose: geometry.pose,
+    basePoint: [gx + 0.5, gy + 0.5],
+    cameraOcularOffsets: [...right.camera, ...left.camera],
+  }
 }

@@ -3,17 +3,34 @@ import { createLandmarker } from "./face-landmarker"
 import type {
   Point,
   RemoteObservation,
+  RemoteProcessingTiming,
   RemoteProcessor,
 } from "./remote-eye-tracking.types"
 import {
   buildRgbFeatures,
-  extractRgbEyePatch,
   inspectRgbFace,
-  modelPredictionToScreen,
   prepareBlazeGazeGeometry,
   type RgbPixels,
 } from "./rgb-features"
-import type { RgbPhysicalModel } from "./rgb-processor.types"
+import { selectRgbBackend } from "./rgb-backend"
+import { releaseUnusedRgbBackends } from "./rgb-backend-resources"
+import type { RgbAppearanceReadout } from "./rgb-appearance.types"
+import type { RgbBackend } from "./rgb-backend.types"
+import { createRgbEyePatchPlan, sampleRgbEyePatch } from "./rgb-eye-patch"
+import { reusableRgbGeometry } from "./rgb-geometry-history"
+import type { RgbGeometryHistory } from "./rgb-geometry-history.types"
+import { RGB_BASE_MODEL_VERSION } from "./rgb-model-version"
+import { refineRgbIrisOffsets } from "./rgb-iris-features"
+import { buildTrackingVectors } from "./tracking-vectors"
+import {
+  createRgbAppearanceReadout,
+  runRgbAppearanceReadout,
+  RGB_EMBEDDING_VERSION,
+} from "./rgb-appearance"
+export {
+  createRgbAppearanceReadout,
+  runRgbAppearanceReadout,
+} from "./rgb-appearance"
 export const RGB_METHODS = {
   mobile: "Local BlazeGaze + iris + handheld head pose",
   webcam: "Local BlazeGaze + iris + desktop head pose",
@@ -43,71 +60,75 @@ export async function loadRgbAppearanceModel(
 }
 /** All tensors, including unwanted prediction outputs, are scoped/disposed per frame. */
 export async function runRgbAppearanceModel(
-  model: tf.LayersModel,
+  model: tf.LayersModel | RgbAppearanceReadout,
   patch: RgbPixels,
   headVector: [number, number, number],
   faceOrigin: [number, number, number]
 ): Promise<Point | null> {
-  if (
-    patch.width !== 512 ||
-    patch.height !== 128 ||
-    patch.data.length !== 512 * 128 * 4 ||
-    ![...headVector, ...faceOrigin].every(Number.isFinite)
-  ) {
-    throw new Error("Invalid RGB appearance input")
-  }
-  const output = tf.tidy(() => {
-    const pixels = {
-      ...patch,
-      data: new Uint8Array(
-        patch.data.buffer,
-        patch.data.byteOffset,
-        patch.data.byteLength
-      ),
-    }
-    const image = tf.browser
-      .fromPixels(pixels, 3)
-      .toFloat()
-      .div(255)
-      .expandDims(0)
-    const head = tf.tensor2d(headVector, [1, 3])
-    const origin = tf.tensor2d(faceOrigin, [1, 3])
-    const prediction = model.predict([image, head, origin])
-    return Array.isArray(prediction) ? prediction[0] : prediction
-  })
+  const result = await runRgbAppearanceReadout(
+    model,
+    patch,
+    headVector,
+    faceOrigin
+  )
+  return result.point
+}
+
+async function activateTensorBackend(backend: RgbBackend): Promise<boolean> {
   try {
-    return modelPredictionToScreen(await output.data())
-  } finally {
-    output.dispose()
+    if (!(await tf.setBackend(backend))) {
+      return false
+    }
+    await tf.ready()
+    if (backend === "webgl") {
+      // Avoid changing calibration features on GPUs limited to half precision.
+      return (
+        tf.env().getBool("WEBGL_RENDER_FLOAT32_CAPABLE") &&
+        tf.env().getBool("WEBGL_RENDER_FLOAT32_ENABLED")
+      )
+    }
+    return true
+  } catch {
+    return false
   }
 }
 async function initializeTensorBackend(
   mode: "mobile" | "webcam"
-): Promise<string> {
+): Promise<RgbBackend> {
   const { setWasmPaths } = await import("@tensorflow/tfjs-backend-wasm")
   setWasmPaths(`${ASSETS}/tfjs-wasm/`)
   // Workers without cross-origin isolation cannot use SharedArrayBuffer. Single-thread SIMD
   // keeps the local WASM fallback available without adding deployment-header requirements.
   tf.env().set("WASM_HAS_MULTITHREAD_SUPPORT", false)
-  const candidates =
+  const candidates: RgbBackend[] =
     mode === "mobile" ? ["wasm", "webgl", "cpu"] : ["webgl", "wasm", "cpu"]
   for (const backend of candidates) {
-    try {
-      if (await tf.setBackend(backend)) {
-        await tf.ready()
-        return backend
-      }
-    } catch {
-      // GPU availability and WASM support vary in browser workers, especially Safari.
+    if (await activateTensorBackend(backend)) {
+      return backend
     }
   }
   throw new Error("No local TensorFlow inference backend is available")
+}
+function createBenchmarkEyePatch(sample: number): RgbPixels {
+  const width = 512
+  const height = 128
+  const data = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = (y * width + x) * 4
+      data[index] = (x + sample * 61) % 256
+      data[index + 1] = (y * 2 + sample * 37) % 256
+      data[index + 2] = (x + y + sample * 23) % 256
+      data[index + 3] = 255
+    }
+  }
+  return { width, height, data }
 }
 /** Lazy, entirely same-origin inference. The caller owns and closes each transferred bitmap. */
 export async function createRgbProcessor(
   mode: "mobile" | "webcam"
 ): Promise<RemoteProcessor> {
-  const backend = await initializeTensorBackend(mode)
+  const preferredBackend = await initializeTensorBackend(mode)
   const {
     landmarker,
     canvas: visionCanvas,
@@ -117,6 +138,31 @@ export async function createRgbProcessor(
   try {
     model = await loadRgbAppearanceModel(`${ASSETS}/blazegaze/model.json`)
   } catch (error) {
+    landmarker.close()
+    visionCanvas.width = visionCanvas.height = 0
+    throw error
+  }
+  let readout: RgbAppearanceReadout | null = null
+  let backend: RgbBackend
+  try {
+    readout = createRgbAppearanceReadout(model)
+    const patches = [createBenchmarkEyePatch(0), createBenchmarkEyePatch(1)]
+    backend = await selectRgbBackend(preferredBackend, {
+      activate: activateTensorBackend,
+      predict: (sample) =>
+        runRgbAppearanceModel(
+          readout!,
+          patches[sample]!,
+          [0, 0, -1],
+          [0, 0, 60]
+        ),
+      now: () => performance.now(),
+    })
+    // Restore warmed weights to the chosen backend before the first camera frame.
+    await runRgbAppearanceModel(readout, patches[0]!, [0, 0, -1], [0, 0, 60])
+    releaseUnusedRgbBackends(model)
+  } catch (error) {
+    model.dispose()
     landmarker.close()
     visionCanvas.width = visionCanvas.height = 0
     throw error
@@ -134,7 +180,7 @@ export async function createRgbProcessor(
   let disposed = false
   let busy = false
   let lastTimestamp = -Infinity
-  let previous: RgbPhysicalModel | undefined
+  let physicalHistory: RgbGeometryHistory | null = null
   let previousSize = ""
   const method = `${RGB_METHODS[mode]} (${delegate}/${backend})`
   return {
@@ -145,6 +191,7 @@ export async function createRgbProcessor(
       const start = performance.now()
       const width = frame.width
       const height = frame.height
+      const timing: RemoteProcessingTiming = {}
       const empty = (reason: string): RemoteObservation => ({
         timestamp,
         width,
@@ -158,6 +205,7 @@ export async function createRgbProcessor(
         basePoint: null,
         method,
         processingMs: performance.now() - start,
+        timing,
       })
       if (disposed) {
         return empty("processor-disposed")
@@ -182,41 +230,87 @@ export async function createRgbProcessor(
         if (size !== previousSize) {
           canvas.width = width
           canvas.height = height
-          previous = undefined
+          physicalHistory = null
           previousSize = size
         }
+        const landmarksStart = performance.now()
         const result = landmarker.detectForVideo(frame, timestamp)
         const geometry = inspectRgbFace(result, width, height)
+        timing.landmarksMs = performance.now() - landmarksStart
+        const previous = reusableRgbGeometry(physicalHistory, {
+          timestamp,
+          width,
+          height,
+          reason: geometry.valid ? null : geometry.reason,
+        })
+        if (!previous) {
+          physicalHistory = null
+        }
         if (!geometry.valid) {
-          previous = undefined
           return empty(geometry.reason)
         }
-        context.drawImage(frame, 0, 0)
-        const pixels = context.getImageData(0, 0, width, height)
-        const patch = extractRgbEyePatch(pixels, geometry.landmarks)
+        const patchPlanStart = performance.now()
+        const plan = createRgbEyePatchPlan(width, height, geometry.landmarks)
+        const rect = plan.sourceRect
+        const readbackStart = performance.now()
+        let pixels: ImageData | null = null
+        if (rect) {
+          context.drawImage(
+            frame,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height
+          )
+          pixels = context.getImageData(rect.x, rect.y, rect.width, rect.height)
+        }
+        timing.readbackMs = performance.now() - readbackStart
+        timing.readbackPixels = rect ? rect.width * rect.height : 0
+        const patchStart = performance.now()
+        const origin: Point = rect ? [rect.x, rect.y] : [0, 0]
+        const patch = sampleRgbEyePatch(pixels, plan, origin)
+        timing.eyePatchMs =
+          performance.now() - patchStart + (readbackStart - patchPlanStart)
+        const irisStart = performance.now()
+        const irisRefinement = refineRgbIrisOffsets(pixels, origin, geometry)
+        timing.irisRefinementMs = performance.now() - irisStart
+        const geometryStart = performance.now()
         const input = prepareBlazeGazeGeometry(
           geometry,
           width,
           height,
           previous
         )
-        const basePoint = await runRgbAppearanceModel(
-          model,
+        timing.geometryMs = performance.now() - geometryStart
+        const appearanceStart = performance.now()
+        const appearance = await runRgbAppearanceReadout(
+          readout!,
           patch,
           input.headVector,
           input.faceOrigin
         )
+        timing.appearanceMs = performance.now() - appearanceStart
+        const basePoint = appearance.point
         const feature = buildRgbFeatures(mode, geometry, basePoint)
         if (disposed) {
           return empty("processor-disposed")
         }
         if (!feature) {
-          previous = undefined
+          physicalHistory = null
           return empty("invalid-appearance-prediction")
         }
-        previous = {
-          faceWidthCm: input.faceWidthCm,
-          depth: input.faceOrigin[2],
+        physicalHistory = {
+          model: {
+            faceWidthCm: input.faceWidthCm,
+            depth: input.faceOrigin[2],
+          },
+          width,
+          height,
+          timestamp,
         }
         return {
           timestamp,
@@ -229,11 +323,17 @@ export async function createRgbProcessor(
           faceBox: geometry.faceBox,
           pose: geometry.pose,
           basePoint,
+          baseModelVersion: RGB_BASE_MODEL_VERSION,
+          appearanceEmbedding: appearance.embedding ?? undefined,
+          appearanceVersion: RGB_EMBEDDING_VERSION,
+          irisRefinement,
+          vectors: buildTrackingVectors(geometry),
           method,
           processingMs: performance.now() - start,
+          timing,
         }
       } catch (error) {
-        previous = undefined
+        physicalHistory = null
         return empty(
           `RGB inference failed: ${error instanceof Error ? error.message : String(error)}`
         )
@@ -246,7 +346,7 @@ export async function createRgbProcessor(
         return
       }
       disposed = true
-      previous = undefined
+      physicalHistory = null
       model.dispose()
       landmarker.close()
       canvas.width = canvas.height = 0

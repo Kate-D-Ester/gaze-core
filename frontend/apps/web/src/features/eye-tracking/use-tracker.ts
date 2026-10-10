@@ -138,44 +138,52 @@ export function useTracker(): TrackerController {
     return () =>
       mediaDevices.removeEventListener("devicechange", handleDeviceChange)
   }, [refreshDevices])
-  const stop = useCallback(() => {
-    const c = control.current
-    c.generation++
-    c.sourceEpoch++
-    // The worker still owns any submitted frame. Its stale response releases
-    // that request before a restarted source can submit the next frame.
-    c.stream?.getTracks().forEach((track) => track.stop())
-    c.stream = null
-    c.network?.stop()
-    c.network = null
-    c.networkFrame = null
-    c.lastNetworkSequence = -1
-    setConnection("idle")
-    setReconnectAttempt(0)
-    if (c.video) {
-      c.video.pause()
-      c.video.srcObject = null
-      c.video.removeAttribute("src")
-      c.video.load()
-      c.video = null
-    }
-    if (c.url) {
-      URL.revokeObjectURL(c.url)
-    }
-    c.url = ""
-    c.source = null
-    c.lastVideoTime = -1
-    c.sampleTarget = null
-    c.settings = { ...c.settings, locked: false }
-    setSettings(c.settings)
-    if (sourceCanvas.current) {
-      const canvas = sourceCanvas.current
-      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height)
-    }
-    setSource(null)
-    setBusy(false)
-    clearFrame()
-  }, [clearFrame])
+  const stopSource = useCallback(
+    (preserveModel = false) => {
+      const c = control.current
+      if (!preserveModel) {
+        c.generation++
+      }
+      c.sourceEpoch++
+      // The worker still owns any submitted frame. Its stale response releases
+      // that request before a restarted source can submit the next frame.
+      c.stream?.getTracks().forEach((track) => track.stop())
+      c.stream = null
+      c.network?.stop()
+      c.network = null
+      c.networkFrame = null
+      c.lastNetworkSequence = -1
+      setConnection("idle")
+      setReconnectAttempt(0)
+      if (c.video) {
+        c.video.pause()
+        c.video.srcObject = null
+        c.video.removeAttribute("src")
+        c.video.load()
+        c.video = null
+      }
+      if (c.url) {
+        URL.revokeObjectURL(c.url)
+      }
+      c.url = ""
+      c.source = null
+      c.lastVideoTime = -1
+      c.sampleTarget = null
+      if (!preserveModel) {
+        c.settings = { ...c.settings, locked: false }
+      }
+      setSettings(c.settings)
+      if (sourceCanvas.current) {
+        const canvas = sourceCanvas.current
+        canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height)
+      }
+      setSource(null)
+      setBusy(false)
+      clearFrame()
+    },
+    [clearFrame]
+  )
+  const stop = useCallback(() => stopSource(), [stopSource])
   const configure = useCallback(
     (next: Partial<FrameSettings>, invalidate = true) => {
       const c = control.current
@@ -230,14 +238,14 @@ export function useTracker(): TrackerController {
     (
       next: TrackerSource,
       video: HTMLVideoElement | null,
-      frameSize?: FrameDimensions
+      frameSize?: FrameDimensions,
+      previousSource: TrackerSource | null = null
     ) => {
       const c = control.current
       const inputWidth =
         video?.videoWidth ?? frameSize?.width ?? DEFAULT_DIMENSIONS.width
       const inputHeight =
         video?.videoHeight ?? frameSize?.height ?? DEFAULT_DIMENSIONS.height
-      c.inputDimensions = { width: inputWidth, height: inputHeight }
       const rotated = cameraFrameGeometry(inputWidth, inputHeight, c.transform)
       const scale = Math.min(
         DEFAULT_DIMENSIONS.width / rotated.width,
@@ -246,13 +254,31 @@ export function useTracker(): TrackerController {
       )
       const width = Math.max(2, Math.round(rotated.width * scale))
       const height = Math.max(2, Math.round(rotated.height * scale))
-      c.settings = resizeTrackerSettings(
-        {
-          frameDimensions: dimensionsRef.current,
-          settings: c.settings,
-        },
-        { width, height }
-      )
+      const sameSource =
+        previousSource?.kind === next.kind &&
+        (next.kind === "camera"
+          ? previousSource.deviceId === next.deviceId
+          : previousSource.url === next.url)
+      const preserveModel =
+        c.settings.locked &&
+        sameSource &&
+        inputWidth === c.inputDimensions.width &&
+        inputHeight === c.inputDimensions.height &&
+        width === dimensionsRef.current.width &&
+        height === dimensionsRef.current.height
+      c.inputDimensions = { width: inputWidth, height: inputHeight }
+      if (!preserveModel) {
+        if (c.settings.locked) {
+          c.generation++
+        }
+        c.settings = resizeTrackerSettings(
+          {
+            frameDimensions: dimensionsRef.current,
+            settings: c.settings,
+          },
+          { width, height }
+        )
+      }
       c.video = video
       c.source = next
       const canvas = sourceCanvas.current ?? document.createElement("canvas")
@@ -270,7 +296,11 @@ export function useTracker(): TrackerController {
   )
   const startCamera = useCallback(
     async (deviceId: string, excludedDeviceId?: string) => {
-      stop()
+      const previousSource = control.current.source
+      const reconnecting =
+        previousSource?.kind === "camera" &&
+        (!deviceId || previousSource.deviceId === deviceId)
+      stopSource(reconnecting && control.current.settings.locked)
       setBusy(true)
       setError("")
       const c = control.current
@@ -318,7 +348,9 @@ export function useTracker(): TrackerController {
             deviceId:
               stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId,
           },
-          video
+          video,
+          undefined,
+          reconnecting ? previousSource : null
         )
         stream.getVideoTracks()[0]?.addEventListener(
           "ended",
@@ -338,15 +370,18 @@ export function useTracker(): TrackerController {
         }
       }
     },
-    [stop, activate, refreshDevices]
+    [stop, stopSource, activate, refreshDevices]
   )
   const startNetworkStream = useCallback(
     async (input: string) => {
-      stop()
+      const url = input.trim()
+      const previousSource = control.current.source
+      const reconnecting =
+        previousSource?.kind === "network" && previousSource.url === url
+      stopSource(reconnecting && control.current.settings.locked)
       setError("")
       const c = control.current
       const epoch = c.sourceEpoch
-      const url = input.trim()
       const next: TrackerSource = { kind: "network", name: url, url }
       const network = new NetworkCamera({
         onStatus: (state, attempt) => {
@@ -387,7 +422,8 @@ export function useTracker(): TrackerController {
                 key: url + ":" + epoch + ":" + frame.width + "x" + frame.height,
               },
               null,
-              { width: frame.width, height: frame.height }
+              { width: frame.width, height: frame.height },
+              reconnecting ? previousSource : null
             )
           }
         },
@@ -395,7 +431,7 @@ export function useTracker(): TrackerController {
       c.network = network
       await network.start(url)
     },
-    [stop, activate, clearFrame]
+    [stopSource, activate, clearFrame]
   )
   const setTransform = useCallback(
     (value: CameraTransform) => {

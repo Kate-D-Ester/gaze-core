@@ -19,6 +19,7 @@ const { act, createElement, useSyncExternalStore } =
 const { createRoot } =
   await import("../../apps/web/node_modules/react-dom/client")
 const setup: SceneProfileSetup = {
+  fingerprint: "eye-device:model-one:scene-device:640x480",
   trackerFormat: "classic",
   orientation: {
     eye: DEFAULT_CAMERA_TRANSFORM,
@@ -379,4 +380,33 @@ test("Save supports a previous controller without clearError through create, can
   expect(saved).toHaveLength(1)
   expect(saved[0].id).toBe(original.id)
   expect(saved[0].offset).toEqual([0.04, -0.03])
+})
+
+test("legacy and mismatched camera profiles require explicit unverified loading", async () => {
+  const previous = calibrate().s.getSnapshot()
+  const legacy = saveSceneProfile(
+    "Legacy",
+    { ...previous, calibration: previous.calibration! },
+    { ...setup, fingerprint: undefined }
+  )
+  const mismatch = saveSceneProfile(
+    "Other camera",
+    { ...previous, calibration: previous.calibration! },
+    { ...setup, fingerprint: "different-camera-model" }
+  )
+  const session = new SceneSession()
+  await render(session)
+  expect(session.getSnapshot().calibration).toBeNull()
+  expect(openedLive).toBe(0)
+  const select = host.querySelector<HTMLSelectElement>("select")!
+  for (const profile of [legacy, mismatch]) {
+    await act(async () => {
+      select.value = profile.id
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(session.getSnapshot().calibration).not.toBeNull()
+    expect(session.getSnapshot().reusedCalibration).toBe(false)
+    expect(session.getSnapshot().validation).toBeNull()
+    expect(host.textContent).toContain("accuracy not verified")
+  }
 })

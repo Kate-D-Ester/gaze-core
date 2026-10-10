@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   fitRemoteCalibration,
   predictRemoteGaze,
+  poseSupported,
 } from "../../apps/web/src/features/remote-eye-tracking/calibration"
 import { buildIrFaceFeatures } from "../../apps/web/src/features/remote-eye-tracking/ir-face-features"
 import type {
@@ -129,10 +130,14 @@ for (const mode of ["webcam", "mobile", "ir"] as const) {
       }
     })
 
-    test("does not extrapolate beyond the calibrated distance range", () => {
+    test("preserves finite gaze beyond the calibrated distance range with unsupported confidence", () => {
       const fitted = fitRemoteCalibration(mode, samples(mode))!
       const distant = observation(mode, [0.25, 0.75], 3)
-      expect(predictRemoteGaze(fitted, distant)).toBeNull()
+      expect(poseSupported(fitted, distant.pose)).toBe(false)
+      const predicted = predictRemoteGaze(fitted, distant)!
+      expect(predicted.every(Number.isFinite)).toBe(true)
+      expect(predicted[0]).toBeCloseTo(0.25, 2)
+      expect(predicted[1]).toBeCloseTo(0.75, 2)
     })
   })
 }

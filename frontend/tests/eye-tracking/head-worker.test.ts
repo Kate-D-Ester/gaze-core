@@ -11,11 +11,14 @@ import type {
   HeadWorkerRequest,
   HeadWorkerResponse,
 } from "../../apps/web/src/features/eye-tracking/head-tracking/head.worker.types"
+import type { FaceLandmarkerOptions } from "@mediapipe/tasks-vision"
 
 const responses: HeadWorkerResponse[] = []
 const inferenceTimestamps: number[] = []
 let lastPacketTimestamp = -1
 let hasFace = true
+let configuredFaceCount = 0
+let configuredRunningMode = ""
 const workerScope = {
   location: { origin: "http://localhost:4001" },
   onmessage: async (_event: MessageEvent<HeadWorkerRequest>) => {},
@@ -34,7 +37,12 @@ mock.module("@mediapipe/tasks-vision", () => ({
     forVisionTasks: async () => ({ wasmLoaderPath: "test-loader" }),
   },
   FaceLandmarker: {
-    createFromOptions: async () => {
+    createFromOptions: async (
+      _fileset: unknown,
+      options: FaceLandmarkerOptions
+    ) => {
+      configuredFaceCount = options.numFaces ?? 0
+      configuredRunningMode = options.runningMode ?? ""
       lastPacketTimestamp = -1
       return {
         detectForVideo(_image: OffscreenCanvas, timestamp: number) {
@@ -125,6 +133,11 @@ afterAll(() => {
   if (originalCanvas)
     Object.defineProperty(globalThis, "OffscreenCanvas", originalCanvas)
   else Reflect.deleteProperty(globalThis, "OffscreenCanvas")
+})
+
+test("head tracking enables single-face smoothing with video timestamps", () => {
+  expect(configuredFaceCount).toBe(1)
+  expect(configuredRunningMode).toBe("VIDEO")
 })
 
 test("repeated camera capture times cannot crash the head-tracking graph", async () => {

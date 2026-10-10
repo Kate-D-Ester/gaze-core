@@ -40,7 +40,18 @@ export function SourceControls({
     ConnectionIcon = LoaderCircle
   }
   function startPreview() {
-    resetSource()
+    const source = tracker.source
+    const sameUsbCamera =
+      kind === "usb" &&
+      source?.kind === "camera" &&
+      (!deviceId || source.deviceId === deviceId)
+    const sameNetworkCamera =
+      kind === "network" &&
+      source?.kind === "network" &&
+      source.url === streamUrl.trim()
+    if (!sameUsbCamera && !sameNetworkCamera) {
+      resetSource()
+    }
     if (kind === "usb") {
       void tracker.startCamera(deviceId, excludedDeviceId)
     } else {

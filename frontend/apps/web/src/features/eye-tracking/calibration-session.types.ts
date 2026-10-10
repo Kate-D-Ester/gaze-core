@@ -14,12 +14,15 @@ export type CalibrationObservation = {
 }
 export type CalibrationSessionOptions = {
   screenAspectRatio?: number
+  targets?: Point[]
+  comfortableHold?: boolean
   headEnabled: boolean
   orientation?: GazeOrientation
   validation?: Calibration | null
   seedSamples?: CalibrationSample[]
 }
 export type CalibrationSessionSnapshot = {
+  retryable?: boolean
   phase: "intro" | "fixation" | "burst" | "complete" | "error"
   target: Point
   progress: number

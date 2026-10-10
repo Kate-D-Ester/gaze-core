@@ -11,3 +11,6 @@ apps/web/dist
 
 **/.next
 **/*.tsbuildinfo
+
+# Offline experiments are not part of the deployed application.
+research/

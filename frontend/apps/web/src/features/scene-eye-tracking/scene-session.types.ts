@@ -10,7 +10,15 @@ import type {
   ValidationResult,
 } from "./scene.types"
 
+export type FailedSceneCandidate = {
+  calibration: SceneCalibration
+  validation: ValidationResult | null
+  offset: Point
+  collection: CollectionResult
+}
+
 export type SceneSessionSnapshot = {
+  failedCandidate?: FailedSceneCandidate | null
   method: CalibrationMethod
   calibration: SceneCalibration | null
   validation: ValidationResult | null

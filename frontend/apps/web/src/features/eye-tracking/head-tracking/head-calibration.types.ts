@@ -10,6 +10,8 @@ export type HeadCompensation = HeadGazeModel & {
   orientation: GazeOrientation
   coefficients: AffineCoefficients
   validationError: number
+  /** Joint observed poses; an axis box alone cannot establish coupled-motion support. */
+  poseSamples?: number[][]
   envelope: HeadPoseEnvelope
   maximumValidationError: number
 }

@@ -1,3 +1,5 @@
+import { alignGazePoint } from "../tracking-calibration/session-alignment"
+import type { SessionAlignment } from "../tracking-calibration/session-alignment.types"
 import {
   applyAffineMapping,
   fitAffineMapping,
@@ -21,24 +23,19 @@ import {
   mapHeadCompensatedGaze,
 } from "./head-tracking/head-calibration"
 import type { HeadPose } from "./head-tracking/head-pose.types"
-export const CALIBRATION_TARGETS: Point[] = [
-  [0.5, 0.5],
-  [0.1, 0.1],
-  [0.9, 0.1],
-  [0.9, 0.9],
-  [0.1, 0.9],
-  [0.5, 0.1],
-  [0.9, 0.5],
-  [0.5, 0.9],
-  [0.1, 0.5],
-]
-export const VALIDATION_TARGETS: Point[] = [
-  [0.3, 0.3],
-  [0.7, 0.3],
-  [0.7, 0.7],
-  [0.3, 0.7],
-  [0.5, 0.6],
-]
+import { evaluateValidation } from "../tracking-calibration/validation-metrics"
+import type {
+  ValidationMetrics,
+  ValidationReading,
+  ValidationViewport,
+} from "../tracking-calibration/validation-metrics.types"
+import { applyGazeOffset } from "./gaze-offset"
+import {
+  SCREEN_CALIBRATION_TARGETS,
+  SCREEN_ACCURACY_TARGETS,
+} from "../tracking-calibration/screen-calibration"
+export const CALIBRATION_TARGETS = SCREEN_CALIBRATION_TARGETS
+export const VALIDATION_TARGETS = SCREEN_ACCURACY_TARGETS
 export function gazeFeature(direction: Vector3): Point | null {
   return finite(direction) && direction[2] < -0.1
     ? [direction[0] / -direction[2], direction[1] / -direction[2]]
@@ -161,4 +158,71 @@ export function mapCalibrationSample(
     mean[1] += point[1] / sample.headMeasurements.length
   }
   return mean
+}
+
+export function screenValidationReadings(
+  calibration: Calibration,
+  samples: CalibrationSample[],
+  offset: Point = [0, 0],
+  alignment: SessionAlignment | null = null
+): ValidationReading[] {
+  const readings: ValidationReading[] = []
+  let fallbackTimestamp = 0
+  for (const [targetId, sample] of samples.entries()) {
+    if (sample.measurements?.length) {
+      for (const measurement of sample.measurements) {
+        readings.push({
+          timestamp: measurement.timestamp,
+          targetId,
+          target: sample.target,
+          point: applyGazeOffset(
+            alignGazePoint(
+              mapGaze(calibration, measurement.feature, measurement.headPose),
+              alignment
+            ),
+            offset
+          ),
+        })
+      }
+    } else if (sample.headMeasurements?.length) {
+      for (const measurement of sample.headMeasurements) {
+        readings.push({
+          timestamp: measurement.pose.timestamp,
+          targetId,
+          target: sample.target,
+          point: applyGazeOffset(
+            alignGazePoint(
+              mapGaze(calibration, measurement.feature, measurement.pose),
+              alignment
+            ),
+            offset
+          ),
+        })
+      }
+    } else {
+      readings.push({
+        timestamp: fallbackTimestamp++,
+        targetId,
+        target: sample.target,
+        point: applyGazeOffset(
+          alignGazePoint(mapCalibrationSample(calibration, sample), alignment),
+          offset
+        ),
+      })
+    }
+  }
+  return readings
+}
+
+export function evaluateScreenValidation(
+  calibration: Calibration,
+  samples: CalibrationSample[],
+  viewport: ValidationViewport,
+  offset: Point = [0, 0],
+  alignment: SessionAlignment | null = null
+): ValidationMetrics {
+  return evaluateValidation(
+    screenValidationReadings(calibration, samples, offset, alignment),
+    viewport
+  )
 }

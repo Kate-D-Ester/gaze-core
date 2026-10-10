@@ -18,6 +18,25 @@ import type {
   HandObservation,
 } from "../../apps/web/src/features/scene-eye-tracking/scene.types"
 
+// Earlier fixtures edit hold summaries to describe their synthetic fixation.
+// Keep their raw evidence consistent with that synthetic observation.
+function validateSummarizedFixture(
+  ...args: Parameters<typeof validateSceneCalibration>
+) {
+  const [calibration, samples, offset] = args
+  return validateSceneCalibration(
+    calibration,
+    samples.map((hold) => ({
+      ...hold,
+      pairs: hold.pairs.map((pair) => ({
+        ...pair,
+        feature: hold.feature,
+        target: hold.target,
+      })),
+    })),
+    offset
+  )
+}
 function hand(time = 1000, count = 1): HandObservation {
   return {
     scene: { id: 1, timestamp: time, width: 640, height: 480, generation: 1 },
@@ -119,6 +138,7 @@ test("a grossly inconsistent calibration location is rejected instead of accepti
   const samples = holds()
   samples[0].target[0] += 0.18
   expect(fitSceneCalibration(samples)).toBeNull()
+  expect(inspectSceneCalibration(samples).previewCalibration).toBeDefined()
 })
 test("bounded collection noise proceeds to independent checks instead of blaming a single point", () => {
   const offsets = [0, 1, -1, 1, -1, 1, -1, 1, -1]
@@ -142,18 +162,20 @@ test("bounded collection noise proceeds to independent checks instead of blaming
     target: [x, y] as [number, number],
     pairs: [pair(100 + index, 2000, x, y)],
   }))
-  expect(validateSceneCalibration(calibration, checks)?.passed).toBe(true)
+  expect(validateSummarizedFixture(calibration, checks)?.passed).toBe(true)
   const shiftedChecks = checks.map((hold) => ({
     ...hold,
     feature: [hold.feature[0] + 0.08, hold.feature[1]] as [number, number],
   }))
-  expect(validateSceneCalibration(calibration, shiftedChecks)?.passed).toBe(false)
+  expect(validateSummarizedFixture(calibration, shiftedChecks)?.passed).toBe(
+    false
+  )
 })
 test("validation cannot hide one inaccurate location inside a good average", () => {
   const calibration = fitSceneCalibration(holds())!
   const fresh = holds().slice(0, 5)
   fresh[0].target[0] += 0.055
-  expect(validateSceneCalibration(calibration, fresh)?.passed).toBe(false)
+  expect(validateSummarizedFixture(calibration, fresh)?.passed).toBe(false)
 })
 test("failed validation diagnoses a constant shift without treating its fitted correction as an independent pass", () => {
   const calibration = fitSceneCalibration(holds())!
@@ -163,7 +185,7 @@ test("failed validation diagnoses a constant shift without treating its fitted c
       ...h,
       feature: [h.feature[0] + 0.06, h.feature[1] - 0.04] as [number, number],
     }))
-  const result = validateSceneCalibration(calibration, fresh)!
+  const result = validateSummarizedFixture(calibration, fresh)!
   expect(result.passed).toBe(false)
   expect(result.points).toHaveLength(5)
   expect(result.points[0].pixelDelta[0]).toBeCloseTo(38.4)
@@ -171,7 +193,7 @@ test("failed validation diagnoses a constant shift without treating its fitted c
   expect(result.suggestedOffset?.[0]).toBeCloseTo(-0.06)
   expect(result.suggestedOffset?.[1]).toBeCloseTo(0.04)
   expect(result.retryIndex).toBeNull()
-  const corrected = validateSceneCalibration(
+  const corrected = validateSummarizedFixture(
     calibration,
     fresh,
     result.suggestedOffset!
@@ -190,7 +212,7 @@ test("direction-dependent validation error cannot be disguised as a constant off
         number,
       ],
     }))
-  const result = validateSceneCalibration(calibration, fresh)!
+  const result = validateSummarizedFixture(calibration, fresh)!
   expect(result.passed).toBe(false)
   expect(result.suggestedOffset).toBeNull()
   expect(result.retryIndex).toBeNull()
@@ -199,7 +221,7 @@ test("validation identifies one failed location while retaining per-point eviden
   const calibration = fitSceneCalibration(holds())!
   const fresh = holds().slice(0, 5)
   fresh[2].feature[0] += 0.14
-  const result = validateSceneCalibration(calibration, fresh)!
+  const result = validateSummarizedFixture(calibration, fresh)!
   expect(result.passed).toBe(false)
   expect(result.retryIndex).toBe(2)
   expect(result.suggestedOffset).toBeNull()
@@ -392,8 +414,8 @@ test("exact perspective camera mappings fit and generalize to fresh validation p
     ] as [number, number],
     pairs: [pair(index + 1, 1000, x, y)],
   }))
-  expect(validateSceneCalibration(fit!, fresh)?.passed).toBe(true)
-  expect(validateSceneCalibration(fit!, fresh)?.normalizedRms).toBeLessThan(
+  expect(validateSummarizedFixture(fit!, fresh)?.passed).toBe(true)
+  expect(validateSummarizedFixture(fit!, fresh)?.normalizedRms).toBeLessThan(
     1e-8
   )
 })
@@ -438,12 +460,12 @@ test("independent validation reports normalized and pixel RMS and failure", () =
       ...h,
       target: [h.target[0] + 0.02, h.target[1]] as [number, number],
     }))
-  const result = validateSceneCalibration(fit, fresh)!
+  const result = validateSummarizedFixture(fit, fresh)!
   expect(result.normalizedRms).toBeCloseTo(0.02, 7)
   expect(result.pixelRms).toBeCloseTo(12.8, 7)
   expect(result.passed).toBe(true)
   expect(
-    validateSceneCalibration(
+    validateSummarizedFixture(
       fit,
       fresh.map((h) => ({ ...h, target: [h.target[0] + 0.2, h.target[1]] }))
     )!.passed
@@ -491,7 +513,7 @@ test("stable distorted perspective holds reach fresh checks despite corner extra
     expect(fit.maxTrainingError).toBeLessThan(0.05)
     expect(fit.crossValidationRms).toBeGreaterThan(0.025)
     expect(fit.maxValidationError).toBeGreaterThan(0.05)
-    const validation = validateSceneCalibration(
+    const validation = validateSummarizedFixture(
       fit,
       distortedHolds(VALIDATION_TARGETS, 100)
     )!
@@ -512,7 +534,7 @@ test("training consistency does not bypass a gaze shift in fresh checks", () => 
     feature: [x - 0.5 + 0.08, y - 0.5] as [number, number],
     pairs: [pair(100 + index, 2000, x, y)],
   }))
-  expect(validateSceneCalibration(calibration!, fresh)?.passed).toBe(false)
+  expect(validateSummarizedFixture(calibration!, fresh)?.passed).toBe(false)
 })
 
 test("a marker reference pairs with fresh eyes without fabricating a hand", () => {
@@ -611,4 +633,51 @@ test("automatic reference capture still requires real stable paired evidence", (
   for (let id = 6; id <= 31; id++) collectPair(c, pair(id, id * 50))
   expect(c.holds).toHaveLength(1)
   expect(c.holds[0].pairs).toHaveLength(20)
+})
+
+test("validation scores raw jitter even when hold summaries are exact", () => {
+  const calibration = fitSceneCalibration(holds())!
+  const fresh = holds()
+    .slice(0, 5)
+    .map((hold) => ({
+      ...hold,
+      pairs: Array.from({ length: 20 }, (_, i) => ({
+        ...hold.pairs[0],
+        feature: [
+          hold.feature[0] + (i % 2 ? 0.09 : -0.09),
+          hold.feature[1],
+        ] as [number, number],
+      })),
+    }))
+  const result = validateSceneCalibration(calibration, fresh)!
+  expect(result.passed).toBe(false)
+  expect(result.normalizedRms).toBeCloseTo(0.09)
+  expect(result.pixelRms).toBeCloseTo(57.6)
+  expect(result.suggestedOffset).toBeNull()
+})
+
+test("validation balances targets and uses each raw pair's target and image dimensions", () => {
+  const calibration = fitSceneCalibration(holds())!
+  const fresh = holds()
+    .slice(0, 5)
+    .map((hold, index) => ({
+      ...hold,
+      pairs: Array.from({ length: index === 0 ? 2 : 20 }, () => ({
+        ...hold.pairs[0],
+        target: [hold.target[0] + (index === 0 ? 0.08 : 0), hold.target[1]] as [
+          number,
+          number,
+        ],
+        width: 800,
+      })),
+    }))
+  const result = validateSceneCalibration(calibration, fresh)!
+  expect(result.normalizedRms).toBeCloseTo(Math.sqrt(0.08 ** 2 / 5))
+  expect(result.pixelRms).toBeCloseTo(Math.sqrt(64 ** 2 / 5))
+  expect(result.maxNormalizedError).toBeCloseTo(0.08)
+  expect(result.maxPixelError).toBeCloseTo(64)
+  expect(result.pairs).toBe(82)
+  expect(result.passed).toBe(false)
+  fresh[1].pairs[0].width = NaN
+  expect(validateSceneCalibration(calibration, fresh)).toBeNull()
 })

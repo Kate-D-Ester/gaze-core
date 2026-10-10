@@ -33,7 +33,7 @@ export const RemoteHeaderToolsStyles = `
 export const RemoteStepsStyles = `
   flex items-center [gap:12px] [list-style:none]
   [padding:0] [margin:0] [&_li]:[color:#686d69] [&_.remote-hint]:[width:40px]
-  [&_.remote-hint]:[height:40px] [&_.remote-hint]:justify-center [&_li.active]:[color:var(--primary)] [&_li[aria-current]]:[border-bottom:2px_solid_var(--primary)]
+  [&_.remote-hint]:[height:40px] [&_.remote-hint]:justify-center [&_li.active]:[color:var(--primary)] [&_li.active_button]:[color:var(--primary)] [&_li[aria-current]]:[border-bottom:2px_solid_var(--primary)]
   max-[700px]:justify-between max-[700px]:[gap:6px] max-[700px]:[&_li:first-child_.remote-tooltip]:[left:0] max-[700px]:[&_li:first-child_.remote-tooltip]:[transform:none]
   max-[700px]:[&_li:last-child_.remote-tooltip]:[left:auto] max-[700px]:[&_li:last-child_.remote-tooltip]:[right:0] max-[700px]:[&_li:last-child_.remote-tooltip]:[transform:none]
 `

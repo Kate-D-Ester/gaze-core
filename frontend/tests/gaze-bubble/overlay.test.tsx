@@ -133,3 +133,76 @@ test("scene overlay fits the contained image and translates native error into CS
     rectangle.mockRestore()
   }
 })
+
+test("off-screen scene estimates indicate the image edge and return to the ordinary bubble", async () => {
+  let now = 1000
+  const clock = spyOn(performance, "now").mockImplementation(() => now)
+  const rectangle = spyOn(
+    HTMLElement.prototype,
+    "getBoundingClientRect"
+  ).mockReturnValue({
+    x: 0,
+    y: 0,
+    width: 800,
+    height: 800,
+    top: 0,
+    left: 0,
+    bottom: 800,
+    right: 800,
+    toJSON() {},
+  })
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const base = {
+    point: [1.1, 0.5] as [number, number],
+    timestamp: now,
+    imageSize: { width: 1920, height: 1080 },
+    fixed: false,
+    stabilize: false,
+    errorRadiusPx: 100,
+    verified: true,
+  }
+  try {
+    await act(async () => root.render(createElement(GazeBubbleOverlay, base)))
+    const view = host.querySelector<HTMLElement>(".gaze-bubble-view")!
+    expect(view.style.top).toBe("175px")
+    const indicator = host.querySelector<HTMLElement>(".gaze-edge-indicator")!
+    expect(indicator.style.left).toBe("792px")
+    expect(indicator.style.top).toBe("225px")
+    expect(host.querySelector(".gaze-bubble")).toBeNull()
+    for (let i = 0; i < 8; i++) {
+      now += 40
+      await act(async () =>
+        root.render(
+          createElement(GazeBubbleOverlay, {
+            ...base,
+            point: [0.9, 0.5],
+            timestamp: now,
+          })
+        )
+      )
+    }
+    expect(host.querySelector(".gaze-edge-indicator")).toBeNull()
+    const bubble = host.querySelector<HTMLElement>(".gaze-bubble")!
+    expect(bubble).not.toBeNull()
+    expect(parseFloat(bubble.style.width)).toBeCloseTo((100 * 800 * 2) / 1920)
+    expect(host.textContent).not.toContain("Gaze estimate outside screen")
+    await act(async () =>
+      root.render(
+        createElement(GazeBubbleOverlay, {
+          ...base,
+          point: [NaN, 0.5],
+          timestamp: now,
+        })
+      )
+    )
+    expect(host.querySelector(".gaze-edge-indicator")).toBeNull()
+    expect(host.querySelector(".gaze-bubble")).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    clock.mockRestore()
+    rectangle.mockRestore()
+  }
+})

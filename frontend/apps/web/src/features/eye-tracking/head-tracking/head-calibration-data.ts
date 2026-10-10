@@ -2,7 +2,8 @@ import type { CalibrationSample } from "../calibration.types"
 import type { HeadRayMeasurement } from "./head-ray-model.types"
 /** Every fixation has equal weight, regardless of its camera frame rate. */
 export function collectHeadMeasurements(
-  samples: CalibrationSample[]
+  samples: CalibrationSample[],
+  maximumReadingsPerFixation = 5
 ): HeadRayMeasurement[] | null {
   const readings: HeadRayMeasurement[] = []
   for (const sample of samples) {
@@ -15,7 +16,7 @@ export function collectHeadMeasurements(
     if (measurements.length === 0) {
       return null
     }
-    const count = Math.min(5, measurements.length)
+    const count = Math.min(maximumReadingsPerFixation, measurements.length)
     for (let index = 0; index < count; index++) {
       const reading =
         measurements[Math.floor((index * measurements.length) / count)]

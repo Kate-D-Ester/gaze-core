@@ -41,14 +41,6 @@ export function getScreenGaze(
         message: "Face lost. Face the front camera to resume.",
       }
     }
-    if (!headPoseInRange(calibration.headCompensation, head)) {
-      return {
-        point: null,
-        status: "head-outside-range",
-        message:
-          "Return to the calibrated head range, or recalibrate with a wider range.",
-      }
-    }
   }
   const point = mapGaze(calibration, feature, head)
   if (!point) {
@@ -63,6 +55,17 @@ export function getScreenGaze(
       point,
       status: "outside-screen",
       message: "Gaze is outside this view.",
+    }
+  }
+  if (
+    calibration.headCompensation &&
+    head &&
+    !headPoseInRange(calibration.headCompensation, head)
+  ) {
+    return {
+      point,
+      status: "head-outside-range",
+      message: "Outside measured head range; accuracy may be lower.",
     }
   }
   return { point, status: "tracking", message: "Screen position" }

@@ -1,5 +1,7 @@
 import type { RemoteObservation } from "./remote-eye-tracking.types"
 
+export type RemoteFrameTiming = { timestamp: number; captureMs: number }
+
 export type SessionState = {
   status: "idle" | "loading" | "ready" | "error"
   error: string
@@ -9,6 +11,8 @@ export type SessionState = {
   cameraError: string
   fps: number
   source: "camera" | "video" | null
+  /** Actual selected hardware identity; local preferences only, never diagnostics. */
+  cameraDeviceId?: string
   sourceName: string
 }
 

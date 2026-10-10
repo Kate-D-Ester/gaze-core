@@ -7,6 +7,7 @@ export type LiveGazeOverlayProps = {
   point: Point | null
   timestamp: number | null
   validationErrorPixels: number | null
+  verified?: boolean
   resetKey?: unknown
   offset?: Point
   title: string

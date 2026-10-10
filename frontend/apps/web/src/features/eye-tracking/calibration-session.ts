@@ -4,7 +4,10 @@ import {
   fitInitialCalibration,
   mapGaze,
 } from "./calibration"
-import { matchesTargetDirection } from "./calibration-direction"
+import {
+  ScreenCalibrationGuide,
+  isScreenCalibrationGrid,
+} from "../tracking-calibration/screen-calibration"
 import { DEFAULT_GAZE_ORIENTATION } from "./calibration-orientation"
 import type {
   CalibrationObservation,
@@ -27,12 +30,13 @@ import {
   synchronizedHeadPose,
 } from "./head-tracking/head-pose"
 import type { HeadPose } from "./head-tracking/head-pose.types"
+export const CALIBRATION_READING_MAX_AGE_MS = 350
 const SETTLE_MS = 650
+const TARGET_MAX_MS = 20000
+const VALIDATION_MAX_MS = 8000
 const FIXATION_MS = 1000
 const MIN_FIXATION_SAMPLES = 12
 const BURST_MS = 260
-const TARGET_TOLERANCE = 0.18
-const MIN_DIRECTION_MOVEMENT = 0.006
 function averageFeature(points: Point[]): Point {
   const mean: Point = [0, 0]
   for (const point of points) {
@@ -81,17 +85,17 @@ export class CalibrationSession {
   private burstStarted = 0
   private mapping: Calibration | null
   private referencePose: HeadPose | null = null
-  private centerFeature: Point | null = null
-  private minimumMovement: Point = [
-    MIN_DIRECTION_MOVEMENT,
-    MIN_DIRECTION_MOVEMENT,
-  ]
+  private readonly guide: ScreenCalibrationGuide
   private readonly orientation: GazeOrientation
   private readonly options: CalibrationSessionOptions
   constructor(options: CalibrationSessionOptions) {
     this.options = options
     this.mapping = options.validation ?? null
     this.orientation = options.orientation ?? DEFAULT_GAZE_ORIENTATION
+    this.guide = new ScreenCalibrationGuide([
+      this.orientation.horizontal,
+      this.orientation.vertical,
+    ])
     if (options.validation) {
       this.snapshot.label = "VALIDATION"
     }
@@ -103,14 +107,9 @@ export class CalibrationSession {
     const valid =
       this.options.headEnabled &&
       !this.options.validation &&
-      grid.length === CALIBRATION_TARGETS.length &&
+      isScreenCalibrationGrid(grid.map((sample) => sample.target)) &&
       grid.every(
-        (sample, index) =>
-          sample.headPose &&
-          sample.feature.every(Number.isFinite) &&
-          sample.target.every(
-            (value, axis) => value === CALIBRATION_TARGETS[index][axis]
-          )
+        (sample) => sample.headPose && sample.feature.every(Number.isFinite)
       )
     const mapping = fitInitialCalibration(grid, this.orientation)
     if (!valid || !mapping) {
@@ -124,7 +123,6 @@ export class CalibrationSession {
     this.samples.push(...grid)
     this.pointIndex = CALIBRATION_TARGETS.length
     this.referencePose = grid[0].headPose!
-    this.centerFeature = grid[0].feature
     this.mapping = mapping
     this.updateSnapshot({
       label: "HEAD MOVEMENT",
@@ -133,7 +131,7 @@ export class CalibrationSession {
   }
   private get targets(): Point[] {
     if (this.options.validation) {
-      return VALIDATION_TARGETS
+      return this.options.targets ?? VALIDATION_TARGETS
     }
     if (this.options.headEnabled) {
       return [
@@ -160,6 +158,11 @@ export class CalibrationSession {
   }
   start(now: number): void {
     if (this.snapshot.phase === "intro") {
+      this.beginFixation(now)
+    }
+  }
+  retryCurrentTarget(now: number): void {
+    if (this.snapshot.phase === "error" && this.snapshot.retryable) {
       this.beginFixation(now)
     }
   }
@@ -196,6 +199,7 @@ export class CalibrationSession {
     }
     this.updateSnapshot({
       phase: "fixation",
+      retryable: false,
       target: this.targets[this.pointIndex],
       label: `${label} · ${position} / ${count}`,
     })
@@ -216,9 +220,23 @@ export class CalibrationSession {
       }
       return
     }
+    if (!this.options.validation && now - this.targetStarted >= TARGET_MAX_MS) {
+      this.updateSnapshot({
+        phase: "error",
+        retryable: true,
+        instruction: this.movement
+          ? "This head movement could not be captured. Retry this dot or finish eye-only calibration."
+          : "This dot could not be captured. Check the eye reading and retry this dot; your completed dots are saved.",
+      })
+      return
+    }
+    if (this.options.validation) {
+      this.collectValidation(observation, now)
+      return
+    }
     if (
       !observation ||
-      now - observation.timestamp > 350 ||
+      now - observation.timestamp > CALIBRATION_READING_MAX_AGE_MS ||
       now < observation.timestamp
     ) {
       this.resetCollection("Eye lost. Keep your pupil visible.")
@@ -251,6 +269,46 @@ export class CalibrationSession {
     }
     this.collectFixation(observation, now)
   }
+  private collectValidation(
+    observation: CalibrationObservation | null,
+    now: number
+  ): void {
+    const elapsed = now - this.targetStarted
+    if (elapsed < SETTLE_MS) {
+      return
+    }
+    if (
+      observation &&
+      observation.id !== this.lastEyeId &&
+      observation.timestamp >= this.targetStarted + SETTLE_MS &&
+      now >= observation.timestamp &&
+      now - observation.timestamp <= CALIBRATION_READING_MAX_AGE_MS &&
+      observation.feature.every(Number.isFinite)
+    ) {
+      this.lastEyeId = observation.id
+      this.observations.push(observation)
+    }
+    const span =
+      this.observations.length > 1
+        ? this.observations.at(-1)!.timestamp - this.observations[0].timestamp
+        : 0
+    const ready =
+      span >= FIXATION_MS && this.observations.length >= MIN_FIXATION_SAMPLES
+    this.updateSnapshot({
+      progress: Math.min(1, (elapsed - SETTLE_MS) / VALIDATION_MAX_MS),
+      instruction: "Keep looking",
+    })
+    if (!ready && elapsed < SETTLE_MS + VALIDATION_MAX_MS) {
+      return
+    }
+    if (this.observations.length) {
+      this.saveFixation(now)
+    } else {
+      this.pointIndex++
+      this.burstStarted = now
+      this.updateSnapshot({ phase: "burst", progress: 1 })
+    }
+  }
   private collectFixation(
     observation: CalibrationObservation,
     now: number
@@ -281,15 +339,7 @@ export class CalibrationSession {
     if (
       !this.options.validation &&
       !this.movement &&
-      this.centerFeature &&
-      !matchesTargetDirection(
-        feature,
-        this.centerFeature,
-        this.snapshot.target,
-        this.orientation,
-        this.minimumMovement,
-        this.options.screenAspectRatio
-      )
+      !this.guide.matches(feature, this.snapshot.target)
     ) {
       this.resetCollection("Look toward the dot from the center")
       return
@@ -303,17 +353,6 @@ export class CalibrationSession {
       )
       if (!predicted) {
         this.resetCollection("Face the screen and keep your face visible.")
-        return
-      }
-      // Validation measures error independently; gating it by the prediction would hide errors.
-      if (
-        !this.options.validation &&
-        Math.hypot(
-          predicted[0] - this.snapshot.target[0],
-          predicted[1] - this.snapshot.target[1]
-        ) > TARGET_TOLERANCE
-      ) {
-        this.resetCollection("Look directly at the dot")
         return
       }
       stabilityFeature = predicted
@@ -351,8 +390,9 @@ export class CalibrationSession {
     const elapsed = observation.timestamp - this.observations[0].timestamp
     const progress = Math.min(
       1,
-      elapsed / FIXATION_MS,
-      this.observations.length / MIN_FIXATION_SAMPLES
+      elapsed / (this.options.comfortableHold ? 700 : FIXATION_MS),
+      this.observations.length /
+        (this.options.comfortableHold ? 4 : MIN_FIXATION_SAMPLES)
     )
     this.updateSnapshot({ progress, instruction: "Keep looking" })
     if (progress < 1) {
@@ -366,8 +406,16 @@ export class CalibrationSession {
         this.observations.map((observation) => observation.feature)
       ),
       target: this.snapshot.target,
+      measurements: this.observations.map((observation) => ({
+        feature: [...observation.feature],
+        timestamp: observation.timestamp,
+        headPose: observation.headPose,
+      })),
     }
-    if (this.options.headEnabled) {
+    if (
+      this.options.headEnabled &&
+      this.observations.every((observation) => observation.headPose)
+    ) {
       sample.headPose = averagePose(this.observations)
       sample.headMeasurements = this.observations.map((observation) => ({
         feature: observation.feature,
@@ -384,27 +432,22 @@ export class CalibrationSession {
       }
     }
     if (this.pointIndex === 0 && !this.options.validation) {
-      // Keep the stable center and its measured noise as the reference for all eight directions.
-      this.centerFeature = averageFeature(this.stablePoints)
       // Collection and the geometry fit must share this stable, averaged head baseline.
       if (sample.headPose) {
         this.referencePose = sample.headPose
       }
-      for (let axis = 0; axis < 2; axis++) {
-        const variance =
-          this.stablePoints.reduce(
-            (sum, point) =>
-              sum + (point[axis] - this.centerFeature![axis]) ** 2,
-            0
-          ) / this.stablePoints.length
-        this.minimumMovement[axis] = Math.max(
-          MIN_DIRECTION_MOVEMENT,
-          4 * Math.sqrt(variance)
-        )
-      }
+    }
+    if (!this.options.validation && !this.movement) {
+      this.guide.record(
+        this.snapshot.target,
+        this.observations.map((reading) => reading.feature)
+      )
     }
     this.pointIndex++
-    if (!this.options.validation && this.pointIndex === 5) {
+    if (
+      !this.options.validation &&
+      this.pointIndex === CALIBRATION_TARGETS.length
+    ) {
       this.mapping = fitInitialCalibration(this.samples, this.orientation)
       if (!this.mapping) {
         this.updateSnapshot({

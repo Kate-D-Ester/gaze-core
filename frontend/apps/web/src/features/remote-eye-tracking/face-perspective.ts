@@ -2,6 +2,33 @@ import type { FacePerspectiveInput } from "./face-perspective.types"
 
 export const MIN_FACE_SCALE = 0.025
 
+/** Undo tangent-plane foreshortening after canthus-based roll normalization.
+ * This is a head-relative image feature, not an eyeball radius or metric gaze ray.
+ */
+export function normalizeHeadPlaneEyeOffsets(
+  offsets: number[],
+  yaw: number,
+  pitch: number
+): number[] | null {
+  const cy = Math.cos(yaw)
+  const cp = Math.cos(pitch)
+  if (
+    offsets.length !== 4 ||
+    ![...offsets, yaw, pitch].every(Number.isFinite) ||
+    cy < 0.5 ||
+    cp < 0.5
+  ) {
+    return null
+  }
+  const result: number[] = []
+  for (let eye = 0; eye < 2; eye++) {
+    const x = offsets[eye * 2]!
+    const y = offsets[eye * 2 + 1]!
+    result.push(x + Math.sin(yaw) * Math.tan(pitch) * y, (y * cy) / cp)
+  }
+  return result
+}
+
 /**
  * Relative perspective terms for a learned screen mapping, never metric depth.
  * Under weak perspective, inter-eye spacing is proportional to cos(yaw) / Z.

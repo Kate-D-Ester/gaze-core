@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { GAZE_BUBBLE_MAX_AGE_MS, GazeBubbleProcessor } from "./gaze-bubble"
+import { getGazeBubbleMaxAge, GazeBubbleProcessor } from "./gaze-bubble"
 import type { GazeBubbleState } from "./gaze-bubble.types"
 import type {
   GazeBubbleStore,
@@ -36,20 +36,22 @@ export function useGazeBubble({
   errorRadiusPx,
   verified,
   stabilize,
+  profile,
   resetKey,
   offset,
-  maxAgeMs = GAZE_BUBBLE_MAX_AGE_MS,
+  maxAgeMs,
 }: UseGazeBubbleOptions) {
   const width = view?.width ?? 0
   const height = view?.height ?? 0
   const scale = view?.scale ?? 1
   const offsetX = offset?.[0] ?? 0
   const offsetY = offset?.[1] ?? 0
+  const maxAge = getGazeBubbleMaxAge(profile, maxAgeMs)
   // A new coordinate/calibration context must get a fresh estimator immediately.
   const store = useMemo(
     () => createStore(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [resetKey, width, height, scale, offsetX, offsetY, stabilize]
+    [resetKey, width, height, scale, offsetX, offsetY, stabilize, profile]
   )
   const state = useSyncExternalStore(
     store.subscribe,
@@ -69,7 +71,8 @@ export function useGazeBubble({
       errorRadiusPx: errorRadiusPx === null ? null : errorRadiusPx * scale,
       verified,
       stabilize,
-      maxAgeMs,
+      profile,
+      maxAgeMs: maxAge,
     }
     const refresh = () => store.update(sample, options, performance.now())
     refresh()
@@ -77,8 +80,8 @@ export function useGazeBubble({
       return
     }
     // Use the original source time. A redraw cannot extend sample freshness.
-    const remaining = sample.timestamp + maxAgeMs - performance.now()
-    if (!Number.isFinite(remaining) || remaining < 0 || remaining > maxAgeMs) {
+    const remaining = sample.timestamp + maxAge - performance.now()
+    if (!Number.isFinite(remaining) || remaining < 0 || remaining > maxAge) {
       return
     }
     const expiry = setTimeout(refresh, remaining + 1)
@@ -94,7 +97,8 @@ export function useGazeBubble({
     errorRadiusPx,
     verified,
     stabilize,
-    maxAgeMs,
+    profile,
+    maxAge,
   ])
   return state
 }

@@ -24,6 +24,8 @@ export function LiveControls({
   calibration,
   screenPoint,
   validation,
+  measuredValidation = validation,
+  validationStatus,
   usable,
   gazeMessage,
   headCompensated,
@@ -32,12 +34,20 @@ export function LiveControls({
   onFocus,
   onCorrect,
   onValidate,
+  onQuickCheck,
+  onRepair,
   onRecalibrate,
   onExport,
   offset,
   onOffsetChange,
 }: LiveControlsProps) {
   const { source, frame } = tracker
+  let measurementStatus = validationStatus ?? "Unverified preview"
+  if (validation !== null) {
+    measurementStatus = "Accuracy checked"
+  } else if (measurementStatus === "Accuracy checked") {
+    measurementStatus = "Unverified preview · check incomplete"
+  }
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
   let positionLabel = "Gaze is outside this view"
   if (!screenPoint) {
@@ -100,6 +110,24 @@ export function LiveControls({
         >
           <Crosshair size={17} aria-hidden="true" />
         </EyeActionButton>
+        {onRepair && (
+          <EyeActionButton
+            label="Trial grid repair · 5 inset dots over this calibration"
+            disabled={!usable || !calibration}
+            onClick={onRepair}
+          >
+            <RotateCcw size={17} aria-hidden="true" />
+          </EyeActionButton>
+        )}
+        {onQuickCheck && (
+          <EyeActionButton
+            label="Quick check · 3 comfortable dots"
+            disabled={!usable || !calibration}
+            onClick={onQuickCheck}
+          >
+            <Crosshair size={17} aria-hidden="true" />
+          </EyeActionButton>
+        )}
         <EyeActionButton label="Recalibrate" onClick={onRecalibrate}>
           <RotateCcw size={17} aria-hidden="true" />
         </EyeActionButton>
@@ -128,13 +156,19 @@ export function LiveControls({
         disabled={!calibration}
         onChange={onOffsetChange}
       />
-      <div className={`eye-validation ${EyeValidationStyles}`}>
+      <div
+        className={`eye-validation ${EyeValidationStyles}`}
+        data-verified={validation !== null}
+      >
         <span>
           {source?.kind === "sample" ? "Simulated error" : "Validation error"}
         </span>
         <strong>
-          {validation === null ? "—" : `${validation.toFixed(0)} px RMS`}
+          {measuredValidation === null || !Number.isFinite(measuredValidation)
+            ? "—"
+            : `${measuredValidation.toFixed(0)} px RMS`}
         </strong>
+        <span>{measurementStatus}</span>
         <HelpTip
           label="Validation details"
           text={`Five-point validation reports pixel RMS error. Held-out calibration error: ${calibration ? (calibration.validationError * 100).toFixed(1) + "%" : "not measured"}.`}

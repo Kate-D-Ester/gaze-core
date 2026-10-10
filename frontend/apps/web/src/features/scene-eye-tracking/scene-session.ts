@@ -77,6 +77,7 @@ export class SceneSession {
   private lastGoodEyeTimestamp = -Infinity
   private pendingHands: ReferenceObservation[] = []
   private scenes: SceneObservation[] = []
+  private captureBaseline: SceneSessionSnapshot | null = null
   private previousMapping: SceneCalibration | null = null
   private eyeMovementSince: number | null = null
   private orientation: CameraOrientation = {
@@ -170,6 +171,7 @@ export class SceneSession {
     this.pendingHands = []
     this.scenes = []
     this.previousMapping = null
+    this.captureBaseline = null
     this.eyeMovementSince = null
     this.update({
       calibration: null,
@@ -180,6 +182,7 @@ export class SceneSession {
       trace: [],
       notice: hadMapping ? reason : "",
       fitFailure: null,
+      failedCandidate: null,
       offset: [0, 0],
       reusedCalibration: false,
     })
@@ -309,10 +312,57 @@ export class SceneSession {
       notice: `Repeat point ${index + 1}. Four checks kept.`,
     })
   }
+  previewFailedCandidate() {
+    const candidate = this.snapshot.failedCandidate
+    if (this.snapshot.capture || !candidate) {
+      return
+    }
+    this.lastMeasuredEyeId = -1
+    this.update({
+      ...candidate,
+      reusedCalibration: false,
+      measurement: null,
+      trace: [],
+      failedCandidate: null,
+      notice: "Replacement preview · accuracy not verified.",
+    })
+  }
+  private restoredMapping(
+    baseline: SceneSessionSnapshot
+  ): Partial<SceneSessionSnapshot> {
+    this.lastMeasuredEyeId = -1
+    return {
+      calibration: baseline.calibration,
+      validation: baseline.validation,
+      offset: baseline.offset,
+      reusedCalibration: baseline.reusedCalibration,
+      measurement: null,
+      trace: [],
+    }
+  }
+  previewCalibrationCandidate() {
+    const candidate = this.snapshot.fitFailure?.previewCalibration
+    if (this.snapshot.capture || !candidate) {
+      return
+    }
+    this.captureBaseline = null
+    this.update({
+      calibration: { ...candidate, method: this.snapshot.method },
+      validation: null,
+      offset: [0, 0],
+      reusedCalibration: false,
+      measurement: null,
+      trace: [],
+      notice: "Mapping preview · accuracy not measured.",
+    })
+  }
   retryCalibrationPoint() {
     const failure = this.snapshot.fitFailure
     if (this.snapshot.capture || !failure || failure.retryIndex == null) {
       return
+    }
+    if (!this.captureBaseline && this.snapshot.calibration) {
+      this.captureBaseline = this.snapshot
     }
     this.collector = createCollector("calibration")
     this.configureCollector("calibration")
@@ -338,6 +388,9 @@ export class SceneSession {
     ) {
       this.previousMapping = this.snapshot.calibration
     }
+    if (!this.captureBaseline && this.snapshot.calibration) {
+      this.captureBaseline = this.snapshot
+    }
     this.collector = createCollector(mode)
     this.configureCollector(mode)
     this.lastHandId = -1
@@ -347,16 +400,7 @@ export class SceneSession {
       capture: mode,
       collection: collectPair(this.collector, null),
       notice: "",
-      validation: null,
       fitFailure: null,
-      ...(mode === "calibration"
-        ? {
-            calibration: null,
-            trace: [],
-            offset: [0, 0] as Point,
-            reusedCalibration: false,
-          }
-        : {}),
     })
   }
   private configureCollector(mode: Collector["mode"]) {
@@ -394,11 +438,14 @@ export class SceneSession {
     })
   }
   cancelCapture() {
+    const baseline = this.captureBaseline
+    this.captureBaseline = null
     this.collector = null
     this.pendingHands = []
     this.update({
       capture: null,
       collection: null,
+      ...(baseline ? this.restoredMapping(baseline) : {}),
       notice: this.snapshot.fitFailure?.reason ?? "Collection cancelled.",
     })
   }
@@ -533,13 +580,37 @@ export class SceneSession {
           notice = `Accuracy checked · ${validation.pixelRms.toFixed(1)} px RMS.`
         }
       }
-      this.update({
-        validation,
-        reusedCalibration: false,
-        capture: null,
-        collection,
-        notice,
-      })
+      const baseline = this.captureBaseline
+      const restoreAccepted =
+        !validation?.passed &&
+        baseline &&
+        baseline.calibration !== this.snapshot.calibration &&
+        canUseSceneCalibration(baseline)
+      if (restoreAccepted) {
+        const failedCandidate = {
+          calibration: this.snapshot.calibration,
+          validation,
+          offset: this.snapshot.offset,
+          collection,
+        }
+        this.update({
+          ...this.restoredMapping(baseline),
+          failedCandidate,
+          capture: null,
+          collection: null,
+          notice:
+            "Replacement accuracy check failed. Previous mapping restored.",
+        })
+      } else {
+        this.update({
+          validation,
+          reusedCalibration: false,
+          capture: null,
+          collection,
+          notice,
+        })
+      }
+      this.captureBaseline = null
     } else {
       if (this.snapshot.method === "one-point") {
         const fitted = fitOnePointCalibration(
@@ -549,8 +620,9 @@ export class SceneSession {
           this.orientation
         )
         this.update({
-          calibration: fitted?.calibration ?? null,
-          offset: fitted?.offset ?? [0, 0],
+          calibration: fitted?.calibration ?? this.snapshot.calibration,
+          offset: fitted?.offset ?? this.snapshot.offset,
+          validation: fitted ? null : this.snapshot.validation,
           capture: null,
           collection,
           notice: fitted
@@ -558,6 +630,7 @@ export class SceneSession {
             : "Unable to estimate this point.",
         })
         this.collector = null
+        this.captureBaseline = null
         return
       }
       const result = inspectSceneCalibration(collection.holds)
@@ -565,7 +638,9 @@ export class SceneSession {
       this.update({
         calibration: calibration
           ? { ...calibration, method: this.snapshot.method }
-          : null,
+          : this.snapshot.calibration,
+        validation: calibration ? null : this.snapshot.validation,
+        offset: calibration ? [0, 0] : this.snapshot.offset,
         capture: null,
         collection,
         notice: calibration
@@ -582,6 +657,7 @@ export class SceneSession {
       }
     }
     this.collector = null
+    this.captureBaseline = null
   }
   measure(latestScene: SceneObservation | null, now: number) {
     if (latestScene && this.scenes.at(-1)?.id !== latestScene.id) {

@@ -199,6 +199,7 @@ test("the recovery overlay offers only the head pass while keeping the saved gaz
     setSampleTarget: () => {},
     source: null,
   } as unknown as TrackerController
+  const complete = mock(() => {})
   document.body.append(host)
   await act(async () => {
     root = createRoot(host)
@@ -210,7 +211,7 @@ test("the recovery overlay offers only the head pass while keeping the saved gaz
         validation: false,
         seedSamples: fixtureCalibrationSamples().slice(0, 9),
         onCancel() {},
-        onComplete() {},
+        onComplete: complete,
       })
     )
   })
@@ -220,6 +221,12 @@ test("the recovery overlay offers only the head pass while keeping the saved gaz
   expect(host.querySelector(".eye-calibration-caption")?.textContent).toBe(
     "HEAD MOVEMENT · 1 / 12"
   )
+  const finish = Array.from(
+    host.querySelectorAll<HTMLButtonElement>("button")
+  ).find((button) => button.textContent === "Finish eye-only calibration")!
+  await act(async () => finish.click())
+  expect(complete).toHaveBeenCalledTimes(1)
+  expect(complete.mock.calls[0][0]).toHaveLength(9)
 })
 
 test("validating an eye-only fallback does not require a usable front-camera pose", async () => {
@@ -250,6 +257,70 @@ test("validating an eye-only fallback does not require a usable front-camera pos
   expect(
     host.querySelector<HTMLButtonElement>(".eye-calibration-start")?.disabled
   ).toBe(false)
+})
+test("automatic accuracy dots start immediately and measure a wrong-sector gaze without filtering it", async () => {
+  let tick = () => {}
+  let now = 0
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(
+    (callback) => {
+      tick = callback as () => void
+      return 1 as unknown as ReturnType<typeof setInterval>
+    }
+  )
+  const clock = spyOn(performance, "now").mockImplementation(() => now)
+  const complete = mock(() => {})
+  const cancel = mock(() => {})
+  const tracker = {
+    latest: { current: null as TrackingFrame | null },
+    setSampleTarget() {},
+    source: null,
+  } as unknown as TrackerController
+  document.body.append(host)
+  try {
+    await act(async () => {
+      root = createRoot(host)
+      root.render(
+        createElement(CalibrationOverlay, {
+          tracker,
+          head,
+          calibration: {
+            coefficients: [
+              [0.5, 1, 0],
+              [0.5, 0, 1],
+            ],
+            validationError: 0,
+          },
+          validation: true,
+          autoStart: true,
+          targets: [[0.12, 0.12]],
+          onComplete: complete,
+          onCancel: cancel,
+        })
+      )
+    })
+    expect(host.querySelector(".eye-calibration-start")).toBeNull()
+    expect(
+      host.querySelector<HTMLElement>(".eye-calibration-target")?.style.left
+    ).toBe("12%")
+    for (; now < 6000 && !complete.mock.calls.length; now += 100) {
+      tracker.latest.current = {
+        id: now,
+        timestamp: now,
+        gaze: { direction: [0.2, 0.2, -1] },
+        detection: { ellipse: { confidence: 0.9 } },
+      } as TrackingFrame
+      await act(async () => tick())
+    }
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(complete.mock.calls[0][0][0].feature[0]).toBeGreaterThan(0)
+    expect(
+      complete.mock.calls[0][1].some((reading) => reading.point?.[0] > 0.5)
+    ).toBe(true)
+    expect(cancel).not.toHaveBeenCalled()
+  } finally {
+    interval.mockRestore()
+    clock.mockRestore()
+  }
 })
 
 test("a completed capture cannot submit a second fit when its camera effect restarts", async () => {
@@ -385,4 +456,219 @@ test("diagnostics record a rejected head/eye pair before calibration gating disc
     interval.mockRestore()
     clock.mockRestore()
   }
+})
+
+test("limited live measurements remain visible and explicitly unverified", async () => {
+  const { LiveControls } =
+    await import("../../apps/web/src/features/eye-tracking/steps/live-controls")
+  document.body.append(host)
+  await act(async () => {
+    root = createRoot(host)
+    root.render(
+      createElement(LiveControls, {
+        tracker: { source: null, frame: null } as unknown as TrackerController,
+        calibration: {
+          coefficients: [
+            [0, 1, 0],
+            [0, 0, 1],
+          ],
+          validationError: 0.2,
+        },
+        screenPoint: null,
+        validation: null,
+        measuredValidation: 180,
+        validationStatus: "Unverified preview · accuracy is limited",
+        usable: true,
+        gazeMessage: "No eye",
+        headCompensated: false,
+        onCorrect() {},
+        onFocus() {},
+        onValidate() {},
+        onRecalibrate() {},
+        onExport() {},
+        offset: [0, 0],
+        onOffsetChange() {},
+      })
+    )
+  })
+  expect(host.querySelector(".eye-validation")?.textContent).toContain(
+    "180 px RMS"
+  )
+  expect(host.querySelector(".eye-validation")?.textContent).toContain(
+    "Unverified"
+  )
+  expect(
+    host.querySelector(".eye-validation")?.getAttribute("data-verified")
+  ).toBe("false")
+})
+
+test("lagged validation readings finish as rejected measurements", async () => {
+  let tick = () => {}
+  let now = 0
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(
+    (callback) => {
+      tick = callback as () => void
+      return 1 as unknown as ReturnType<typeof setInterval>
+    }
+  )
+  const clock = spyOn(performance, "now").mockImplementation(() => now)
+  const complete = mock(() => {})
+  const tracker = {
+    latest: { current: null },
+    source: null,
+    setSampleTarget() {},
+  } as unknown as TrackerController
+  document.body.append(host)
+  try {
+    await act(async () => {
+      root = createRoot(host)
+      root.render(
+        createElement(CalibrationOverlay, {
+          tracker,
+          head,
+          calibration: {
+            coefficients: [
+              [0.5, 1, 0],
+              [0.5, 0, 1],
+            ],
+            validationError: 0,
+          },
+          validation: true,
+          targets: [[0.5, 0.5]],
+          onComplete: complete,
+          onCancel() {},
+        })
+      )
+    })
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".eye-calibration-start")!.click()
+    )
+    for (now = 100; now < 10000 && !complete.mock.calls.length; now += 100) {
+      tracker.latest.current = {
+        id: now,
+        timestamp: now - 450,
+        gaze: { direction: [0, 0, -1] },
+        detection: { ellipse: { confidence: 0.9 } },
+      } as TrackingFrame
+      await act(async () => tick())
+    }
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(complete.mock.calls[0][0]).toHaveLength(0)
+    expect(complete.mock.calls[0][1].length).toBeGreaterThan(0)
+    expect(
+      complete.mock.calls[0][1].every(
+        (reading: { point: Point | null }) => reading.point === null
+      )
+    ).toBe(true)
+  } finally {
+    interval.mockRestore()
+    clock.mockRestore()
+  }
+})
+
+test("shared pill starts larger and narrows while its focus point stays fixed", async () => {
+  const { CalibrationTarget } =
+    await import("../../apps/web/src/features/eye-tracking/calibration-target")
+  root = createRoot(host)
+  document.body.append(host)
+  await act(async () =>
+    root.render(
+      createElement(CalibrationTarget, { progress: 0, bursting: false })
+    )
+  )
+  const focal = host.querySelector(".eye-calibration-focal-point")
+  expect(focal).not.toBeNull()
+  expect(
+    host.querySelector<HTMLElement>(".eye-calibration-envelope")?.style
+      .transform
+  ).toBe("scale(1)")
+  await act(async () =>
+    root.render(
+      createElement(CalibrationTarget, { progress: 0.5, bursting: false })
+    )
+  )
+  expect(
+    host.querySelector<HTMLElement>(".eye-calibration-envelope")?.style
+      .transform
+  ).toBe("scale(0.75)")
+  expect(host.querySelector(".eye-calibration-focal-point")).toBe(focal)
+  await act(async () =>
+    root.render(
+      createElement(CalibrationTarget, { progress: 1, bursting: false })
+    )
+  )
+  expect(
+    host.querySelector<HTMLElement>(".eye-calibration-envelope")?.style
+      .transform
+  ).toBe("scale(0.5)")
+})
+
+test("a pill waits motionless until collection starts and stops when fixation is lost", async () => {
+  const { CalibrationTarget } =
+    await import("../../apps/web/src/features/eye-tracking/calibration-target")
+  let callback: FrameRequestCallback | undefined
+  let now = 1000
+  const clock = spyOn(performance, "now").mockImplementation(() => now)
+  const frames = spyOn(globalThis, "requestAnimationFrame").mockImplementation(
+    (next) => {
+      callback = next
+      return 1
+    }
+  )
+  const cancel = spyOn(globalThis, "cancelAnimationFrame").mockImplementation(
+    () => {}
+  )
+  document.body.append(host)
+  root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        createElement(CalibrationTarget, { progress: 0, bursting: false })
+      )
+    )
+    now += 100
+    await act(async () => callback!(now))
+    const pill = host.querySelector<HTMLElement>(".eye-calibration-pill")!
+    expect(pill.style.transform).toBe("rotate(0deg)")
+    await act(async () =>
+      root.render(
+        createElement(CalibrationTarget, { progress: 0.5, bursting: false })
+      )
+    )
+    now += 100
+    await act(async () => callback!(now))
+    expect(pill.style.transform).not.toBe("rotate(0deg)")
+    const angle = pill.style.transform
+    await act(async () =>
+      root.render(
+        createElement(CalibrationTarget, { progress: 0, bursting: false })
+      )
+    )
+    now += 100
+    await act(async () => callback!(now))
+    expect(pill.style.transform).toBe(angle)
+  } finally {
+    frames.mockRestore()
+    cancel.mockRestore()
+    clock.mockRestore()
+  }
+})
+
+test("feedback remains near a bottom target without leaving the viewport", async () => {
+  const { CalibrationFeedback } =
+    await import("../../apps/web/src/features/eye-tracking/calibration-feedback")
+  document.body.append(host)
+  root = createRoot(host)
+  await act(async () =>
+    root.render(
+      createElement(CalibrationFeedback, {
+        target: [0.96, 0.96],
+        label: "Setup · 6 / 9",
+        instruction: "Keep looking here",
+      })
+    )
+  )
+  const feedback = host.querySelector<HTMLElement>(".eye-calibration-feedback")!
+  expect(feedback.style.top).toBe("")
+  expect(feedback.style.bottom).not.toBe("")
 })

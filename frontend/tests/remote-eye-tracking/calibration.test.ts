@@ -123,11 +123,14 @@ test("constant or nonfinite inputs cannot produce an apparently calibrated mappi
     )
   ).toBeNull()
 })
-test("loss, wrong feature dimension and poses outside calibration support suppress live gaze", () => {
+test("pose coverage affects confidence while invalid observations still suppress live gaze", () => {
   const fitted = fitRemoteCalibration("webcam", samples())!
   const far = observation([0.5, 0.5], 0.8, 0)
   expect(poseSupported(fitted, far.pose)).toBe(false)
-  expect(predictRemoteGaze(fitted, far)).toBeNull()
+  const farPoint = predictRemoteGaze(fitted, far)!
+  expect(farPoint.every(Number.isFinite)).toBe(true)
+  expect(farPoint[0]).toBeCloseTo(0.5, 2)
+  expect(farPoint[1]).toBeCloseTo(0.5, 2)
   expect(
     predictRemoteGaze(fitted, { ...far, pose: null, feature: null })
   ).toBeNull()
@@ -163,7 +166,7 @@ test("validation measures unseen targets and keeps systematic error separate fro
   expect(result!.targetCount).toBe(1)
 })
 
-test("calibration rejects a new joint head pose even when every axis is inside its recorded range", () => {
+test("joint pose coverage remains false for unseen combinations while valid gaze stays visible", () => {
   const input = samples().map((s, i) => {
     const yaw = i % 2 ? 0.4 : -0.4
     const x = i % 2 ? 0.7 : 0.3
@@ -188,7 +191,10 @@ test("calibration rejects a new joint head pose even when every axis is inside i
     pose: { ...input[1]!.observation.pose!, yaw: 0.4, x: 0.3 },
   }
   expect(poseSupported(fitted, unseen.pose)).toBe(false)
-  expect(predictRemoteGaze(fitted, unseen)).toBeNull()
+  const predicted = predictRemoteGaze(fitted, unseen)!
+  expect(predicted.every(Number.isFinite)).toBe(true)
+  expect(predicted[0]).toBeCloseTo(input[1]!.target[0], 2)
+  expect(predicted[1]).toBeCloseTo(input[1]!.target[1], 2)
 })
 
 test("validation measures the adjusted gaze without modifying calibration samples", () => {
@@ -210,4 +216,17 @@ test("validation measures the adjusted gaze without modifying calibration sample
   expect(raw.meanPixels).toBeGreaterThan(20)
   expect(adjusted.meanPixels).toBeLessThan(1)
   expect(JSON.stringify({ fitted, sample })).toBe(before)
+})
+
+test("feature versions cannot mix or reuse equal-dimensional coefficients", () => {
+  const input = samples()
+  const fitted = fitRemoteCalibration("webcam", input)!
+  expect(
+    predictRemoteGaze(fitted, {
+      ...observation([0.3, 0.7], 0, 0),
+      featureVersion: "different-bank-v1",
+    })
+  ).toBeNull()
+  input[0]!.observation.featureVersion = "different-bank-v1"
+  expect(fitRemoteCalibration("webcam", input)).toBeNull()
 })

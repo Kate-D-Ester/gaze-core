@@ -8,15 +8,17 @@
     "dev": "bun run --cwd apps/web dev",
     "start": "bun run --cwd apps/web start",
     "preview": "bun run --cwd apps/web preview",
-    "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/web lint",
+    "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/web lint && bun apps/web/node_modules/eslint/bin/eslint.js --config apps/web/eslint.config.js research/gaze-3d/browser research/calibration",
     "format": "bun run --cwd packages/ui format && bun run --cwd apps/web format",
-    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck",
-    "test": "bun test"
+    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/web typecheck && tsc --noEmit --project research/tsconfig.json",
+    "test": "bun test",
+    "prepare:gaze-3d": "bun research/gaze-3d/prepare-runtime.ts"
   },
   "devDependencies": {
     "prettier": "^3.9.9",
     "prettier-plugin-tailwindcss": "^0.7.4",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "onnxruntime-web": "1.22.0"
   },
   "engines": {
     "bun": ">=1.4.2",
@@ -34,6 +36,8 @@
     "@humanfs/node": "0.16.8",
     "baseline-browser-mapping": "2.11.27",
     "picomatch": "4.0.7",
-    "browserslist": "4.29.3"
+    "browserslist": "4.29.3",
+    "source-map-js": "1.2.2",
+    "argparse": "2.0.1"
   }
 }

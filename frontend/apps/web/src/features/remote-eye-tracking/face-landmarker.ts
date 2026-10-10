@@ -39,7 +39,9 @@ export async function createLandmarker({
           },
           canvas,
           runningMode: "VIDEO",
-          numFaces: 2,
+          // MediaPipe enables temporal smoothing only for a single tracked face.
+          // This configuration cannot establish whether another person is present.
+          numFaces: 1,
           minFaceDetectionConfidence: 0.6,
           minFacePresenceConfidence: 0.6,
           minTrackingConfidence: 0.6,

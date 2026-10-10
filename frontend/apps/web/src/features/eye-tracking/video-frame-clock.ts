@@ -1,4 +1,15 @@
 import type { VideoFrameTiming } from "./video-frame-clock.types"
+export function videoFrameTimestamp(
+  metadata: VideoFrameCallbackMetadata,
+  now: number
+): number | null {
+  const timestamp = Number.isFinite(metadata.captureTime)
+    ? metadata.captureTime!
+    : metadata.presentationTime
+  return Number.isFinite(timestamp) && timestamp >= 0 && timestamp <= now
+    ? timestamp
+    : null
+}
 /** Use the camera's capture timestamp when the browser exposes it, otherwise presentation time.
  * MJPEG has no shared exposure clock; timestamp pairing alone cannot undo its network delay. */
 export class VideoFrameClock {
@@ -21,11 +32,8 @@ export class VideoFrameClock {
       if (this.video !== video) {
         return
       }
-      let timestamp = metadata.presentationTime
-      if (Number.isFinite(metadata.captureTime)) {
-        timestamp = metadata.captureTime!
-      }
-      if (Number.isFinite(timestamp) && timestamp >= 0 && timestamp <= now) {
+      const timestamp = videoFrameTimestamp(metadata, now)
+      if (timestamp !== null) {
         this.timing = { timestamp, mediaTime: metadata.mediaTime }
       }
       this.handle = video.requestVideoFrameCallback(update)

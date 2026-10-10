@@ -123,6 +123,125 @@ const stream = () => ({
   ],
 })
 
+test("reconnecting the same USB camera retains its locked eye model", async () => {
+  async function connect(deviceId: string) {
+    let pending: Promise<void>
+    await act(async () => {
+      pending = controller.startCamera(deviceId)
+    })
+    await act(async () => resolveCamera(stream()))
+    await act(async () => {
+      resolvePlay()
+      await pending!
+    })
+  }
+  await connect("camera-1")
+  await act(async () => controller.configure({ locked: true }, false))
+  await connect("camera-1")
+  expect(controller.settings.locked).toBe(true)
+  await act(async () => controller.stop())
+  expect(controller.settings.locked).toBe(false)
+})
+
+test("a different resolved USB device invalidates the retained eye model", async () => {
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("camera-1")
+  })
+  await act(async () => resolveCamera(stream()))
+  await act(async () => {
+    resolvePlay()
+    await pending!
+  })
+  await act(async () => controller.configure({ locked: true }, false))
+  await act(async () => {
+    pending = controller.startCamera("")
+  })
+  const replacement = {
+    ...stream(),
+    getVideoTracks: () => [
+      {
+        label: "Replacement camera",
+        getSettings: () => ({ deviceId: "camera-2" }),
+        addEventListener: () => {},
+      },
+    ],
+  }
+  await act(async () => resolveCamera(replacement))
+  await act(async () => {
+    resolvePlay()
+    await pending!
+  })
+  expect(controller.source?.deviceId).toBe("camera-2")
+  expect(controller.settings.locked).toBe(false)
+})
+
+test("same-camera reconnect retains the worker model but discards its old in-flight frame", async () => {
+  let tick!: FrameRequestCallback
+  const requests: WorkerRequest[] = []
+  globalThis.requestAnimationFrame = (callback) => {
+    tick = callback
+    return 1
+  }
+  const context = {
+    drawImage() {},
+    clearRect() {},
+    putImageData() {},
+    getImageData: () => ({ data: new Uint8ClampedArray(640 * 360 * 4) }),
+  }
+  HTMLCanvasElement.prototype.getContext = (() => context) as any
+  Object.defineProperty(HTMLVideoElement.prototype, "readyState", {
+    configurable: true,
+    get: () => 2,
+  })
+  await act(async () =>
+    root?.render(createElement(Harness, { key: "capture" }))
+  )
+  const worker = workers.at(-1)!
+  worker.postMessage = (request) => requests.push(request)
+  await act(async () => worker.onmessage({ data: { type: "ready" } }))
+  async function connect() {
+    let pending: Promise<void>
+    await act(async () => {
+      pending = controller.startCamera("camera-1")
+    })
+    await act(async () => resolveCamera(stream()))
+    await act(async () => {
+      resolvePlay()
+      await pending!
+    })
+  }
+  await connect()
+  await act(async () => {
+    controller.configure({ locked: true }, false)
+    tick(100)
+  })
+  expect(requests).toHaveLength(1)
+  await connect()
+  const old = requests[0]
+  await act(async () =>
+    worker.onmessage({
+      data: {
+        type: "frame",
+        generation: old.generation,
+        data: old.data,
+        frame: {
+          width: 640,
+          height: 360,
+          id: old.id,
+          timestamp: old.timestamp,
+          detection: { previews: [] },
+        },
+      },
+    })
+  )
+  expect(controller.frame).toBeNull()
+  await act(async () => tick(200))
+  expect(requests).toHaveLength(2)
+  expect(requests[1].generation).toBe(old.generation)
+  expect(requests[1].settings.locked).toBe(true)
+})
+
 test.each([false, true])(
   "manual model locks without a new worker frame (scene mode: %s)",
   async (sceneMode) => {
@@ -172,6 +291,85 @@ test.each([false, true])(
     )
   }
 )
+
+test("screen workspace keeps the optional head camera during same-eye-camera reconnect", async () => {
+  const originalOffscreen = globalThis.OffscreenCanvas
+  globalThis.OffscreenCanvas = class {} as typeof OffscreenCanvas
+  availableDevices.push({
+    kind: "videoinput",
+    deviceId: "front",
+    label: "Front camera",
+  } as MediaDeviceInfo)
+  async function clickText(text: string) {
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (item) => item.textContent?.trim() === text && !item.closest("[hidden]")
+    )!
+    expect(button.disabled).toBe(false)
+    await act(async () => button.click())
+  }
+  try {
+    const eyeWorkerIndex = workers.length
+    await act(async () => root?.render(createElement(EyeTrackingWorkspace)))
+    await act(async () =>
+      workers[eyeWorkerIndex].onmessage({ data: { type: "ready" } })
+    )
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Eye Tracker 1: Manual tracking"]'
+        )!
+        .click()
+    )
+    await clickText("Connect")
+    await act(async () => resolveCamera(stream()))
+    await act(async () => resolvePlay())
+    await clickText("Continue")
+    await clickText("Continue")
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Reset corners to the eye region"]'
+        )!
+        .click()
+    )
+    await clickText("Lock model")
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Connect front camera"]'
+        )!
+        .click()
+    )
+    await act(async () =>
+      resolveCamera({
+        ...stream(),
+        getVideoTracks: () => [
+          {
+            label: "Front camera",
+            getSettings: () => ({ deviceId: "front" }),
+            addEventListener() {},
+          },
+        ],
+      })
+    )
+    await act(async () => resolvePlay())
+    expect(
+      host.querySelector('[aria-label="Disconnect front camera"]')
+    ).not.toBeNull()
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="Setup steps"] button')!
+        .click()
+    )
+    await clickText("Reconnect")
+    expect(stopped).toBe(1)
+    await act(async () => resolveCamera(stream()))
+    await act(async () => resolvePlay())
+    expect(stopped).toBe(1)
+  } finally {
+    globalThis.OffscreenCanvas = originalOffscreen
+  }
+})
 
 test("format change while permission is pending does not strand startup", async () => {
   let pending: Promise<void>
@@ -740,6 +938,27 @@ test("late worker errors from an older generation do not replace current state",
 
   expect(controller.error).toBe("")
   expect(controller.frame).toBeNull()
+})
+
+test("vision startup failures remain visible after a source connection starts", async () => {
+  let pending: Promise<void>
+  await act(async () => {
+    pending = controller.startCamera("camera-1")
+  })
+  await act(async () =>
+    workers[0].onmessage({
+      data: {
+        type: "error",
+        message: "Could not initialize vision",
+      },
+    })
+  )
+  expect(controller.error).toBe("Could not initialize vision")
+  expect(controller.busy).toBe(false)
+  await act(async () => {
+    resolveCamera(stream())
+    await pending!
+  })
 })
 
 test("unmounting releases the camera stream and terminates the worker", async () => {

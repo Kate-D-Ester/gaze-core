@@ -327,7 +327,7 @@ test("a failed accuracy check exposes pixel errors, offset controls and a correc
     host.querySelector("[aria-label='Correct gaze with a click']")
   ).not.toBeNull()
   const apply = host.querySelector<HTMLButtonElement>(
-    "[aria-label='Apply suggested offset and check accuracy']"
+    "[aria-label='Apply suggested offset as unverified preview']"
   )
   expect(apply).not.toBeNull()
   expect(
@@ -336,9 +336,8 @@ test("a failed accuracy check exposes pixel errors, offset controls and a correc
   await act(async () => apply!.click())
   expect(s.getSnapshot().offset[0]).toBeCloseTo(-0.06)
   expect(s.getSnapshot().offset[1]).toBeCloseTo(0.04)
-  expect(s.getSnapshot().capture).toBe("validation")
-  expect(s.getSnapshot().validation).toBeNull()
-  expect(s.getSnapshot().collection?.holds).toHaveLength(0)
+  expect(s.getSnapshot().capture).toBeNull()
+  expect(s.getSnapshot().validation?.passed).toBe(false)
   expect(s.getSnapshot().calibration).toBe(mapping)
 })
 test("a cancelled accuracy check still labels fresh provisional gaze as unverified instead of waiting", async () => {

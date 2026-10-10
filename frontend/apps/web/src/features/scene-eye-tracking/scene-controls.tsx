@@ -477,6 +477,22 @@ export function FingerControls({
           {calibrationActionLabel}
         </button>
       )}
+      {state.failedCandidate && !state.capture && (
+        <button
+          className={`eye-button ${EyeButtonStyles} secondary`}
+          onClick={() => session.previewFailedCandidate()}
+        >
+          Preview failed replacement
+        </button>
+      )}
+      {state.fitFailure?.previewCalibration && !state.capture && (
+        <button
+          className={`eye-button ${EyeButtonStyles} secondary`}
+          onClick={() => session.previewCalibrationCandidate()}
+        >
+          Preview unverified mapping
+        </button>
+      )}
       {state.calibration &&
         !state.capture &&
         !state.validation &&

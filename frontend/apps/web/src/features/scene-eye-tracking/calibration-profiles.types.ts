@@ -6,6 +6,7 @@ import type {
 } from "./scene.types"
 
 export type SceneProfileSetup = {
+  fingerprint?: string
   trackerFormat: TrackerFormat
   orientation: CameraOrientation
 }

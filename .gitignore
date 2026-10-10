@@ -61,6 +61,8 @@ next-env.d.ts
 
 **/tests
 **/.venv
+__pycache__/
+*.py[cod]
 # Versioned frontend regression tests
 !frontend/tests/
 !frontend/tests/**

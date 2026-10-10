@@ -47,7 +47,8 @@ async function initialize(): Promise<void> {
       baseOptions: { modelAssetPath: FACE_MODEL, delegate: "CPU" },
       canvas: new OffscreenCanvas(320, 240),
       runningMode: "VIDEO",
-      numFaces: 2,
+      // Enable MediaPipe's temporal smoothing for the current tracked face.
+      numFaces: 1,
       minFaceDetectionConfidence: 0.65,
       minFacePresenceConfidence: 0.65,
       minTrackingConfidence: 0.65,

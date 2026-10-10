@@ -10,6 +10,7 @@ import {
   irEyeSearchBounds,
 } from "./ir-face-features"
 import { buildIrFeatures } from "./ir-features"
+import { buildTrackingVectors } from "./tracking-vectors"
 import type {
   IrEyeFrame,
   IrFaceLocator,
@@ -268,6 +269,11 @@ export async function createIrProcessor(
               eyeRegions: regions,
               faceBox: geometry.faceBox,
               pose: geometry.pose,
+              vectors: buildTrackingVectors(
+                geometry,
+                pupils.map((pupil) => pupil?.center ?? null),
+                "ir-pupil"
+              ),
               method: "IR binocular pupils + head pose",
             }
             if (pupils.some((p) => !p)) {
@@ -278,7 +284,8 @@ export async function createIrProcessor(
             }
             const features = buildIrFaceFeatures(
               geometry,
-              pupils.map((p) => p!.center)
+              pupils.map((p) => p!.center),
+              settings.irRollCompensation ? "camera-axes-v2" : "legacy"
             )
             if (!features) {
               return { ...empty("IR pupil geometry unavailable"), ...feedback }

@@ -9,12 +9,13 @@ export function CalibrationTarget({
   progress,
   bursting,
 }: CalibrationTargetProps) {
+  const fraction = Math.max(0, Math.min(1, progress))
   const pill = useRef<HTMLSpanElement | null>(null)
   const stimulus = useRef<HTMLSpanElement | null>(null)
   const currentProgress = useRef(0)
   useEffect(() => {
-    currentProgress.current = progress
-  }, [progress])
+    currentProgress.current = fraction
+  }, [fraction])
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       return
@@ -24,7 +25,10 @@ export function CalibrationTarget({
     let animation = 0
     function rotate(now: number): void {
       const elapsed = Math.min(0.05, (now - previous) / 1000)
-      const speed = 45 + 1200 * currentProgress.current ** 2
+      let speed = 0
+      if (currentProgress.current > 0) {
+        speed = 45 + 1200 * currentProgress.current ** 2
+      }
       angle = (angle + elapsed * speed) % 360
       previous = now
       if (pill.current) {
@@ -66,10 +70,15 @@ export function CalibrationTarget({
       aria-hidden="true"
     >
       <span
-        ref={pill}
-        className={`eye-calibration-pill ${EyeCalibrationPillStyles}`}
-        style={{ backgroundColor: color }}
-      />
+        className="eye-calibration-envelope absolute size-full motion-safe:transition-transform motion-safe:duration-150"
+        style={{ transform: `scale(${1 - fraction * 0.5})` }}
+      >
+        <span
+          ref={pill}
+          className={`eye-calibration-pill ${EyeCalibrationPillStyles}`}
+          style={{ backgroundColor: color }}
+        />
+      </span>
       <span
         className={`eye-calibration-focal-point ${EyeCalibrationFocalPointStyles}`}
       />

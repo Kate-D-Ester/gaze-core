@@ -1,3 +1,4 @@
+import type { ValidationReading } from "../tracking-calibration/validation-metrics.types"
 import type { DiagnosticReadingInput } from "./calibration-diagnostics.types"
 import type {
   Calibration,
@@ -8,14 +9,22 @@ import type { HeadTrackingController } from "./head-tracking/use-head-tracking.t
 import type { TrackerController } from "./use-tracker.types"
 
 export type CalibrationOverlayProps = {
+  repairTargets?: [number, number][]
+  targets?: [number, number][]
+  comfortableHold?: boolean
   tracker: TrackerController
   head: HeadTrackingController
   calibration: Calibration | null
   orientation?: GazeOrientation
   validation: boolean
+  autoStart?: boolean
   fitting?: boolean
   seedSamples?: CalibrationSample[]
-  onComplete: (samples: CalibrationSample[]) => void
+  onComplete: (
+    samples: CalibrationSample[],
+    attempts?: ValidationReading[]
+  ) => void
+  onGridComplete?: (samples: CalibrationSample[]) => void
   onDiagnosticReading?: (reading: DiagnosticReadingInput) => void
   onCancel: () => void
 }

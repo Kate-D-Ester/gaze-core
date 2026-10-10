@@ -114,11 +114,7 @@ test("the recording picker opens local inspection without camera permission or s
     HTMLVideoElement.prototype.load = () => {}
     URL.createObjectURL = () => "blob:private-video"
     URL.revokeObjectURL = (url) => revoked.push(url)
-    await act(async () =>
-      root.render(
-        createElement(RemoteEyeTrackingPage)
-      )
-    )
+    await act(async () => root.render(createElement(RemoteEyeTrackingPage)))
     await act(async () =>
       host.querySelectorAll<HTMLButtonElement>(".remote-mode-card")[2]!.click()
     )
@@ -168,18 +164,11 @@ test("the recording picker opens local inspection without camera permission or s
     expect(
       host.querySelector(".remote-preview")?.classList.contains("mirrored")
     ).toBe(false)
-    const calibrate = host.querySelector<HTMLButtonElement>(
-      '[aria-label="Continue to calibration"]'
-    )
-    expect(calibrate?.disabled).toBe(true)
-    await act(async () => calibrate!.click())
+    expect(host.querySelector('[aria-label="Start calibration"]')).toBeNull()
+    expect(host.textContent).toContain("screen calibration is unavailable")
     expect(host.querySelector(".remote-calibration")).toBeNull()
     await act(async () => window.dispatchEvent(new Event("resize")))
-    expect(
-      host.querySelector<HTMLButtonElement>(
-        '[aria-label="Continue to calibration"]'
-      )?.disabled
-    ).toBe(true)
+    expect(host.querySelector('[aria-label="Start calibration"]')).toBeNull()
     await act(async () => root.unmount())
     expect(revoked).toEqual(["blob:private-video"])
   } finally {

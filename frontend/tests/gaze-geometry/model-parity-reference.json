@@ -1,0 +1,177 @@
+[
+  {
+    "crop": "zero",
+    "headAnglesDegrees": [0, 0, 0],
+    "expectedIrVector": [
+      0.18601453304290771, -0.0929793119430542, -0.9044783711433411
+    ]
+  },
+  {
+    "crop": "zero",
+    "headAnglesDegrees": [20, -15, 0],
+    "expectedIrVector": [
+      0.469037801027298, -0.05468122288584709, -0.8387762308120728
+    ]
+  },
+  {
+    "crop": "zero",
+    "headAnglesDegrees": [-25, 10, 0],
+    "expectedIrVector": [
+      -0.20543666183948517, -0.11323060840368271, -0.9035837054252625
+    ]
+  },
+  {
+    "crop": "zero",
+    "headAnglesDegrees": [15, 20, 12],
+    "expectedIrVector": [
+      0.37180227041244507, -0.18336619436740875, -0.8491231203079224
+    ]
+  },
+  {
+    "crop": "zero",
+    "headAnglesDegrees": [-30, -20, -10],
+    "expectedIrVector": [
+      -0.25010547041893005, -0.020336193963885307, -0.9078640937805176
+    ]
+  },
+  {
+    "crop": "flat_127",
+    "headAnglesDegrees": [0, 0, 0],
+    "expectedIrVector": [
+      -0.12898652255535126, -0.00926195364445448, -0.946989893913269
+    ]
+  },
+  {
+    "crop": "flat_127",
+    "headAnglesDegrees": [20, -15, 0],
+    "expectedIrVector": [
+      0.16377314925193787, 0.01804106868803501, -0.9538496136665344
+    ]
+  },
+  {
+    "crop": "flat_127",
+    "headAnglesDegrees": [-25, 10, 0],
+    "expectedIrVector": [
+      -0.42917829751968384, -0.03528255596756935, -0.8697301745414734
+    ]
+  },
+  {
+    "crop": "flat_127",
+    "headAnglesDegrees": [15, 20, 12],
+    "expectedIrVector": [
+      0.02154586650431156, -0.13118675351142883, -0.9445345997810364
+    ]
+  },
+  {
+    "crop": "flat_127",
+    "headAnglesDegrees": [-30, -20, -10],
+    "expectedIrVector": [
+      -0.4547160565853119, 0.0810413733124733, -0.8645651936531067
+    ]
+  },
+  {
+    "crop": "asymmetric_gradients",
+    "headAnglesDegrees": [0, 0, 0],
+    "expectedIrVector": [
+      0.06609836965799332, -0.18106430768966675, -0.9473316073417664
+    ]
+  },
+  {
+    "crop": "asymmetric_gradients",
+    "headAnglesDegrees": [20, -15, 0],
+    "expectedIrVector": [
+      0.38378798961639404, -0.1395297795534134, -0.893580436706543
+    ]
+  },
+  {
+    "crop": "asymmetric_gradients",
+    "headAnglesDegrees": [-25, 10, 0],
+    "expectedIrVector": [
+      -0.2937071621417999, -0.20042268931865692, -0.9177720546722412
+    ]
+  },
+  {
+    "crop": "asymmetric_gradients",
+    "headAnglesDegrees": [15, 20, 12],
+    "expectedIrVector": [
+      0.2680908441543579, -0.26533976197242737, -0.9022292494773865
+    ]
+  },
+  {
+    "crop": "asymmetric_gradients",
+    "headAnglesDegrees": [-30, -20, -10],
+    "expectedIrVector": [
+      -0.3286439776420593, -0.09824701398611069, -0.9270831346511841
+    ]
+  },
+  {
+    "crop": "synthetic_center",
+    "headAnglesDegrees": [0, 0, 0],
+    "expectedIrVector": [
+      -0.057039253413677216, 0.12475892901420593, -0.8964387774467468
+    ]
+  },
+  {
+    "crop": "synthetic_center",
+    "headAnglesDegrees": [20, -15, 0],
+    "expectedIrVector": [
+      0.24250546097755432, 0.13968196511268616, -0.8816583156585693
+    ]
+  },
+  {
+    "crop": "synthetic_center",
+    "headAnglesDegrees": [-25, 10, 0],
+    "expectedIrVector": [
+      -0.35463055968284607, 0.10426134616136551, -0.8258812427520752
+    ]
+  },
+  {
+    "crop": "synthetic_center",
+    "headAnglesDegrees": [15, 20, 12],
+    "expectedIrVector": [
+      0.08130177855491638, 0.018930694088339806, -0.8994730710983276
+    ]
+  },
+  {
+    "crop": "synthetic_center",
+    "headAnglesDegrees": [-30, -20, -10],
+    "expectedIrVector": [
+      -0.38660523295402527, 0.18863870203495026, -0.8079948425292969
+    ]
+  },
+  {
+    "crop": "synthetic_shifted",
+    "headAnglesDegrees": [0, 0, 0],
+    "expectedIrVector": [
+      -0.03609274700284004, 0.11395568400621414, -0.8949072360992432
+    ]
+  },
+  {
+    "crop": "synthetic_shifted",
+    "headAnglesDegrees": [20, -15, 0],
+    "expectedIrVector": [
+      0.265983909368515, 0.13039003312587738, -0.8682578802108765
+    ]
+  },
+  {
+    "crop": "synthetic_shifted",
+    "headAnglesDegrees": [-25, 10, 0],
+    "expectedIrVector": [
+      -0.30862346291542053, 0.09502516686916351, -0.8353803753852844
+    ]
+  },
+  {
+    "crop": "synthetic_shifted",
+    "headAnglesDegrees": [15, 20, 12],
+    "expectedIrVector": [
+      0.1135263592004776, 0.0172354094684124, -0.8973193168640137
+    ]
+  },
+  {
+    "crop": "synthetic_shifted",
+    "headAnglesDegrees": [-30, -20, -10],
+    "expectedIrVector": [
+      -0.3396090567111969, 0.1756068766117096, -0.8227267265319824
+    ]
+  }
+]

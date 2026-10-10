@@ -1,5 +1,31 @@
+import { assessValidation } from "@/features/tracking-calibration/validation-assessment"
+import { cameraGeometryIdentity } from "@/features/tracking-calibration/camera-geometry"
+import { useScreenGeometry } from "@/features/tracking-calibration/use-screen-geometry"
+import type {
+  ValidationMetrics,
+  ValidationReading,
+} from "@/features/tracking-calibration/validation-metrics.types"
+import { evaluateValidation } from "@/features/tracking-calibration/validation-metrics"
+import { useSessionAlignment } from "@/features/tracking-calibration/use-session-alignment"
+import {
+  RETURN_CHECK_TARGETS,
+  PERSONAL_RESIDUAL_TARGETS,
+  alignGazePoint,
+  evaluatePersonalResidual,
+  evaluateReturnCheck,
+} from "@/features/tracking-calibration/session-alignment"
+import { CalibrationProfileControls } from "@/features/tracking-calibration/calibration-profile-controls"
+import { useSavedCalibration } from "@/features/tracking-calibration/use-calibration-profiles"
+import { useCameraIdentity } from "@/features/tracking-calibration/use-camera-identity"
+import type {
+  CalibrationContext,
+  CalibrationPayload,
+} from "@/features/tracking-calibration/calibration-profiles.types"
 import { TrackingBrand } from "@/features/tracking-ui/tracking-brand"
-import { mapCalibrationSample } from "@/features/eye-tracking/calibration"
+import {
+  evaluateScreenValidation,
+  screenValidationReadings,
+} from "@/features/eye-tracking/calibration"
 import { CalibrationDiagnostics } from "@/features/eye-tracking/calibration-diagnostics"
 import type { DiagnosticReadingInput } from "@/features/eye-tracking/calibration-diagnostics.types"
 import { fitCalibrationInWorker } from "@/features/eye-tracking/calibration-fit"
@@ -8,10 +34,7 @@ import {
   SAMPLE_GAZE_ORIENTATION,
 } from "@/features/eye-tracking/calibration-orientation"
 import { CalibrationOverlay } from "@/features/eye-tracking/calibration-overlay"
-import type {
-  CalibrationFitIssue,
-  CalibrationFitResult,
-} from "@/features/eye-tracking/calibration-result.types"
+import type { CalibrationFitResult } from "@/features/eye-tracking/calibration-result.types"
 import type { GazeOrientation } from "@/features/eye-tracking/calibration.types"
 import { EyePreview } from "@/features/eye-tracking/components/eye-preview"
 import type { ManualCornerMode } from "@/features/eye-tracking/components/eye-preview.types"
@@ -47,7 +70,7 @@ import {
 } from "@/features/scene-eye-tracking/scene-workspace"
 import { ArrowLeft, ArrowRight, Eye, ScanEye } from "lucide-react"
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   EyeAppStyles,
   EyeBottomBarStyles,
@@ -128,9 +151,10 @@ export function EyeTrackingWorkspace({
   const pendingFit = useRef<AbortController | null>(null)
   const [fitting, setFitting] = useState(false)
   useEffect(() => () => pendingFit.current?.abort(), [])
+  const screenGeometry = useScreenGeometry()
   const tracker = useTracker()
   const { settings, configure, source, frame, setPreviewMasksEnabled } = tracker
-  const head = useHeadTracking(!sceneMode && !!source)
+  const head = useHeadTracking(!sceneMode && (!!source || settings.locked))
   const [orientation, setOrientation] = useState<GazeOrientation>(
     DEFAULT_GAZE_ORIENTATION
   )
@@ -146,16 +170,20 @@ export function EyeTrackingWorkspace({
   const [manualCornerMode, setManualCornerMode] =
     useState<ManualCornerMode | null>(null)
   const [calibration, setCalibration] = useState<Calibration | null>(null)
-  const [validation, setValidation] = useState<number | null>(null)
-  const [capture, setCapture] = useState<"calibration" | "validation" | null>(
+  const [previewCandidate, setPreviewCandidate] = useState<Calibration | null>(
     null
   )
+  const [validation, setValidation] = useState<number | null>(null)
+  const [validationMetrics, setValidationMetrics] =
+    useState<ValidationMetrics | null>(null)
+  const [capture, setCapture] = useState<
+    "calibration" | "validation" | "check" | "repair" | null
+  >(null)
+  const [autoCheck, setAutoCheck] = useState(false)
   const [focusCorrection, setFocusCorrection] = useState(false)
   const [focus, setFocus] = useState(false)
   const [notice, setNotice] = useState("")
   const [savedGazeGrid, setSavedGazeGrid] = useState<CalibrationSample[]>([])
-  const [headCalibrationIssue, setHeadCalibrationIssue] =
-    useState<CalibrationFitIssue | null>(null)
   const [retryHeadPass, setRetryHeadPass] = useState(false)
   let activeCornerMode: ManualCornerMode | null = null
   if (step === 2 && settings.format === "classic" && !settings.locked) {
@@ -172,12 +200,14 @@ export function EyeTrackingWorkspace({
     setEyeRevision((revision) => revision + 1)
     setFitting(false)
     setCalibration(null)
+    setPreviewCandidate(null)
     setValidation(null)
+    setValidationMetrics(null)
     setCapture(null)
+    setAutoCheck(false)
     setFocus(false)
     setNotice("")
     setSavedGazeGrid([])
-    setHeadCalibrationIssue(null)
     setRetryHeadPass(false)
     setDiagnosticsAvailable(false)
   }, [])
@@ -186,8 +216,19 @@ export function EyeTrackingWorkspace({
     diagnostics.clear()
     resetCalibrationState()
   }, [diagnostics, resetCalibrationState])
-  const geometry = `${tracker.dimensions.width}:${tracker.dimensions.height}:${source?.key ?? ""}`
-  const [calibrationGeometry, setCalibrationGeometry] = useState(geometry)
+  if (calibration && !settings.locked) {
+    resetCalibrationState()
+  }
+  useEffect(() => {
+    if (!settings.locked) {
+      pendingFit.current?.abort()
+      diagnostics.clear()
+    }
+  }, [settings.locked, diagnostics])
+  const measuredGeometry = cameraGeometryIdentity(source, tracker.dimensions)
+  const [calibrationGeometry, setCalibrationGeometry] =
+    useState(measuredGeometry)
+  const geometry = measuredGeometry ?? calibrationGeometry
   if (calibrationGeometry !== geometry) {
     setCalibrationGeometry(geometry)
     resetCalibrationState()
@@ -233,14 +274,113 @@ export function EyeTrackingWorkspace({
     frame?.model ?? null
   )
   const gazeReading = useCalibratedGaze({
-    calibration,
+    calibration: settings.locked ? calibration : null,
     eye: tracker.latest,
     head: head.latest,
     headHistory: head.history,
     onDiagnosticReading: recordDiagnosticReading,
   })
   const { offset, setOffset } = useGazeAdjustment(calibration)
-  const screenPoint = applyGazeOffset(gazeReading.point, offset)
+  const { alignment, setAlignment } = useSessionAlignment(calibration)
+  const cameraIdentity = useCameraIdentity(
+    source?.deviceId ?? source?.url ?? ""
+  )
+  const headDeviceId =
+    head.stream?.getVideoTracks()[0]?.getSettings().deviceId ?? ""
+  const headIdentity = useCameraIdentity(
+    head.enabled ? headDeviceId : "eye-only"
+  )
+  let eyeModelKey = ""
+  if (frame?.model?.ready && settings.locked) {
+    eyeModelKey = JSON.stringify({
+      center: frame.model.center,
+      radius: frame.model.radius,
+    })
+  }
+  const profileContext = useMemo<CalibrationContext | null>(() => {
+    if (
+      sceneMode ||
+      source?.kind === "sample" ||
+      source?.kind === "video" ||
+      !eyeModelKey ||
+      !cameraIdentity ||
+      !headIdentity ||
+      tracker.dimensions.width <= 0 ||
+      !settings.locked
+    ) {
+      return null
+    }
+    return {
+      version: 1,
+      tracker: "screen",
+      featureVersion: "near-eye-v1",
+      cameraIdentity,
+      width: tracker.dimensions.width,
+      height: tracker.dimensions.height,
+      inputTransform: JSON.stringify(tracker.transform),
+      outputSpace: "screen",
+      screenAspect: screenGeometry.aspectRatio,
+      setupKey: JSON.stringify({
+        eyeModel: eyeModelKey,
+        viewport: [screenGeometry.width, screenGeometry.height],
+        format: settings.format,
+        roi: settings.roi,
+        corners: settings.corners,
+        fov: settings.fov,
+        radius: settings.radiusMm,
+        orientation: activeOrientation,
+        headIdentity,
+        headTransform: head.enabled ? head.transform : null,
+      }),
+      geometryId: null,
+    }
+  }, [
+    sceneMode,
+    source?.kind,
+    screenGeometry.width,
+    screenGeometry.height,
+    screenGeometry.aspectRatio,
+    cameraIdentity,
+    eyeModelKey,
+    headIdentity,
+    tracker.dimensions,
+    tracker.transform,
+    settings,
+    activeOrientation,
+    head.enabled,
+    head.transform,
+  ])
+  const profilePayload = useMemo<CalibrationPayload | null>(
+    () => (calibration ? { kind: "screen", model: calibration } : null),
+    [calibration]
+  )
+  const profiles = useSavedCalibration({
+    context: profileContext,
+    payload: profilePayload,
+    offset,
+    alignment,
+    ready: !!source && settings.locked,
+    disabled: !!capture || fitting || sceneMode,
+    onIncompatible: clearCalibration,
+    onLoaded: (payload, savedOffset, savedAlignment) => {
+      if (payload.kind !== "screen") {
+        return
+      }
+      setPreviewCandidate(null)
+      setCalibration(payload.model)
+      setOffset(savedOffset, payload.model)
+      setAlignment(savedAlignment, payload.model)
+      setValidation(null)
+      setValidationMetrics(null)
+      setSavedGazeGrid([])
+      setRetryHeadPass(false)
+      setStep(5)
+    },
+  })
+  const screenPoint = applyGazeOffset(
+    alignGazePoint(gazeReading.point, alignment),
+    offset
+  )
   const onscreen = screenPoint && screenPoint.every((v) => v >= 0 && v <= 1)
   let allowed = [
     true,
@@ -280,9 +420,10 @@ export function EyeTrackingWorkspace({
   } else if (step === 3) {
     continueDisabled = head.enabled && head.status !== "tracking"
   }
+  const headRangeSupported = gazeReading.status !== "head-outside-range"
   let focusTitle = "Gaze outside this view"
   let stepDescription = stepHelp[step]
-  if (!screenPoint) {
+  if (!screenPoint || !headRangeSupported) {
     focusTitle = gazeReading.message
   } else if (onscreen) {
     focusTitle = "Look around."
@@ -298,31 +439,106 @@ export function EyeTrackingWorkspace({
     }
   }
   const finishCapture = useCallback(
-    async (samples: CalibrationSample[]) => {
-      if (capture === "validation" && calibration) {
+    async (samples: CalibrationSample[], attempts?: ValidationReading[]) => {
+      setAutoCheck(false)
+      if (capture === "repair" && calibration) {
         setCapture(null)
-        const mse =
-          samples.reduce((sum, s) => {
-            const p = applyGazeOffset(
-              mapCalibrationSample(calibration, s),
-              offset
-            )
-            if (!p) {
-              return Infinity
-            }
-            return (
-              sum +
-              ((p[0] - s.target[0]) * window.innerWidth) ** 2 +
-              ((p[1] - s.target[1]) * window.innerHeight) ** 2
-            )
-          }, 0) / samples.length
-        if (!Number.isFinite(mse)) {
-          setNotice(
-            "Validation lost the face or left the calibrated head range. Please retry."
-          )
+        const repaired = evaluatePersonalResidual(
+          attempts?.length
+            ? attempts
+            : screenValidationReadings(calibration, samples),
+          { width: window.innerWidth, height: window.innerHeight },
+          !!profileContext
+        )
+        if (!repaired.alignment) {
+          setNotice(repaired.issue)
           return
         }
-        setValidation(Math.sqrt(mse))
+        setAlignment(repaired.alignment)
+        setOffset([0, 0])
+        setValidation(null)
+        setValidationMetrics(null)
+        setNotice("Grid repaired · validate before use")
+        return
+      }
+      if (capture === "check" && calibration) {
+        setCapture(null)
+        const currentReadings = attempts?.length
+          ? attempts.map((reading) => ({
+              ...reading,
+              point: applyGazeOffset(
+                alignGazePoint(reading.point, alignment),
+                offset
+              ),
+            }))
+          : screenValidationReadings(calibration, samples, offset, alignment)
+        const viewport = {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }
+        const baselineMetrics = evaluateValidation(currentReadings, viewport)
+        const checked = evaluateReturnCheck(currentReadings, viewport)
+        if (!checked.offset || checked.metrics.rmsPixels === null) {
+          setValidation(null)
+          setValidationMetrics(baselineMetrics)
+          setNotice(checked.issue)
+          return
+        }
+        const correctedOffset: Point = [
+          offset[0] + checked.offset[0],
+          offset[1] + checked.offset[1],
+        ]
+        if (correctedOffset.some((value) => Math.abs(value) > 1)) {
+          setValidation(null)
+          setValidationMetrics(baselineMetrics)
+          setNotice("Correction is outside the supported range. Recalibrate.")
+          return
+        }
+        setOffset(correctedOffset)
+        setValidationMetrics(checked.metrics)
+        const assessment = assessValidation(
+          checked.metrics,
+          { width: window.innerWidth, height: window.innerHeight },
+          3,
+          4
+        )
+        setValidation(
+          assessment.status === "checked" ? checked.metrics.rmsPixels : null
+        )
+        setNotice(assessment.message)
+        setStep(5)
+        return
+      }
+      if (capture === "validation" && calibration) {
+        setCapture(null)
+        const measured = attempts?.length
+          ? evaluateValidation(
+              attempts.map((reading) => ({
+                ...reading,
+                point: applyGazeOffset(
+                  alignGazePoint(reading.point, alignment),
+                  offset
+                ),
+              })),
+              { width: window.innerWidth, height: window.innerHeight }
+            )
+          : evaluateScreenValidation(
+              calibration,
+              samples,
+              { width: window.innerWidth, height: window.innerHeight },
+              offset,
+              alignment
+            )
+        setValidationMetrics(measured)
+        const assessment = assessValidation(
+          measured,
+          { width: window.innerWidth, height: window.innerHeight },
+          5
+        )
+        setValidation(
+          assessment.status === "checked" ? measured.rmsPixels : null
+        )
+        setNotice(assessment.message)
         setStep(5)
         return
       }
@@ -368,25 +584,46 @@ export function EyeTrackingWorkspace({
         setNotice(result.issue?.message ?? "Calibration could not be fitted.")
         return
       }
+      if (result.issue && calibration) {
+        setPreviewCandidate(result.calibration)
+        setSavedGazeGrid(samples.slice(0, 9))
+        setNotice(
+          "Previous calibration retained. The new fit is available as an unverified preview."
+        )
+        return
+      }
+      setPreviewCandidate(null)
       setCalibration(result.calibration)
       setSavedGazeGrid(samples.slice(0, 9))
-      setHeadCalibrationIssue(result.issue)
       setValidation(null)
+      setValidationMetrics(null)
       setStep(5)
+      setAutoCheck(true)
+      setCapture("validation")
       if (result.issue) {
-        setNotice(`Eye-only calibration saved. ${result.issue.message}`)
+        setNotice(`Unverified eye-only preview. ${result.issue.message}`)
       } else {
         setNotice("Calibration saved for this session.")
       }
     },
-    [capture, calibration, activeOrientation, diagnostics, offset]
+    [
+      capture,
+      calibration,
+      activeOrientation,
+      diagnostics,
+      offset,
+      alignment,
+      profileContext,
+      setAlignment,
+      setOffset,
+    ]
   )
   const canRetryHead =
     head.enabled &&
-    !!calibration &&
-    !calibration.headCompensation &&
-    !!headCalibrationIssue &&
-    savedGazeGrid.length === 9
+    savedGazeGrid.length === 9 &&
+    savedGazeGrid.every(
+      (sample) => !!sample.headPose && sample.feature.every(Number.isFinite)
+    )
   function retryHeadCalibration(): void {
     setFocus(false)
     setNotice("")
@@ -461,9 +698,11 @@ export function EyeTrackingWorkspace({
       gaze: frame?.gaze ?? null,
       screenPosition: screenPoint,
       gazeOffset: offset,
+      sessionAlignment: alignment,
       calibration,
       headPose: head.latest.current,
       validationErrorPixels: validation,
+      validationMetrics,
       headCameraTransform: head.transform,
       eyeCameraOrientation: activeOrientation,
       eyeSourceKind: source?.kind ?? null,
@@ -632,6 +871,21 @@ export function EyeTrackingWorkspace({
             error={tracker.error}
             message={notice}
           >
+            {previewCandidate && (
+              <button
+                className={`eye-button ${EyeButtonStyles} secondary`}
+                onClick={() => {
+                  setCalibration(previewCandidate)
+                  setPreviewCandidate(null)
+                  setValidation(null)
+                  setValidationMetrics(null)
+                  setNotice("Unverified preview · accuracy needs checking")
+                  setStep(5)
+                }}
+              >
+                Use unverified preview
+              </button>
+            )}
             {head.enabled && step !== 3 && !capture && !focus && (
               <HeadPreview head={head} inline />
             )}
@@ -668,6 +922,21 @@ export function EyeTrackingWorkspace({
                 }}
               />
             )}
+            {(step === 4 || step === 5) && !sceneMode && (
+              <CalibrationProfileControls
+                controller={profiles}
+                sceneLabels={false}
+              />
+            )}
+            {step === 4 && canRetryHead && (
+              <button
+                className={`eye-button ${EyeButtonStyles} secondary`}
+                disabled={head.status !== "tracking"}
+                onClick={retryHeadCalibration}
+              >
+                Resume head movements from saved gaze dots
+              </button>
+            )}
             {step === 4 && (
               <CalibrationControls
                 usable={usable}
@@ -683,6 +952,7 @@ export function EyeTrackingWorkspace({
                   setOrientation(next)
                 }}
                 onStart={() => {
+                  setPreviewCandidate(null)
                   setNotice("")
                   setRetryHeadPass(false)
                   setCapture("calibration")
@@ -694,7 +964,23 @@ export function EyeTrackingWorkspace({
                 tracker={tracker}
                 calibration={calibration}
                 screenPoint={screenPoint}
-                validation={validation}
+                validation={
+                  gazeReading.status === "tracking" ? validation : null
+                }
+                measuredValidation={validationMetrics?.rmsPixels ?? null}
+                validationStatus={
+                  !headRangeSupported
+                    ? gazeReading.message
+                    : assessValidation(
+                        validationMetrics,
+                        {
+                          width: window.innerWidth,
+                          height: window.innerHeight,
+                        },
+                        validationMetrics?.attemptedTargetCount === 3 ? 3 : 5,
+                        validationMetrics?.attemptedTargetCount === 3 ? 4 : 12
+                      ).message
+                }
                 usable={usable}
                 gazeMessage={gazeReading.message}
                 headCompensated={!!calibration?.headCompensation}
@@ -710,15 +996,20 @@ export function EyeTrackingWorkspace({
                   setFocusCorrection(true)
                   setFocus(true)
                 }}
+                onRepair={
+                  profileContext ? () => setCapture("repair") : undefined
+                }
+                onQuickCheck={() => setCapture("check")}
                 onValidate={() => setCapture("validation")}
                 onRecalibrate={() => {
-                  clearCalibration()
+                  setRetryHeadPass(false)
                   setStep(4)
                 }}
                 offset={offset}
                 onOffsetChange={(value) => {
                   setOffset(value)
                   setValidation(null)
+                  setValidationMetrics(null)
                 }}
                 onExport={exportResult}
               />
@@ -784,19 +1075,28 @@ export function EyeTrackingWorkspace({
       </footer>
       {capture && (
         <CalibrationOverlay
+          key={capture}
+          autoStart={capture === "validation" && autoCheck}
           tracker={tracker}
           head={head}
           calibration={calibration}
-          validation={capture === "validation"}
+          validation={capture !== "calibration"}
+          targets={capture === "check" ? RETURN_CHECK_TARGETS : undefined}
+          repairTargets={
+            capture === "repair" ? PERSONAL_RESIDUAL_TARGETS : undefined
+          }
+          comfortableHold={capture === "check" || capture === "repair"}
           fitting={fitting}
           seedSamples={retryHeadPass ? savedGazeGrid : undefined}
           orientation={activeOrientation}
+          onGridComplete={setSavedGazeGrid}
           onComplete={finishCapture}
           onDiagnosticReading={recordDiagnosticReading}
           onCancel={() => {
             pendingFit.current?.abort()
             setFitting(false)
             setCapture(null)
+            setAutoCheck(false)
           }}
         />
       )}
@@ -806,10 +1106,12 @@ export function EyeTrackingWorkspace({
           onOffsetChange={(value) => {
             setOffset(value)
             setValidation(null)
+            setValidationMetrics(null)
           }}
           point={screenPoint}
           timestamp={gazeReading.timestamp ?? null}
-          validationErrorPixels={validation}
+          validationErrorPixels={validationMetrics?.rmsPixels ?? null}
+          verified={validation !== null && gazeReading.status === "tracking"}
           resetKey={calibration}
           offset={offset}
           title={focusTitle}

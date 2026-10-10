@@ -1,0 +1,8 @@
+{
+  "extends": "../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": ["gaze-3d/browser/**/*.ts", "calibration/**/*.ts"],
+  "exclude": ["gaze-3d/models"]
+}

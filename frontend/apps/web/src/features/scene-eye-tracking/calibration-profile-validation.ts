@@ -37,7 +37,11 @@ function isSetup(value: unknown): value is SceneProfileSetup {
   return (
     isRecord(value) &&
     (value.trackerFormat === "classic" || value.trackerFormat === "spatial") &&
-    isOrientation(value.orientation)
+    isOrientation(value.orientation) &&
+    (value.fingerprint === undefined ||
+      (typeof value.fingerprint === "string" &&
+        value.fingerprint.length > 0 &&
+        value.fingerprint.length <= 20000))
   )
 }
 function isHold(value: unknown) {

@@ -117,16 +117,12 @@ export function ValidationRecoveryControls({
       {suggested && unchanged && (
         <button
           className={`eye-button ${EyeButtonStyles} primary`}
-          aria-label="Apply suggested offset and check accuracy"
-          title={`Try X ${(suggested[0] * dimensions.width).toFixed(1)} px, Y ${(suggested[1] * dimensions.height).toFixed(1)} px, then check five new fixations. The nine calibration points are kept.`}
-          disabled={!canCapture}
-          onClick={() => {
-            prepare()
-            session.setOffset(suggested)
-            session.startCapture("validation")
-          }}
+          aria-label="Apply suggested offset as unverified preview"
+          title={`Try X ${(suggested[0] * dimensions.width).toFixed(1)} px, Y ${(suggested[1] * dimensions.height).toFixed(1)} px as an unverified preview. The nine calibration points are kept.`}
+          disabled={!!state.capture}
+          onClick={() => session.setOffset(suggested)}
         >
-          <Move size={16} aria-hidden="true" /> Try offset & check
+          <Move size={16} aria-hidden="true" /> Apply offset
         </button>
       )}
       {result.retryIndex != null && unchanged && (

@@ -52,18 +52,19 @@ afterEach(() => {
   savedGlobals.clear()
 })
 
-test("RGB defaults retain blink inference and live head-pose matrices", async () => {
+test("RGB enables single-face temporal smoothing and retains head matrices", async () => {
   await createLandmarker()
   expect(consumedOptions[0].outputFaceBlendshapes).toBe(true)
   expect(consumedOptions[0].outputFacialTransformationMatrixes).toBe(true)
-  expect(consumedOptions[0].numFaces).toBe(2)
+  expect(consumedOptions[0].runningMode).toBe("VIDEO")
+  expect(consumedOptions[0].numFaces).toBe(1)
 })
 
 test("IR can omit unused blendshape inference while retaining live head pose", async () => {
   await createLandmarker({ outputFaceBlendshapes: false })
   expect(consumedOptions[0].outputFaceBlendshapes).toBe(false)
   expect(consumedOptions[0].outputFacialTransformationMatrixes).toBe(true)
-  expect(consumedOptions[0].numFaces).toBe(2)
+  expect(consumedOptions[0].numFaces).toBe(1)
 })
 
 test("CPU fallback preserves the requested IR inference configuration", async () => {
@@ -78,6 +79,7 @@ test("CPU fallback preserves the requested IR inference configuration", async ()
   )
   const result = await createLandmarker({ outputFaceBlendshapes: false })
   expect(result.delegate).toBe("CPU")
+  expect(consumedOptions.every((options) => options.numFaces === 1)).toBe(true)
   expect(
     consumedOptions.map((options) => options.outputFaceBlendshapes)
   ).toEqual([false, false])

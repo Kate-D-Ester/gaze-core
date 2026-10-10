@@ -7,6 +7,7 @@ import {
   type CameraTransform,
 } from "../eye-tracking/camera-transform"
 import { NetworkCamera } from "../eye-tracking/network-camera"
+import { videoFrameTimestamp } from "../eye-tracking/video-frame-clock"
 import {
   getCameraErrorMessage,
   waitForVideoDimensions,
@@ -39,6 +40,7 @@ export class SceneCamera {
   private usesFrameCallbacks = false
   private videoFrameReady = false
   private videoFrameTimestamp = 0
+  private videoFrameArrival = 0
   private lastPresentedFrames = -1
   private lastArrival = 0
   private disposed = false
@@ -161,7 +163,7 @@ export class SceneCamera {
           kind: "camera",
           name: track?.label || "Scene camera",
           key: `usb:${actualId || deviceId}:${epoch}`,
-          deviceId: actualId,
+          deviceId: actualId || deviceId,
         },
         epoch
       )
@@ -296,7 +298,11 @@ export class SceneCamera {
         if (metadata.presentedFrames !== this.lastPresentedFrames) {
           this.lastPresentedFrames = metadata.presentedFrames
           this.videoFrameReady = true
-          this.videoFrameTimestamp = now
+          this.videoFrameArrival = now
+          this.videoFrameTimestamp =
+            source.kind === "camera"
+              ? (videoFrameTimestamp(metadata, now) ?? now)
+              : now
         }
         this.videoFrameHandle = video.requestVideoFrameCallback(presented)
       }
@@ -334,9 +340,14 @@ export class SceneCamera {
           }
           this.lastArrival = time
           if (this.usesFrameCallbacks) {
-            this.lastArrival = this.videoFrameTimestamp
+            this.lastArrival = this.videoFrameArrival
           }
-          this.draw(image, width, height, this.lastArrival)
+          this.draw(
+            image,
+            width,
+            height,
+            this.usesFrameCallbacks ? this.videoFrameTimestamp : time
+          )
         }
       }
       if (

@@ -96,6 +96,7 @@ test("IR processing converts normalized ROI measurements to original frame coord
     expect(observation.width).toBe(640)
     expect(observation.height).toBe(480)
     expect(observation.timestamp).toBe(100)
+    expect(observation.vectors).toBeUndefined()
   } finally {
     processor.dispose()
   }
@@ -112,6 +113,7 @@ test("an IR frame without its current reflection clears calibrated input immedia
     expect(lost.pose).toBeNull()
     expect(lost.basePoint).toBeNull()
     expect(lost.quality).toBe(0)
+    expect(lost.vectors).toBeUndefined()
   } finally {
     processor.dispose()
   }
@@ -172,6 +174,11 @@ test("automatic full-face IR finds real small pupils without glints at source re
     expect(result.quality).toBeGreaterThan(0.45)
     expect(result.glints).toEqual([])
     expect(result.eyeRegions).toHaveLength(2)
+    expect(result.vectors?.rightEye?.source).toBe("ir-pupil")
+    expect(result.vectors?.leftEye?.source).toBe("ir-pupil")
+    expect(result.vectors?.rightEye?.center[0]).toBeCloseTo(749, 0)
+    expect(result.vectors?.leftEye?.center[0]).toBeCloseTo(1171, 0)
+    expect(result.vectors?.face?.direction[2]).toBeCloseTo(1, 5)
   } finally {
     processor.dispose()
   }
@@ -190,6 +197,8 @@ test("full-face pupil loss cannot fall back to inferred iris centers or old gaze
     expect(missing.feature).toBeNull()
     expect(missing.basePoint).toBeNull()
     expect(missing.eyes).toHaveLength(0)
+    expect(missing.vectors?.leftEye).toBeNull()
+    expect(missing.vectors?.rightEye).toBeNull()
   } finally {
     processor.dispose()
   }

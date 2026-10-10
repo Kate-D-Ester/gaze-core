@@ -16,6 +16,11 @@ export const EyeCalibrationTopStyles = `
   [&_b]:[font-weight:500] [&_b]:[letter-spacing:0] [&_button]:[padding:10px]
 `
 
+/** Leave the center, corners and edge targets clear while capture is running. */
+export const EyeCalibrationCaptureCancelStyles = `
+  fixed! [left:calc(50%_+_48px)] [top:8px]
+`
+
 export const EyeCalibrationWelcomeStyles = `
   absolute [inset:80px_24px_36px] flex flex-col
   justify-center items-center [gap:16px] [padding-bottom:100px]
@@ -32,17 +37,17 @@ export const EyeCalibrationTargetStyles = `
 `
 
 export const EyeCalibrationStimulusStyles = `
-  [width:18px] [height:18px] grid place-items-center
-  relative motion-reduce:[&.is-bursting]:animate-none motion-reduce:[&.is-bursting]:[opacity:0]
+  [width:min(32px,6vw,6vh)] [height:min(32px,6vw,6vh)] grid place-items-center
+  absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 motion-reduce:[&.is-bursting]:animate-none motion-reduce:[&.is-bursting]:[opacity:0]
 `
 
 export const EyeCalibrationPillStyles = `
-  absolute [height:10px] [width:16px] [border-radius:999px]
+  absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 [height:62.5%] w-full [border-radius:999px]
   [transition:background-color_80ms_linear]
 `
 
 export const EyeCalibrationFocalPointStyles = `
-  absolute [width:3px] [height:3px] [background:#090909]
+  absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 [width:3px] [height:3px] [background:#090909]
   [border-radius:50%]
 `
 

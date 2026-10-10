@@ -1,5 +1,24 @@
 import { expect, test } from "bun:test"
-import { VideoFrameClock } from "../../apps/web/src/features/eye-tracking/video-frame-clock"
+import {
+  VideoFrameClock,
+  videoFrameTimestamp,
+} from "../../apps/web/src/features/eye-tracking/video-frame-clock"
+
+test.each([
+  { captureTime: 900, presentationTime: 990, expected: 900 },
+  { captureTime: undefined, presentationTime: 990, expected: 990 },
+  { captureTime: NaN, presentationTime: 990, expected: 990 },
+  { captureTime: 1100, presentationTime: 990, expected: null },
+  { captureTime: -1, presentationTime: 990, expected: null },
+  { captureTime: undefined, presentationTime: Infinity, expected: null },
+])(
+  "frame timestamp selection validates available camera metadata: %p",
+  (value) => {
+    expect(videoFrameTimestamp(value as VideoFrameCallbackMetadata, 1000)).toBe(
+      value.expected
+    )
+  }
+)
 
 test("camera timestamps are retained separately from inference and presentation time", () => {
   let callback: VideoFrameRequestCallback

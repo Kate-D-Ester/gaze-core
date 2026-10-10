@@ -1,3 +1,4 @@
+import type { ValidationReading } from "../tracking-calibration/validation-metrics.types"
 import { ArrowRight, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import {
@@ -10,44 +11,59 @@ import {
   EyeCalibrationTargetStyles,
   EyeCalibrationTopStyles,
   EyeCalibrationWelcomeStyles,
+  EyeCalibrationCaptureCancelStyles,
 } from "../tracking-ui/calibration-styles"
 import { EyeHeadFloatingStyles } from "../tracking-ui/head-tracking-styles"
 import { gazeFeature, mapGaze } from "./calibration"
 import { CalibrationFeedback } from "./calibration-feedback"
 import type { CalibrationOverlayProps } from "./calibration-overlay.types"
-import { CalibrationSession } from "./calibration-session"
+import {
+  CALIBRATION_READING_MAX_AGE_MS,
+  CalibrationSession,
+} from "./calibration-session"
 import type { CalibrationObservation } from "./calibration-session.types"
 import { CalibrationTarget } from "./calibration-target"
 import { HeadPreview } from "./head-tracking/head-preview"
 import { GazeFrameSynchronizer } from "./head-tracking/head-synchronization"
 export function CalibrationOverlay({
   tracker,
+  targets,
+  repairTargets,
+  comfortableHold,
   head,
   calibration,
   validation,
+  autoStart = false,
   fitting = false,
   seedSamples,
   orientation,
   onComplete,
+  onGridComplete,
   onDiagnosticReading,
   onCancel,
 }: CalibrationOverlayProps) {
   const needsHead =
     head.enabled && (!validation || !!calibration?.headCompensation)
-  const [session] = useState(
-    () =>
-      new CalibrationSession({
-        screenAspectRatio: window.innerWidth / window.innerHeight,
-        headEnabled: needsHead,
-        orientation,
-        validation: validation ? calibration : null,
-        seedSamples,
-      })
-  )
+  const [session] = useState(() => {
+    const created = new CalibrationSession({
+      screenAspectRatio: window.innerWidth / window.innerHeight,
+      headEnabled: needsHead,
+      orientation,
+      validation: validation ? calibration : null,
+      seedSamples,
+      targets: repairTargets ?? targets,
+      comfortableHold,
+    })
+    if (autoStart) {
+      created.start(performance.now())
+    }
+    return created
+  })
   const [snapshot, setSnapshot] = useState(session.snapshot)
   const dialog = useRef<HTMLDivElement | null>(null)
   const complete = useRef(onComplete)
   const submitted = useRef(false)
+  const checkpointed = useRef(false)
   const { latest, setSampleTarget, source } = tracker
   const headLatest = head.latest
   const headHistory = head.history
@@ -73,6 +89,13 @@ export function CalibrationOverlay({
   }, [setSampleTarget, snapshot.phase, snapshot.target])
   useEffect(() => {
     const synchronizer = new GazeFrameSynchronizer()
+    const attempts: ValidationReading[] = []
+    let targetStarted = performance.now()
+    let previousTarget = session.snapshot.target
+    let previousPhase = session.snapshot.phase
+    let lastAttempt = -Infinity
+    let lastOutage = -Infinity
+    let targetId = -1
     const timer = setInterval(() => {
       if (submitted.current) {
         return
@@ -98,7 +121,72 @@ export function CalibrationOverlay({
         }
       }
       const before = session.snapshot
+      if (
+        before.phase === "fixation" &&
+        (previousPhase !== "fixation" || previousTarget !== before.target)
+      ) {
+        targetStarted = now
+        targetId++
+      }
+      previousTarget = before.target
+      previousPhase = before.phase
+      if (
+        validation &&
+        calibration &&
+        before.phase === "fixation" &&
+        frame &&
+        frame.timestamp >= targetStarted + 650 &&
+        frame.timestamp > lastAttempt &&
+        frame.timestamp <= now &&
+        attempts.length < 12000
+      ) {
+        lastAttempt = frame.timestamp
+        let point = null
+        let reason: string | null = null
+        if (!observation || !feature) {
+          reason = "eye-lost"
+        } else if (now - frame.timestamp > CALIBRATION_READING_MAX_AGE_MS) {
+          reason = "stale-eye-reading"
+        } else if (needsHead && !pair) {
+          reason = "unpaired-head"
+        } else {
+          point = mapGaze(calibration, feature, pair?.head)
+        }
+        attempts.push({
+          timestamp: frame.timestamp,
+          targetId,
+          target: [...before.target],
+          point,
+          reason,
+        })
+      }
+      if (
+        validation &&
+        before.phase === "fixation" &&
+        now >= targetStarted + 650 &&
+        (!frame || now - frame.timestamp > CALIBRATION_READING_MAX_AGE_MS) &&
+        now - lastOutage >= 200 &&
+        attempts.length < 12000
+      ) {
+        lastOutage = now
+        attempts.push({
+          timestamp: now,
+          targetId,
+          target: [...before.target],
+          point: null,
+          reason: "eye-outage",
+        })
+      }
       session.observe(observation, now)
+      if (
+        !validation &&
+        needsHead &&
+        session.samples.length >= 9 &&
+        !checkpointed.current
+      ) {
+        checkpointed.current = true
+        onGridComplete?.(session.samples.slice(0, 9))
+      }
       if (before.phase !== "intro" && onDiagnosticReading) {
         let point = null
         if (calibration && feature) {
@@ -126,7 +214,7 @@ export function CalibrationOverlay({
       setSnapshot(session.snapshot)
       if (session.snapshot.phase === "complete") {
         submitted.current = true
-        complete.current(session.samples)
+        complete.current(session.samples, attempts)
       }
     }, 40)
     return () => clearInterval(timer)
@@ -139,6 +227,7 @@ export function CalibrationOverlay({
     onDiagnosticReading,
     calibration,
     validation,
+    onGridComplete,
   ])
   function start(): void {
     session.start(performance.now())
@@ -197,7 +286,7 @@ export function CalibrationOverlay({
       <div className={`eye-calibration-top ${EyeCalibrationTopStyles}`}>
         <span>{intro || failed || fitting ? snapshot.label : ""}</span>
         <button
-          className={`eye-icon-button ${EyeIconButtonStyles}`}
+          className={`eye-icon-button ${EyeIconButtonStyles} ${intro || failed || fitting ? "" : EyeCalibrationCaptureCancelStyles}`}
           autoFocus={!intro}
           onClick={onCancel}
           aria-label="Cancel calibration"
@@ -206,6 +295,17 @@ export function CalibrationOverlay({
           <X size={20} />
         </button>
       </div>
+      {!validation && needsHead && session.samples.length >= 9 && !fitting && (
+        <button
+          className={`eye-button ${EyeButtonStyles}`}
+          onClick={() => {
+            submitted.current = true
+            complete.current(session.samples.slice(0, 9))
+          }}
+        >
+          Finish eye-only calibration
+        </button>
+      )}
       {head.enabled && (
         <div
           className={`eye-head-floating ${EyeHeadFloatingStyles} ${snapshot.target[0] <= 0.5 ? "on-right" : ""}`}
@@ -235,11 +335,22 @@ export function CalibrationOverlay({
             <button
               className={`eye-button ${EyeButtonStyles} primary eye-calibration-start`}
               autoFocus
-              disabled={needsHead && head.status !== "tracking"}
+              disabled={!validation && needsHead && head.status !== "tracking"}
               onClick={start}
             >
               {startLabel}
               <ArrowRight size={18} />
+            </button>
+          )}
+          {failed && snapshot.retryable && (
+            <button
+              className={`eye-button ${EyeButtonStyles} primary`}
+              onClick={() => {
+                session.retryCurrentTarget(performance.now())
+                setSnapshot(session.snapshot)
+              }}
+            >
+              Retry this dot
             </button>
           )}
           {failed && (

@@ -1,10 +1,20 @@
+import type { SceneSession } from "../../apps/web/src/features/scene-eye-tracking/scene-session"
+import { hashCameraIdentity } from "../../apps/web/src/features/tracking-calibration/use-camera-identity"
+import type { TrackingFrame } from "../../apps/web/src/features/eye-tracking/eye-tracking.types"
+import {
+  stableSceneSetupKey,
+  useSceneSession,
+} from "../../apps/web/src/features/scene-eye-tracking/use-scene-session"
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 if (typeof document === "undefined") GlobalRegistrator.register()
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
 import { SceneWorkspace } from "../../apps/web/src/features/scene-eye-tracking/scene-workspace"
-import { saveSceneProfile } from "../../apps/web/src/features/scene-eye-tracking/calibration-profiles"
+import {
+  readSceneProfiles,
+  saveSceneProfile,
+} from "../../apps/web/src/features/scene-eye-tracking/calibration-profiles"
 import { DEFAULT_SETTINGS } from "../../apps/web/src/features/eye-tracking/use-tracker"
 import { DEFAULT_CAMERA_TRANSFORM } from "../../apps/web/src/features/eye-tracking/camera-transform"
 import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
@@ -210,7 +220,20 @@ test.each(["USB", "network"])(
       transform: DEFAULT_CAMERA_TRANSFORM,
       source: { kind: "camera", name: "Eye camera", deviceId: "eye" },
       sourceCanvas: { current: null },
-      frame: null,
+      frame: {
+        id: 1,
+        timestamp: 0,
+        gaze: null,
+        detection: { ellipse: null, tracking: "lost" },
+        model: {
+          center: [320, 240],
+          radius: 120,
+          ready: true,
+          residual: 1,
+          samples: 100,
+          coverage: 0.8,
+        },
+      } as TrackingFrame,
       latest: { current: null },
       connection: "live",
       reconnectAttempt: 0,
@@ -245,6 +268,20 @@ test.each(["USB", "network"])(
           headers: { "content-type": "video/mp4" },
         })) as typeof fetch
     }
+    const profileCamera = {
+      rawCanvas: { width: 640, height: 480 },
+      getSnapshot: () => ({
+        transform: DEFAULT_CAMERA_TRANSFORM,
+        source:
+          sourceKind === "USB"
+            ? { kind: "camera", name: "scene", deviceId: "scene" }
+            : {
+                kind: "network",
+                name: "http://scene.local/stream.mp4",
+                url: "http://scene.local/stream.mp4",
+              },
+      }),
+    } as unknown as SceneCamera
     saveSceneProfile(
       "Frame recovery",
       {
@@ -255,6 +292,9 @@ test.each(["USB", "network"])(
       },
       {
         trackerFormat: "spatial",
+        fingerprint: await hashCameraIdentity(
+          stableSceneSetupKey(tracker, profileCamera, tracker.frame!.model)!
+        ),
         orientation: {
           eye: DEFAULT_CAMERA_TRANSFORM,
           scene: DEFAULT_CAMERA_TRANSFORM,
@@ -287,12 +327,45 @@ test.each(["USB", "network"])(
       })
       const now = performance.now()
       await act(async () => tick(now))
+      for (let attempt = 0; attempt < 20 && !status.calibrated; attempt++) {
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 5)))
+      }
       expect(status.calibrated).toBe(true)
+      const lockedFrame = tracker.frame
+      tracker.frame = null
+      tracker.settings = { ...tracker.settings, locked: false }
+      await act(async () => root.render(createElement(Workspace)))
+      expect(status.calibrated).toBe(true)
+      tracker.frame = lockedFrame
+      tracker.settings = { ...tracker.settings, locked: true }
+      await act(async () => root.render(createElement(Workspace)))
+      expect(status.calibrated).toBe(true)
+
       const save = () =>
         host.querySelector<HTMLButtonElement>(
           '[aria-label="Save calibration profile"]'
         )!
       expect(save().disabled).toBe(false)
+
+      await act(async () => save().click())
+      const destination = host.querySelector<HTMLSelectElement>(
+        '[aria-label="Save calibration to"]'
+      )!
+      await act(async () => {
+        destination.value = readSceneProfiles().profiles[0].id
+        destination.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      await act(async () =>
+        host
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Replace calibration profile"]'
+          )!
+          .click()
+      )
+      const savedFingerprint =
+        readSceneProfiles().profiles[0].setup.fingerprint!
+      expect(savedFingerprint).toMatch(/^[a-f0-9]{64}$/)
+      expect(savedFingerprint).not.toContain("scene.local")
 
       await act(async () => {
         const next = [...callbacks.values()]
@@ -520,4 +593,98 @@ test("video-frame-count fallback ignores media clock ticks without newly present
   callbacks.clear()
   repaint.forEach((cb) => cb(now + 50))
   expect(c.latest).toBe(first)
+})
+
+test("USB scene exposure timestamps match eye timing while camera freshness follows arrival", async () => {
+  let callback: VideoFrameRequestCallback | undefined
+  const create = document.createElement
+  document.createElement = ((tag: string) => {
+    const element = create(tag)
+    if (tag === "video") {
+      Object.defineProperties(element, {
+        requestVideoFrameCallback: {
+          value: (next: VideoFrameRequestCallback) => {
+            callback = next
+            return 7
+          },
+        },
+        cancelVideoFrameCallback: { value() {} },
+      })
+    }
+    return element
+  }) as typeof document.createElement
+  const c = camera()
+  const start = c.startCamera("scene")
+  pending[0](stream("scene"))
+  await start
+  const now = performance.now() + 3000
+  callback!(now, {
+    presentedFrames: 1,
+    mediaTime: 0,
+    captureTime: now - 2500,
+    presentationTime: now - 20,
+  } as VideoFrameCallbackMetadata)
+  tick(now)
+  expect(c.latest?.timestamp).toBe(now - 2500)
+  expect(c.getSnapshot().connection).toBe("live")
+  tick(now + 1000)
+  expect(c.getSnapshot().connection).toBe("live")
+  callback!(now + 1100, {
+    presentedFrames: 2,
+    mediaTime: videoTime,
+    presentationTime: now + 1080,
+  } as VideoFrameCallbackMetadata)
+  tick(now + 1100)
+  expect(c.latest?.timestamp).toBe(now + 1080)
+  callback!(now + 1200, {
+    presentedFrames: 3,
+    mediaTime: videoTime,
+    captureTime: NaN,
+    presentationTime: NaN,
+  } as VideoFrameCallbackMetadata)
+  tick(now + 1200)
+  expect(c.latest?.timestamp).toBe(now + 1200)
+  tick(now + 3300)
+  expect(c.latest).toBeNull()
+  expect(c.getSnapshot().connection).toBe("waiting")
+})
+
+test("scene orientation changes reach the session when the camera instance stays the same", async () => {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  let transform = DEFAULT_CAMERA_TRANSFORM
+  let identity = "initial"
+  let session: SceneSession | undefined
+  const tracker = {
+    frame: null,
+    settings: { locked: true },
+    transform: DEFAULT_CAMERA_TRANSFORM,
+  } as TrackerController
+  const camera = {
+    getSnapshot: () => ({ transform }),
+    subscribe: () => () => {},
+    latest: null,
+  } as unknown as SceneCamera
+  function Session() {
+    session = useSceneSession(tracker, camera, identity).session
+    return null
+  }
+  try {
+    await act(async () => root.render(createElement(Session)))
+    const orientations: Parameters<SceneSession["setCameraOrientation"]>[0][] =
+      []
+    const original = session!.setCameraOrientation.bind(session)
+    session!.setCameraOrientation = (orientation) => {
+      orientations.push(orientation)
+      original(orientation)
+    }
+    transform = { ...DEFAULT_CAMERA_TRANSFORM, rotation: 90 }
+    identity = "scene-rotated"
+    await act(async () => root.render(createElement(Session)))
+    expect(orientations.at(-1)?.scene).toEqual(transform)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
 })

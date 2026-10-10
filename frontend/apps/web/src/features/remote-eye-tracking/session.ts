@@ -3,7 +3,11 @@ import type {
   RemoteResponse,
   RemoteSettings,
 } from "./remote-eye-tracking.types"
-import type { SessionEnvironment, SessionState } from "./session.types"
+import type {
+  RemoteFrameTiming,
+  SessionEnvironment,
+  SessionState,
+} from "./session.types"
 export type { SessionEnvironment, SessionState } from "./session.types"
 const initialState = (): SessionState => ({
   status: "idle",
@@ -105,6 +109,7 @@ export class RemoteSession {
   private removeMediaEvents: (() => void) | undefined
   private resetReplay: (() => void) | undefined
   private lastResult = 0
+  private lastCapture: RemoteFrameTiming | null = null
   private lastVideoTime = -1
   private freshnessTimer: ReturnType<typeof setTimeout> | null = null
   private initTimer: ReturnType<typeof setTimeout> | null = null
@@ -223,7 +228,9 @@ export class RemoteSession {
       previous.roi.x === settings.roi.x &&
       previous.roi.y === settings.roi.y &&
       previous.roi.width === settings.roi.width &&
-      previous.roi.height === settings.roi.height
+      previous.roi.height === settings.roi.height &&
+      Boolean(previous.irRollCompensation) ===
+        Boolean(settings.irRollCompensation)
     ) {
       return
     }
@@ -247,6 +254,7 @@ export class RemoteSession {
     this.worker = null
     this.modelReady = this.busy = false
     this.lastResult = 0
+    this.lastCapture = null
     this.lastVideoTime = -1
   }
   stop(): void {
@@ -275,6 +283,7 @@ export class RemoteSession {
       error: "",
       fps: 0,
       source: null,
+      cameraDeviceId: "",
       sourceName: "",
       cameraAccess:
         this.state.cameraAccess === "requesting"
@@ -317,7 +326,19 @@ export class RemoteSession {
         this.lastResult = now
         const observation =
           now - message.observation.timestamp < 1000
-            ? { ...message.observation, source: this.state.source ?? "camera" }
+            ? {
+                ...message.observation,
+                source: this.state.source ?? "camera",
+                timing: {
+                  ...message.observation.timing,
+                  captureMs:
+                    this.lastCapture?.timestamp ===
+                    message.observation.timestamp
+                      ? this.lastCapture.captureMs
+                      : undefined,
+                  endToEndMs: now - message.observation.timestamp,
+                },
+              }
             : null
         if (this.freshnessTimer) {
           clearTimeout(this.freshnessTimer)
@@ -391,6 +412,12 @@ export class RemoteSession {
           { once: true }
         )
       }
+      this.update({
+        cameraDeviceId:
+          stream.getVideoTracks()[0]?.getSettings?.().deviceId ??
+          deviceId ??
+          "",
+      })
       this.video.srcObject = stream
       await this.video.play()
       if (generation !== this.generation) {
@@ -567,6 +594,10 @@ export class RemoteSession {
       if (generation !== this.generation || !this.worker) {
         frame.close()
         return
+      }
+      this.lastCapture = {
+        timestamp,
+        captureMs: performance.now() - timestamp,
       }
       try {
         this.worker.postMessage(

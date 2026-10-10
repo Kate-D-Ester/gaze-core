@@ -6,8 +6,10 @@ import {
   RemoteSpinStyles,
 } from "@/features/tracking-ui/remote-styles"
 import type { RemoteCameraPreviewProps } from "./remote-camera-preview.types"
+import { RemoteVectorOverlay } from "./remote-vector-overlay"
 export function RemoteCameraPreview({
   observation,
+  showVectors = false,
   mode,
   roi,
   replaying,
@@ -60,6 +62,12 @@ export function RemoteCameraPreview({
               strokeWidth="3"
             />
           ))}
+          {showVectors && observation.vectors && (
+            <RemoteVectorOverlay
+              vectors={observation.vectors}
+              faceWidth={observation.faceBox?.width ?? observation.width / 2}
+            />
+          )}
           {mode === "ir" && (roi.width !== 1 || roi.height !== 1) && (
             <rect
               x={roi.x * observation.width}

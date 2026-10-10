@@ -16,6 +16,7 @@ import type {
   HeadPoseEnvelope,
   HeadRayMeasurement,
 } from "./head-ray-model.types"
+const JOINT_POSE_MARGINS = [0.06, 0.06, 0.08, 0.1, 0.1, 0.1]
 const MINIMUM_POSE_SPAN = [0.08, 0.08, 0.12, 0.18, 0.18, 0.18]
 const MOVEMENT_NAMES = [
   "sideways",
@@ -51,10 +52,26 @@ export function headPoseInRange(
   if (!relative) {
     return false
   }
-  return relative.every(
+  const insideEnvelope = relative.every(
     (value, axis) =>
       value >= model.envelope.minimum[axis] &&
       value <= model.envelope.maximum[axis]
+  )
+  if (!insideEnvelope) {
+    return false
+  }
+  // Legacy models remain usable, but loading never verifies a new session.
+  if (!model.poseSamples) {
+    return true
+  }
+  return model.poseSamples.some(
+    (sample) =>
+      sample.length === 6 &&
+      relative.reduce(
+        (sum, value, axis) =>
+          sum + ((value - sample[axis]) / JOINT_POSE_MARGINS[axis]) ** 2,
+        0
+      ) <= 2.25
   )
 }
 export function mapHeadCompensatedGaze(
@@ -62,9 +79,7 @@ export function mapHeadCompensatedGaze(
   eye: Point,
   pose: HeadPose
 ): Point | null {
-  if (!headPoseInRange(model, pose)) {
-    return null
-  }
+  // Pose coverage describes accuracy confidence; projection still rejects invalid geometry.
   return projectHeadGaze(model, eye, pose, model.reference)
 }
 export function fitHeadCompensationWithDiagnostics(
@@ -154,6 +169,17 @@ export function fitHeadCompensationWithDiagnostics(
       validationError: fitted.validationError,
       maximumValidationError: fitted.maximumValidationError,
       envelope,
+      poseSamples: Array.from(
+        new Map(
+          readings.map((reading) => {
+            const relative = relativeHeadPose(reading.pose, reference)!
+            return [
+              relative.map((value) => value.toFixed(4)).join(","),
+              relative,
+            ]
+          })
+        ).values()
+      ).slice(0, 2048),
     },
     issue: null,
   }

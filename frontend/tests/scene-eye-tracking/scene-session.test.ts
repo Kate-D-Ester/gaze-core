@@ -1,3 +1,10 @@
+import type { TrackerController } from "../../apps/web/src/features/eye-tracking/use-tracker.types"
+import type { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scene-camera"
+import { DEFAULT_CAMERA_TRANSFORM } from "../../apps/web/src/features/eye-tracking/camera-transform"
+import {
+  stableSceneCameraKey,
+  stableSceneSetupKey,
+} from "../../apps/web/src/features/scene-eye-tracking/use-scene-session"
 import { expect, test } from "bun:test"
 import { SceneSession } from "../../apps/web/src/features/scene-eye-tracking/scene-session"
 import {
@@ -205,7 +212,7 @@ test("post-calibration X/Y offsets shift live and exported coordinates without c
   expect(Number(exported[9])).toBeCloseTo(400)
   expect(Number(exported[10])).toBeCloseTo(324)
 })
-test("offset edits clear the old trace and reset on a new calibration or source setup", () => {
+test("offset edits clear the old trace and reset only when the source setup changes", () => {
   const { s, id, time } = calibrate()
   s.addEye({
     id: id + 1,
@@ -221,7 +228,7 @@ test("offset edits clear the old trace and reset on a new calibration or source 
   expect(s.getSnapshot().measurement).toBeNull()
   expect(s.getSnapshot().notice).toBe("")
   s.startCapture("calibration")
-  expect(s.getSnapshot().offset).toEqual([0, 0])
+  expect(s.getSnapshot().offset).toEqual([0.01, 0.02])
   const fitted = calibrate().s
   fitted.setOffset([0.01, 0.02])
   fitted.invalidate()
@@ -824,4 +831,201 @@ test("a failed fresh check cannot be overridden by a reused profile", () => {
   })
   restored.measure(handAt(id + 1, time + 50).scene, time + 50)
   expect(restored.getSnapshot().measurement?.valid).toBe(false)
+})
+
+test("cancelled recalibration preserves the accepted mapping and accuracy", () => {
+  const { s, id } = calibrate(false)
+  collectValidation(s, id, () => [0, 0])
+  const before = s.getSnapshot()
+  s.startCapture("calibration")
+  s.cancelCapture()
+  expect(s.getSnapshot().calibration).toBe(before.calibration)
+  expect(s.getSnapshot().validation).toBe(before.validation)
+  expect(s.getSnapshot().offset).toEqual(before.offset)
+})
+
+test("a singular replacement fit retains the accepted mapping and offset", () => {
+  const { s, id } = calibrate()
+  s.setOffset([0.02, -0.01])
+  const before = s.getSnapshot()
+  s.startCapture("calibration")
+  collectValidation(
+    s,
+    id,
+    (index) => [
+      0.5 - CALIBRATION_TARGETS[index][0],
+      0.5 - CALIBRATION_TARGETS[index][1],
+    ],
+    CALIBRATION_TARGETS
+  )
+  expect(s.getSnapshot().fitFailure).not.toBeNull()
+  expect(s.getSnapshot().calibration).toBe(before.calibration)
+  expect(s.getSnapshot().validation).toBe(before.validation)
+  expect(s.getSnapshot().offset).toEqual(before.offset)
+})
+test("cancelling replacement validation restores the previous accepted mapping", () => {
+  const { s, id } = calibrate()
+  s.setOffset([0.02, -0.01])
+  const before = s.getSnapshot()
+  s.startCapture("calibration")
+  collectValidation(s, id, () => [0.01, 0], CALIBRATION_TARGETS)
+  expect(s.getSnapshot().capture).toBe("validation")
+  expect(s.getSnapshot().calibration).not.toBe(before.calibration)
+  s.cancelCapture()
+  expect(s.getSnapshot().calibration).toBe(before.calibration)
+  expect(s.getSnapshot().validation).toBe(before.validation)
+  expect(s.getSnapshot().offset).toEqual(before.offset)
+})
+
+test("same camera reconnect preserves identity while different cameras invalidate it", () => {
+  const source = {
+    kind: "camera" as const,
+    name: "USB camera",
+    deviceId: "camera-a",
+    key: "usb:camera-a:1",
+  }
+  expect(stableSceneCameraKey({ ...source, key: "usb:camera-a:2" })).toBe(
+    stableSceneCameraKey(source)
+  )
+  expect(stableSceneCameraKey({ ...source, deviceId: "camera-b" })).not.toBe(
+    stableSceneCameraKey(source)
+  )
+  const network = {
+    kind: "network" as const,
+    name: "IP camera",
+    url: "https://camera-a/stream",
+    key: "network:1",
+  }
+  expect(stableSceneCameraKey({ ...network, key: "network:2" })).toBe(
+    stableSceneCameraKey(network)
+  )
+  expect(
+    stableSceneCameraKey({ ...network, url: "https://camera-b/stream" })
+  ).not.toBe(stableSceneCameraKey(network))
+})
+
+test("finite rejected fits can be explicitly previewed without verified measurements", () => {
+  const s = new SceneSession()
+  s.startCapture("calibration")
+  const collected = collectValidation(
+    s,
+    0,
+    (index) => (index === 0 ? [0.18, 0] : [0, 0]),
+    CALIBRATION_TARGETS
+  )
+  expect(s.getSnapshot().fitFailure?.previewCalibration).toBeDefined()
+  expect(s.getSnapshot().calibration).toBeNull()
+  s.previewCalibrationCandidate()
+  expect(s.getSnapshot().calibration).not.toBeNull()
+  expect(s.getSnapshot().validation).toBeNull()
+  s.addEye({
+    id: collected.id + 1,
+    timestamp: collected.time + 50,
+    feature: [0, 0],
+    confidence: 0.95,
+    valid: true,
+  })
+  s.measure(
+    handAt(collected.id + 1, collected.time + 50).scene,
+    collected.time + 50
+  )
+  expect(s.getSnapshot().measurement?.preview).toBe(true)
+  expect(s.getSnapshot().measurement?.valid).toBe(false)
+  expect(s.getSnapshot().measurement?.estimated).toBe(false)
+})
+
+test("failed replacement validation restores accepted mapping and retains an explicit candidate preview", () => {
+  const { s, id } = calibrate()
+  const accepted = s.getSnapshot()
+  s.startCapture("calibration")
+  const candidate = collectValidation(
+    s,
+    id,
+    () => [0.01, 0],
+    CALIBRATION_TARGETS
+  )
+  const replacement = s.getSnapshot().calibration
+  collectValidation(s, candidate.id, () => [0.1, 0])
+  expect(s.getSnapshot().calibration).toBe(accepted.calibration)
+  expect(s.getSnapshot().validation).toBe(accepted.validation)
+  expect(s.getSnapshot().failedCandidate?.calibration).toBe(replacement)
+  s.previewFailedCandidate()
+  expect(s.getSnapshot().calibration).toBe(replacement)
+  expect(s.getSnapshot().validation?.passed).toBe(false)
+})
+test("restoring accepted mapping after cancellation clears candidate measurements and trace", () => {
+  const { s, id } = calibrate()
+  s.startCapture("calibration")
+  const candidate = collectValidation(
+    s,
+    id,
+    () => [0.01, 0],
+    CALIBRATION_TARGETS
+  )
+  const eye = {
+    id: candidate.id + 1,
+    timestamp: candidate.time + 50,
+    feature: [0, 0] as [number, number],
+    confidence: 0.95,
+    valid: true,
+  }
+  s.addEye(eye)
+  const scene = handAt(eye.id, eye.timestamp).scene
+  s.measure(scene, eye.timestamp)
+  expect(s.getSnapshot().trace.length).toBeGreaterThan(0)
+  s.cancelCapture()
+  expect(s.getSnapshot().measurement).toBeNull()
+  expect(s.getSnapshot().trace).toEqual([])
+  s.measure(scene, eye.timestamp)
+  expect(s.getSnapshot().measurement?.valid).toBe(true)
+})
+
+test("persistent setup fingerprints use learned eye geometry rather than runtime revision or fit diagnostics", () => {
+  const tracker = {
+    source: { kind: "camera", deviceId: "eye-a" },
+    settings: { locked: true, format: "classic" },
+    dimensions: { width: 640, height: 480 },
+    transform: DEFAULT_CAMERA_TRANSFORM,
+  } as TrackerController
+  const camera = {
+    getSnapshot: () => ({
+      source: { kind: "camera", deviceId: "scene-a" },
+      transform: DEFAULT_CAMERA_TRANSFORM,
+    }),
+    rawCanvas: { width: 640, height: 480 },
+  } as SceneCamera
+  const model = {
+    center: [320, 240] as [number, number],
+    radius: 120,
+    ready: true,
+    residual: 1,
+    samples: 100,
+    coverage: 0.8,
+  }
+  const fingerprint = stableSceneSetupKey(tracker, camera, model)
+  expect(fingerprint).not.toBeNull()
+  expect(
+    stableSceneSetupKey(tracker, camera, {
+      ...model,
+      samples: 200,
+      residual: 2,
+    })
+  ).toBe(fingerprint)
+  expect(
+    stableSceneSetupKey(tracker, camera, { ...model, radius: 121 })
+  ).not.toBe(fingerprint)
+  expect(
+    stableSceneSetupKey(tracker, camera, {
+      ...model,
+      center: [321, 240],
+    })
+  ).not.toBe(fingerprint)
+  expect(stableSceneSetupKey(tracker, camera, null)).toBeNull()
+  expect(
+    stableSceneSetupKey(
+      { ...tracker, settings: { ...tracker.settings, locked: false } },
+      camera,
+      model
+    )
+  ).toBeNull()
 })

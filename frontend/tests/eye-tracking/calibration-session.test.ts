@@ -5,7 +5,6 @@ import {
   fixtureReference,
 } from "./head-motion-fixture"
 import { expect, test } from "bun:test"
-import { matchesTargetDirection } from "../../apps/web/src/features/eye-tracking/calibration-direction"
 import { CalibrationSession } from "../../apps/web/src/features/eye-tracking/calibration-session"
 import {
   fitCalibration,
@@ -21,14 +20,14 @@ const face: HeadPose = {
   rotation: [0, 0, 0],
 }
 const directions: Point[] = [
-  [0.1, 0.1],
-  [0.9, 0.1],
-  [0.9, 0.9],
-  [0.1, 0.9],
-  [0.5, 0.1],
-  [0.9, 0.5],
-  [0.5, 0.9],
-  [0.1, 0.5],
+  [0.04, 0.04],
+  [0.96, 0.04],
+  [0.96, 0.96],
+  [0.04, 0.96],
+  [0.5, 0.04],
+  [0.96, 0.5],
+  [0.5, 0.96],
+  [0.04, 0.5],
   [0.5, 0.5],
 ]
 function featureAt(target: Point): Point {
@@ -73,6 +72,7 @@ test("every corner and edge rejects steady gaze in every other direction", () =>
       time = feed(session, featureAt(wrong), time)
       expect(session.samples).toHaveLength(point)
       expect(session.snapshot.progress).toBe(0)
+      if (session.snapshot.retryable) session.retryCurrentTarget(time)
     }
     time = feed(session, featureAt(target), time)
     expect(session.samples).toHaveLength(point + 1)
@@ -90,13 +90,17 @@ test("center jitter is not a direction and looking away resets partially collect
   for (let index = 0; index < 6; index++) {
     time += 100
     session.observe(
-      { id: time, timestamp: time, feature: [0.2, -0.1333] },
+      {
+        id: time,
+        timestamp: time,
+        feature: featureAt(session.snapshot.target),
+      },
       time
     )
   }
   expect(session.snapshot.progress).toBeGreaterThan(0)
   time += 100
-  session.observe({ id: time, timestamp: time, feature: [-0.2, 0.1333] }, time)
+  session.observe({ id: time, timestamp: time, feature: [-0.2, -0.1333] }, time)
   expect(session.snapshot.progress).toBe(0)
   expect(session.samples).toHaveLength(1)
 })
@@ -108,7 +112,7 @@ test("camera orientation is explicit rather than inferred from an arbitrary fixa
   })
   session.start(0)
   let time = next(session, feed(session, [0, 0], 0))
-  time = feed(session, [0.2, -0.1333], time)
+  time = feed(session, [0.2, 0.1333], time)
   expect(session.samples).toHaveLength(1)
   feed(session, [-0.2, 0.1333], time)
   expect(session.samples).toHaveLength(2)
@@ -340,7 +344,7 @@ test("a cardinal gaze with small off-axis drift cannot pop a corner", () => {
   const session = new CalibrationSession({ headEnabled: false })
   session.start(0)
   const time = next(session, feed(session, [0, 0], 0))
-  feed(session, [0.2, -0.01], time)
+  feed(session, [0.2, -0.001], time)
   expect(session.samples).toHaveLength(1)
   expect(session.snapshot.progress).toBe(0)
 })
@@ -356,14 +360,124 @@ test("corner direction checks account for a wide viewport", () => {
   expect(session.samples).toHaveLength(2)
 })
 
-test("a direction on the noise boundary cannot belong to both a corner and an edge", () => {
-  const input: Point = [-0.006, -0.006]
-  const minimum: Point = [0.006, 0.006]
-  const orientation = { horizontal: -1, vertical: 1 } as const
+test("validation measures noisy raw readings without prediction stability gates", () => {
+  const session = new CalibrationSession({
+    headEnabled: false,
+    validation: {
+      coefficients: [
+        [0, 20, 0],
+        [0, 0, 20],
+      ],
+      validationError: 0,
+    },
+    targets: [[0.5, 0.5]],
+  })
+  session.start(0)
+  for (let time = 100; time <= 3000; time += 100)
+    session.observe(
+      { id: time, timestamp: time, feature: [time % 200 ? 0.035 : -0.035, 0] },
+      time
+    )
+  expect(session.snapshot.phase).toBe("complete")
+  expect(session.samples).toHaveLength(1)
+  expect(session.samples[0].measurements!.length).toBeGreaterThanOrEqual(12)
+})
+
+test("validation advances on an outage without inventing a sample", () => {
+  const session = new CalibrationSession({
+    headEnabled: false,
+    validation: {
+      coefficients: [
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      validationError: 0,
+    },
+    targets: [[0.5, 0.5]],
+  })
+  session.start(0)
+  for (let time = 100; time <= 9000; time += 100) session.observe(null, time)
+  expect(session.snapshot.phase).toBe("complete")
+  expect(session.samples).toHaveLength(0)
+})
+
+test("validation duplicate frames cannot satisfy the reading count", () => {
+  const session = new CalibrationSession({
+    headEnabled: false,
+    validation: {
+      coefficients: [
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      validationError: 0,
+    },
+    targets: [[0.5, 0.5]],
+  })
+  session.start(0)
+  for (let time = 700; time < 3000; time += 100)
+    session.observe({ id: 1, timestamp: time, feature: [0, 0] }, time)
+  expect(session.snapshot.phase).toBe("fixation")
+  expect(session.samples).toHaveLength(0)
+})
+
+test("screen profiles accept the real eight-dimensional head regression input", async () => {
+  const { isScreenCalibration } =
+    await import("../../apps/web/src/features/eye-tracking/calibration-profile-adapter")
+  const calibration = fitCalibration(fixtureCalibrationSamples())!
+  const { fitHeadPoseMapping } =
+    await import("../../apps/web/src/features/eye-tracking/head-tracking/head-pose-mapping")
+  const mapping = fitHeadPoseMapping(
+    fixtureCalibrationSamples().map((sample) => ({
+      feature: sample.feature,
+      target: sample.target,
+      pose: sample.headPose!,
+      weight: 1,
+    })),
+    fixtureReference
+  )
+  expect(mapping).not.toBeNull()
+  const { geometry: _geometry, ...head } =
+    calibration.headCompensation as Extract<
+      NonNullable<typeof calibration.headCompensation>,
+      { method: "calibrated-ray-plane" }
+    >
   expect(
-    matchesTargetDirection(input, [0, 0], [0.9, 0.1], orientation, minimum)
+    isScreenCalibration({
+      ...calibration,
+      headCompensation: {
+        ...head,
+        method: "calibrated-pose-regression",
+        mapping,
+      },
+    })
   ).toBe(true)
-  expect(
-    matchesTargetDirection(input, [0, 0], [0.9, 0.5], orientation, minimum)
-  ).toBe(false)
+})
+
+test("a lost head pass is bounded and retains the completed gaze grid", () => {
+  const grid = fixtureCalibrationSamples().slice(0, 9)
+  const session = new CalibrationSession({
+    headEnabled: true,
+    seedSamples: grid,
+  })
+  session.start(0)
+  session.observe(null, 20000)
+  expect(session.snapshot.phase).toBe("error")
+  expect(session.samples).toEqual(grid)
+  expect(session.snapshot.instruction).toContain("eye-only")
+})
+
+test("timed-out calibration retries the same dot and retains completed points", () => {
+  const session = new CalibrationSession({ headEnabled: false })
+  session.start(0)
+  const time = next(session, feed(session, [0, 0], 0))
+  const target = session.snapshot.target
+  session.observe(null, time + 20000)
+  expect(session.snapshot.phase).toBe("error")
+  expect(session.snapshot.retryable).toBe(true)
+  session.retryCurrentTarget(time + 20001)
+  expect(session.snapshot.phase).toBe("fixation")
+  expect(session.snapshot.target).toEqual(target)
+  expect(session.samples).toHaveLength(1)
+  feed(session, featureAt(target), time + 20001)
+  expect(session.samples).toHaveLength(2)
 })

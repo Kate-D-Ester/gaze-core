@@ -3,6 +3,7 @@ import type { Point } from "../eye-tracking/eye-tracking.types"
 import type { MutableRefObject } from "react"
 import type {
   GazeBubbleState,
+  GazeBubbleProfile,
   GazeImageSize,
   GazeView,
 } from "./gaze-bubble.types"
@@ -10,6 +11,7 @@ import type {
 export type GazeBubbleOverlaySnapshot = {
   bubble: GazeBubbleState
   view: GazeView
+  showUncertainty?: boolean
 }
 
 export type GazeBubbleOverlayProps = {
@@ -17,11 +19,14 @@ export type GazeBubbleOverlayProps = {
   point: Point | null
   timestamp: number | null
   errorRadiusPx?: number | null
+  /** Presentation only; measured error and raw gaze remain available. */
+  showUncertainty?: boolean
   verified?: boolean
   resetKey?: unknown
   offset?: Point
   fixed?: boolean
   stabilize?: boolean
+  profile?: GazeBubbleProfile
   maxAgeMs?: number
   /** Native image dimensions; errorRadiusPx is then in native image pixels. */
   imageSize?: GazeImageSize

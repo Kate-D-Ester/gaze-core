@@ -1,5 +1,23 @@
+import { assessValidation } from "@/features/tracking-calibration/validation-assessment"
+import { useScreenGeometry } from "@/features/tracking-calibration/use-screen-geometry"
+import { useSessionAlignment } from "@/features/tracking-calibration/use-session-alignment"
+import {
+  RETURN_CHECK_TARGETS,
+  PERSONAL_RESIDUAL_TARGETS,
+  alignGazePoint,
+  evaluatePersonalResidual,
+  evaluateReturnCheck,
+} from "@/features/tracking-calibration/session-alignment"
+import { CalibrationProfileControls } from "@/features/tracking-calibration/calibration-profile-controls"
+import { useSavedCalibration } from "@/features/tracking-calibration/use-calibration-profiles"
+import { useCameraIdentity } from "@/features/tracking-calibration/use-camera-identity"
+import type {
+  CalibrationContext,
+  CalibrationPayload,
+} from "@/features/tracking-calibration/calibration-profiles.types"
 import { TrackingBrand } from "@/features/tracking-ui/tracking-brand"
 import { GazeBubbleOverlay } from "@/features/gaze-bubble/gaze-bubble-overlay"
+import { hasRemoteHeadCompensation } from "@/features/remote-eye-tracking/joint-motion-calibration"
 import { CalibratedHeadRange } from "@/features/remote-eye-tracking/components/calibrated-head-range"
 import { RemoteValidationSummary } from "@/features/remote-eye-tracking/components/remote-validation-summary"
 import { REMOTE_MODES } from "@/features/remote-eye-tracking/components/remote-setup"
@@ -8,18 +26,28 @@ import { HeadReadout } from "@/features/remote-eye-tracking/components/head-read
 import { RemoteModePicker } from "@/features/remote-eye-tracking/components/remote-mode-picker"
 import { RemoteSetupProgress } from "@/features/remote-eye-tracking/components/remote-setup-progress"
 import { RemoteCameraPreview } from "@/features/remote-eye-tracking/components/remote-camera-preview"
+import { RemotePerformanceReadout } from "@/features/remote-eye-tracking/components/remote-performance-readout"
+import { RemoteVectorReadout } from "@/features/remote-eye-tracking/components/remote-vector-readout"
 import { GazeOffsetControls } from "@/features/eye-tracking/components/gaze-offset-controls"
 import { SavedCameraOption } from "@/features/eye-tracking/components/saved-camera-option"
 import { applyGazeOffset } from "@/features/eye-tracking/gaze-offset"
 import { useCameraSourcePreferences } from "@/features/eye-tracking/use-camera-source-preferences"
 import { useGazeAdjustment } from "@/features/eye-tracking/use-gaze-adjustment"
 import {
+  createRemotePoseSupport,
   evaluateRemoteValidation,
-  fitRemoteCalibration,
   poseSupported,
   predictRemoteGaze,
+  predictRemoteGazeWithoutHeadCorrection,
+  remoteFeatureVersion,
 } from "@/features/remote-eye-tracking/calibration"
 import { RemoteCalibrationOverlay } from "@/features/remote-eye-tracking/calibration-overlay"
+import { AdaptiveCalibrationOverlay } from "@/features/remote-eye-tracking/adaptive-calibration-overlay"
+import type {
+  AdaptiveCalibrationResult,
+  AdaptiveHeadCalibration,
+} from "@/features/remote-eye-tracking/adaptive-calibration.types"
+import { hasRgbBasePoint } from "@/features/remote-eye-tracking/base-point-input"
 import { observationStatus } from "@/features/remote-eye-tracking/observation-status"
 import {
   Hint,
@@ -36,9 +64,11 @@ import type {
   ValidationResult,
 } from "@/features/remote-eye-tracking/remote-eye-tracking.types"
 import { useRemoteTracker } from "@/features/remote-eye-tracking/use-remote-tracker"
+import { useRemoteLiveTrace } from "@/features/remote-eye-tracking/use-live-trace"
 import {
   ArrowLeft,
   ArrowRight,
+  Axis3D,
   Camera,
   Crosshair,
   Download,
@@ -60,7 +90,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   EyeAppStyles,
   StatusLightStyles,
@@ -72,7 +102,6 @@ import {
   RemoteAppStyles,
   RemoteBottomActionsStyles,
   RemoteCameraPanelStyles,
-  RemoteCameraStatusStyles,
   RemoteCheckStyles,
   RemoteCheckboxStyles,
   RemoteContentStyles,
@@ -94,41 +123,60 @@ import {
   RemoteTooltipStyles,
   RemoteWorkspaceStyles,
 } from "../features/tracking-ui/remote-styles"
-import type { RemotePreviewDimensions } from "./remote-eye-tracking-page.types"
+import type {
+  RemoteCaptureKind,
+  RemotePreviewDimensions,
+} from "./remote-eye-tracking-page.types"
 const FULL_ROI: Rect = { x: 0, y: 0, width: 1, height: 1 }
 export function RemoteEyeTrackingPage() {
+  const screenGeometry = useScreenGeometry()
   const [mode, setMode] = useState<RemoteMode | null>(null)
   const [step, setStep] = useState(0)
+  const [advanceAfterStart, setAdvanceAfterStart] = useState(false)
   const { deviceId, setDeviceId } = useCameraSourcePreferences(
     `remote-${mode ?? "webcam"}`
   )
   const [roi, setRoi] = useState<Rect>(FULL_ROI)
   const [threshold, setThreshold] = useState(0)
+  const [irRollCompensation, setIrRollCompensation] = useState(false)
   const [selecting, setSelecting] = useState(false)
   const [dragStart, setDragStart] = useState<Point | null>(null)
-  const [extended, setExtended] = useState(true)
+  const [headMovementEnabled, setHeadMovementEnabled] = useState(true)
   const [calibration, setCalibration] = useState<RemoteCalibration | null>(null)
   const { offset, setOffset } = useGazeAdjustment(calibration)
+  const { alignment, setAlignment } = useSessionAlignment(calibration)
   const [validationOffset, setValidationOffset] = useState<Point>([0, 0])
   const [validation, setValidation] = useState<ValidationResult | null>(null)
+  const [validationRequirements, setValidationRequirements] = useState({
+    targetCount: 5,
+    minimumSamples: 18,
+  })
   const [samples, setSamples] = useState<CalibrationSample[]>([])
+  const [headSamples, setHeadSamples] = useState<CalibrationSample[]>([])
   const [validationSamples, setValidationSamples] = useState<
     CalibrationSample[]
   >([])
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
-  const [capture, setCapture] = useState<"calibrate" | "validate" | null>(null)
+  const [capture, setCapture] = useState<RemoteCaptureKind | null>(null)
+  const [autoCheck, setAutoCheck] = useState(false)
   const [correctionRequest, setCorrectionRequest] = useState(0)
   const [showGaze, setShowGaze] = useState(false)
+  const [showVectors, setShowVectors] = useState(true)
   const [notice, setNotice] = useState("")
-  function clearCalibration() {
+  const clearCalibration = useCallback(() => {
     setCalibration(null)
     setValidation(null)
     setCapture(null)
+    setAutoCheck(false)
     setShowGaze(false)
     setSamples([])
+    setHeadSamples([])
     setValidationSamples([])
-  }
-  const settings = useMemo(() => ({ roi, threshold }), [roi, threshold])
+  }, [])
+  const settings = useMemo(
+    () => ({ roi, threshold, irRollCompensation }),
+    [roi, threshold, irRollCompensation]
+  )
   const {
     state: tracker,
     videoRef,
@@ -139,59 +187,202 @@ export function RemoteEyeTrackingPage() {
     requestCameraAccess,
     refreshDevices,
   } = useRemoteTracker(settings, () => {
-    clearCalibration()
+    setAdvanceAfterStart(false)
+    setValidation(null)
+    setCapture(null)
+    setShowGaze(false)
     setStep(1)
+    setNotice("Camera paused · calibration kept. Reconnect the same camera.")
   })
   const selected = REMOTE_MODES.find((item) => item.id === mode)
   const replaying = tracker.source === "video"
   const ready = tracker.status === "ready"
+  const invalidateCalibration = useCallback(() => {
+    clearCalibration()
+    let nextStep = 1
+    if (ready) {
+      nextStep = 3
+    }
+    setStep(nextStep)
+    setNotice(ready && !replaying ? "Setup changed. Calibrate again." : "")
+  }, [clearCalibration, ready, replaying])
   const observation = tracker.observation
   const valid =
     ready &&
     !!observation?.feature &&
     !observation.reason &&
     observation.quality >= 0.45
+  const calibrationSignalReady =
+    valid && (!observation?.baseModelVersion || hasRgbBasePoint(observation))
   const activeCalibration = ready && !replaying ? calibration : null
+  if (advanceAfterStart && ready) {
+    setAdvanceAfterStart(false)
+    setStep(calibration ? 5 : 3)
+  }
+  const cameraIdentity = useCameraIdentity(tracker.cameraDeviceId ?? deviceId)
+  let observedVersion = calibration?.featureVersion ?? ""
+  if (observation?.feature) {
+    observedVersion = remoteFeatureVersion(observation)
+  }
+  const [lastFeatureVersion, setLastFeatureVersion] = useState("")
+  if (observedVersion && lastFeatureVersion !== observedVersion) {
+    setLastFeatureVersion(observedVersion)
+  }
+  const featureVersion = observedVersion || lastFeatureVersion
+  const inputWidth = observation?.width ?? 0
+  const inputHeight = observation?.height ?? 0
+  const profileContext = useMemo<CalibrationContext | null>(() => {
+    if (
+      !mode ||
+      !ready ||
+      replaying ||
+      !cameraIdentity ||
+      inputWidth <= 0 ||
+      inputHeight <= 0 ||
+      !featureVersion
+    ) {
+      return null
+    }
+    return {
+      version: 1,
+      tracker: mode,
+      featureVersion,
+      cameraIdentity,
+      width: inputWidth,
+      height: inputHeight,
+      inputTransform: "camera-raw",
+      outputSpace: "screen",
+      screenAspect: screenGeometry.aspectRatio,
+      setupKey: JSON.stringify({
+        roi,
+        irRollCompensation,
+        viewport: [screenGeometry.width, screenGeometry.height],
+      }),
+      geometryId: null,
+    }
+  }, [
+    mode,
+    ready,
+    replaying,
+    cameraIdentity,
+    featureVersion,
+    inputWidth,
+    inputHeight,
+    roi,
+    irRollCompensation,
+    screenGeometry.width,
+    screenGeometry.height,
+    screenGeometry.aspectRatio,
+  ])
+  const profilePayload = useMemo<CalibrationPayload | null>(
+    () => (calibration ? { kind: "remote", model: calibration } : null),
+    [calibration]
+  )
+  const profiles = useSavedCalibration({
+    context: profileContext,
+    payload: profilePayload,
+    offset,
+    alignment,
+    ready,
+    disabled: !!capture || replaying,
+    onIncompatible: invalidateCalibration,
+    onLoaded: (payload, savedOffset, savedAlignment) => {
+      if (payload.kind !== "remote") {
+        return
+      }
+      setCalibration(payload.model)
+      setOffset(savedOffset, payload.model)
+      setAlignment(savedAlignment, payload.model)
+      setSamples([])
+      setHeadSamples([])
+      setValidationSamples([])
+      setValidation(null)
+      setViewport({ width: window.innerWidth, height: window.innerHeight })
+      setShowGaze(true)
+      setStep(5)
+    },
+  })
   const supported =
     !activeCalibration ||
     poseSupported(activeCalibration, observation?.pose ?? null)
+  const checkedPoseSupport = useMemo(() => {
+    if (!calibration || validationSamples.length === 0) {
+      return null
+    }
+    const measured = validationSamples.filter(
+      (sample) => predictRemoteGaze(calibration, sample.observation) !== null
+    )
+    return {
+      ...calibration,
+      ...createRemotePoseSupport(measured),
+      headCorrection: undefined,
+      motionFit: undefined,
+    }
+  }, [calibration, validationSamples])
+  const withinCheckedPose =
+    checkedPoseSupport !== null &&
+    poseSupported(checkedPoseSupport, observation?.pose ?? null, "validation")
   const mappedPoint =
     activeCalibration && observation
       ? predictRemoteGaze(activeCalibration, observation)
       : null
-  const point = applyGazeOffset(mappedPoint, offset)
-  const adjustedSinceValidation = offset.some(
-    (value, index) => value !== validationOffset[index]
-  )
+  const point = applyGazeOffset(alignGazePoint(mappedPoint, alignment), offset)
+  const liveTrace = useRemoteLiveTrace({
+    calibration: activeCalibration,
+    alignment,
+    offset,
+    width: screenGeometry.width,
+    height: screenGeometry.height,
+    enabled: ready && !capture,
+    observation,
+    mappedPoint,
+    screenPoint: point,
+  })
+  const beforeHeadCorrection =
+    activeCalibration && !activeCalibration.motionFit && observation
+      ? predictRemoteGazeWithoutHeadCorrection(activeCalibration, observation)
+      : null
+  const adjustedSinceValidation =
+    validation !== null &&
+    offset.some((value, index) => value !== validationOffset[index])
   useEffect(() => {
+    const referenceWidth = calibration ? viewport.width : window.innerWidth
+    const referenceHeight = calibration ? viewport.height : window.innerHeight
     const invalidate = () => {
-      if (!mode) {
+      if (
+        !mode ||
+        capture ||
+        (window.innerWidth === referenceWidth &&
+          window.innerHeight === referenceHeight)
+      ) {
         return
       }
-      clearCalibration()
-      let nextStep = 1
-      if (replaying) {
-        nextStep = 2
-      } else if (ready) {
-        nextStep = 3
-      }
-      setStep(nextStep)
-      setNotice(ready && !replaying ? "Screen changed. Calibrate again." : "")
+      invalidateCalibration()
     }
     const hidden = () => {
       if (document.hidden && mode) {
-        invalidate()
-        setStep(1)
+        setCapture(null)
+        setShowGaze(false)
       }
     }
     window.addEventListener("resize", invalidate)
     document.addEventListener("visibilitychange", hidden)
+    // Capture can end while resized even when saved profiles are unavailable.
+    invalidate()
     return () => {
       window.removeEventListener("resize", invalidate)
       document.removeEventListener("visibilitychange", hidden)
     }
-  }, [ready, mode, replaying])
+  }, [
+    mode,
+    capture,
+    calibration,
+    viewport.width,
+    viewport.height,
+    invalidateCalibration,
+  ])
   function choose(next: RemoteMode) {
+    setAdvanceAfterStart(false)
     stopTracker()
     clearCalibration()
     setMode(next)
@@ -204,26 +395,37 @@ export function RemoteEyeTrackingPage() {
     if (!mode) {
       return
     }
-    clearCalibration()
+    setValidation(null)
+    setAutoCheck(false)
+    setCapture(null)
+    setShowGaze(false)
     setNotice("")
     void startTracker(mode, deviceId || undefined)
+    // Starting a replacement stream synchronously stops the old session first.
+    setAdvanceAfterStart(true)
   }
   function inspectVideo(file: File) {
     if (!mode) {
       return
     }
     clearCalibration()
+    setAdvanceAfterStart(false)
     setSelecting(false)
     setNotice("")
     void startVideo(mode, file)
-    setStep(2)
+    setStep(3)
   }
   function stop() {
+    setAdvanceAfterStart(false)
+    setAutoCheck(false)
     stopTracker()
-    clearCalibration()
+    setCapture(null)
+    setShowGaze(false)
+    setValidation(null)
     setStep(1)
   }
   function returnToCameraChoices() {
+    setAdvanceAfterStart(false)
     stopTracker()
     clearCalibration()
     setSelecting(false)
@@ -237,53 +439,184 @@ export function RemoteEyeTrackingPage() {
       returnToCameraChoices()
       return
     }
+    goToStep(step === 3 ? 1 : step - 1)
+  }
+  const allowedSteps = [0]
+  if (mode) {
+    allowedSteps.push(1)
+  }
+  if (ready) {
+    allowedSteps.push(3)
+  }
+  if (activeCalibration) {
+    allowedSteps.push(4, 5)
+  }
+  function goToStep(nextStep: number) {
+    if (!allowedSteps.includes(nextStep)) {
+      return
+    }
+    if (nextStep === 0) {
+      returnToCameraChoices()
+      return
+    }
+    setAdvanceAfterStart(false)
     setCapture(null)
+    setAutoCheck(false)
     setShowGaze(false)
     setNotice("")
-    setStep(step - 1)
+    setStep(nextStep)
   }
   function finishCapture(
     collected: CalibrationSample[],
-    dimensions: RemotePreviewDimensions
+    dimensions: RemotePreviewDimensions,
+    attempts?: CalibrationSample[]
   ) {
     setCapture(null)
+    setAutoCheck(false)
     setShowGaze(false)
     if (replaying) {
       return
     }
-    if (capture === "calibrate" && mode) {
-      const fitted = fitRemoteCalibration(mode, collected)
-      if (!fitted) {
-        setNotice("Calibration failed. Adjust framing or lighting and retry.")
+    if (capture === "repair" && calibration) {
+      const readings = (attempts ?? collected).map((sample) => ({
+        timestamp: sample.observation.timestamp,
+        targetId: sample.targetId,
+        target: sample.target,
+        point: predictRemoteGaze(calibration, sample.observation),
+        reason: sample.observation.reason,
+      }))
+      const repaired = evaluatePersonalResidual(
+        readings,
+        dimensions,
+        !!profileContext
+      )
+      if (!repaired.alignment) {
+        setNotice(repaired.issue)
         return
       }
-      setCalibration(fitted)
-      setSamples(collected)
-      setViewport(dimensions)
+      setAlignment(repaired.alignment)
+      setOffset([0, 0])
       setValidation(null)
       setStep(4)
-      setNotice("")
+      setNotice("Grid repaired · validate before use")
+    } else if (capture === "check" && calibration) {
+      const readings = (attempts ?? collected).map((sample) => ({
+        timestamp: sample.observation.timestamp,
+        targetId: sample.targetId,
+        target: sample.target,
+        point: applyGazeOffset(
+          alignGazePoint(
+            predictRemoteGaze(calibration, sample.observation),
+            alignment
+          ),
+          offset
+        ),
+        reason: sample.observation.reason,
+      }))
+      const checked = evaluateReturnCheck(readings, dimensions)
+      if (
+        !checked.offset ||
+        checked.metrics.rmsPixels === null ||
+        checked.metrics.meanPixels === null ||
+        checked.metrics.p95Pixels === null ||
+        checked.metrics.jitterPixels === null
+      ) {
+        setValidation(
+          evaluateRemoteValidation(
+            calibration,
+            attempts ?? collected,
+            dimensions.width,
+            dimensions.height,
+            offset,
+            alignment
+          )
+        )
+        setValidationOffset([...offset])
+        setValidationRequirements({ targetCount: 3, minimumSamples: 4 })
+        setValidationSamples(attempts ?? collected)
+        setStep(5)
+        setNotice(checked.issue)
+        return
+      }
+      const correctedOffset: Point = [
+        offset[0] + checked.offset[0],
+        offset[1] + checked.offset[1],
+      ]
+      if (correctedOffset.some((value) => Math.abs(value) > 1)) {
+        setValidation(null)
+        setNotice("Correction is outside the supported range. Recalibrate.")
+        return
+      }
+      setValidationRequirements({ targetCount: 3, minimumSamples: 4 })
+      setOffset(correctedOffset)
+      setValidationOffset(correctedOffset)
+      setValidation({
+        ...checked.metrics,
+        rmsPixels: checked.metrics.rmsPixels,
+        meanPixels: checked.metrics.meanPixels,
+        p95Pixels: checked.metrics.p95Pixels,
+        jitterPixels: checked.metrics.jitterPixels,
+      })
+      setValidationSamples(collected)
+      setStep(5)
+      setNotice(
+        checked.corrected
+          ? "Offset corrected · check complete"
+          : "Check complete"
+      )
     } else if (calibration) {
       const result = evaluateRemoteValidation(
         calibration,
-        collected,
+        attempts ?? collected,
         dimensions.width,
         dimensions.height,
-        offset
+        offset,
+        alignment
       )
-      if (!result || result.targetCount !== 5) {
-        setNotice(
-          "Validation incomplete. Return to your calibrated position and retry."
-        )
-        return
-      }
+      setValidationRequirements({ targetCount: 5, minimumSamples: 18 })
       setValidationOffset([...offset])
       setValidation(result)
-      setValidationSamples(collected)
+      setValidationSamples(attempts ?? collected)
       setStep(5)
-      setNotice("")
+      setNotice(
+        result
+          ? ""
+          : "Check incomplete · no usable gaze readings. Your calibration is kept."
+      )
     }
   }
+  function finishAdaptiveCalibration(result: AdaptiveCalibrationResult): void {
+    setCapture(null)
+    setHeadSamples(result.headSamples)
+    if (capture === "head" && !result.headCorrectionUpdated) {
+      setNotice(
+        "This head hold did not improve the mapping. Existing calibration kept."
+      )
+      return
+    }
+    setShowGaze(false)
+    setCalibration(result.model)
+    if (capture === "head") {
+      setOffset(offset, result.model)
+      setAlignment(alignment, result.model)
+    }
+    setSamples(result.samples)
+    setValidationSamples([])
+    setViewport(result.viewport)
+    setValidationOffset([0, 0])
+    setValidation(result.validation)
+    setValidationRequirements({ targetCount: 5, minimumSamples: 18 })
+    setStep(5)
+    setAutoCheck(true)
+    setCapture("validate")
+    setNotice("")
+    if (headMovementEnabled && !result.headMovementLearned) {
+      setNotice(
+        "Calibration saved for this session. No additional head correction was learned."
+      )
+    }
+  }
+
   function exportResults() {
     const result = {
       schemaVersion: 1,
@@ -295,10 +628,24 @@ export function RemoteEyeTrackingPage() {
       calibration,
       validation,
       samples,
+      headSamples,
       validationSamples,
       gazeOffset: offset,
+      sessionAlignment: alignment,
       validationOffset,
+      accuracyVerified,
       screenPosition: point,
+      liveTrace: liveTrace.read(),
+      liveTraceCoordinates:
+        "Mapped model output and aligned/offset screen coordinates before display smoothing; last 20 seconds, at most 10 readings per second. No video frames are retained.",
+      trackingVectors: observation?.vectors ?? null,
+      trackingVectorTimestamp: observation?.timestamp ?? null,
+      headCorrectionComparison: {
+        before: beforeHeadCorrection,
+        after: mappedPoint,
+        active: hasRemoteHeadCompensation(activeCalibration),
+        kind: activeCalibration?.motionFit ? "joint-motion" : "residual",
+      },
       coordinates:
         "Normalized screen position; no physical 3D gaze ray or angular accuracy is inferred.",
       headTracking:
@@ -322,9 +669,17 @@ export function RemoteEyeTrackingPage() {
       Math.max(0, Math.min(1, (event.clientY - box.top) / box.height)),
     ]
   }
-  const diagonal = Math.hypot(viewport.width, viewport.height)
-  const needsCalibration =
-    validation && diagonal > 0 && validation.meanPixels > diagonal * 0.08
+  const assessment = assessValidation(
+    validation,
+    viewport,
+    validationRequirements.targetCount,
+    validationRequirements.minimumSamples
+  )
+  const accuracyVerified =
+    assessment.status === "checked" &&
+    !adjustedSinceValidation &&
+    supported &&
+    withinCheckedPose
   let startLabel = ready ? "Restart camera" : "Start camera"
   if (tracker.status === "loading") {
     startLabel = "Starting camera"
@@ -353,16 +708,13 @@ export function RemoteEyeTrackingPage() {
   if (referenceTracking) {
     headLabel = "Eye reference tracking"
   }
-  let positionHelp = "Keep both eyes visible. Move your head gently."
-  if (mode === "ir") {
-    positionHelp = "Keep your face visible. Eye regions are automatic."
-  }
-  if (replaying) {
-    positionHelp =
-      "Inspect pupils and head pose. Use the video controls to play, pause, or seek."
-  }
   const previousStepLabel =
     step === 1 ? "Back to camera choices" : "Previous step"
+  const adaptiveCapture = capture === "calibrate" || capture === "head"
+  let headCalibration: AdaptiveHeadCalibration | undefined
+  if (capture === "head" && calibration) {
+    headCalibration = { model: calibration, samples, viewport }
+  }
   return (
     <main className={`eye-app ${EyeAppStyles} remote-app ${RemoteAppStyles}`}>
       <header className={`eye-header ${EyeHeaderStyles}`}>
@@ -400,7 +752,12 @@ export function RemoteEyeTrackingPage() {
             )}
             <h1>Remote eye tracking</h1>
           </div>
-          <RemoteSetupProgress step={step} replaying={replaying} />
+          <RemoteSetupProgress
+            step={step}
+            replaying={replaying}
+            allowedSteps={allowedSteps}
+            onStepChange={goToStep}
+          />
         </div>
         {step === 0 && <RemoteModePicker onChoose={choose} />}
         {step > 0 && selected && (
@@ -440,17 +797,29 @@ export function RemoteEyeTrackingPage() {
               >
                 {replaying ? <FileVideo size={16} /> : <Camera size={16} />}
               </Hint>
-              <span
-                className={`remote-camera-status ${RemoteCameraStatusStyles}`}
-              >
-                <span
-                  className={`status-light ${StatusLightStyles} ${ready ? "on" : ""}`}
+              <div className="flex items-center gap-3">
+                <IconButton
+                  label={
+                    showVectors
+                      ? "Hide tracking vectors"
+                      : "Show tracking vectors"
+                  }
+                  icon={Axis3D}
+                  className="[&.remote-icon-button_.remote-tooltip]:right-0 [&.remote-icon-button_.remote-tooltip]:[left:auto]"
+                  aria-pressed={showVectors}
+                  onClick={() => setShowVectors((visible) => !visible)}
                 />
-                {ready ? `${tracker.fps.toFixed(0)} fps` : tracker.status}
-              </span>
+                <RemotePerformanceReadout
+                  fps={tracker.fps}
+                  ready={ready}
+                  status={tracker.status}
+                  observation={observation}
+                />
+              </div>
             </div>
             <RemoteCameraPreview
               observation={observation}
+              showVectors={showVectors}
               mode={mode}
               roi={roi}
               replaying={replaying}
@@ -513,6 +882,17 @@ export function RemoteEyeTrackingPage() {
                 reference={referenceTracking}
               />
             </div>
+            {showVectors && (
+              <RemoteVectorReadout
+                vectors={observation?.vectors ?? null}
+                beforeHeadCorrection={beforeHeadCorrection}
+                afterHeadCorrection={mappedPoint}
+                headCorrectionActive={hasRemoteHeadCompensation(
+                  activeCalibration
+                )}
+                jointMotion={Boolean(activeCalibration?.motionFit)}
+              />
+            )}
           </section>
           <section className={`remote-controls ${RemoteControlsStyles}`}>
             {tracker.error && (
@@ -555,6 +935,7 @@ export function RemoteEyeTrackingPage() {
                     value={deviceId}
                     onChange={(event) => {
                       setDeviceId(event.target.value)
+                      setAdvanceAfterStart(false)
                       stopTracker()
                       clearCalibration()
                     }}
@@ -633,19 +1014,32 @@ export function RemoteEyeTrackingPage() {
                     />
                   )}
                   <IconButton
-                    label="Check your position"
+                    label={
+                      calibration ? "Resume results" : "Continue to calibration"
+                    }
                     icon={ArrowRight}
                     primary={ready}
                     disabled={!ready}
-                    onClick={() => setStep(2)}
+                    onClick={() => {
+                      if (calibration) {
+                        setStep(5)
+                        return
+                      }
+                      setStep(3)
+                    }}
                   />
                 </div>
               </>
             )}
-            {step === 2 && (
+            {step === 3 && (mode === "ir" || replaying) && (
               <>
-                <h2>{replaying ? "Recording" : "Position"}</h2>
-                <p>{positionHelp}</p>
+                {replaying && <h2>Recording</h2>}
+                {replaying && (
+                  <p>
+                    Inspect pupils and head pose. Use the video controls to
+                    play, pause, or seek.
+                  </p>
+                )}
                 {mode === "ir" && (
                   <div className="remote-ir-controls">
                     <div className={`remote-actions ${RemoteActionsStyles}`}>
@@ -711,23 +1105,30 @@ export function RemoteEyeTrackingPage() {
                     )}
                   </div>
                 )}
+                {mode === "ir" && (
+                  <label
+                    className={`remote-checkbox ${RemoteCheckboxStyles}`}
+                    title="Experimental camera-axis roll features. Requires new calibration; accuracy still needs device validation."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={irRollCompensation}
+                      aria-label="Trial IR roll compensation"
+                      onChange={(event) => {
+                        setIrRollCompensation(event.target.checked)
+                        clearCalibration()
+                      }}
+                    />
+                    <Move3D size={16} aria-hidden="true" />
+                    <span>Trial roll</span>
+                  </label>
+                )}
                 <div className={`remote-check ${RemoteCheckStyles}`}>
                   <span
                     className={`status-light ${StatusLightStyles} ${valid ? "on" : ""}`}
                   />
                   {valid ? "Eyes detected" : signalLabel}
                 </div>
-                <IconButton
-                  label="Continue to calibration"
-                  icon={ArrowRight}
-                  primary
-                  disabled={!valid || replaying}
-                  onClick={() => {
-                    if (!replaying) {
-                      setStep(3)
-                    }
-                  }}
-                />
                 {replaying && (
                   <p className={`remote-muted ${RemoteMutedStyles}`}>
                     Recorded frames have no screen targets, so screen
@@ -736,30 +1137,48 @@ export function RemoteEyeTrackingPage() {
                 )}
               </>
             )}
-            {step === 3 && (
+            {step >= 3 && !replaying && (
+              <CalibrationProfileControls
+                controller={profiles}
+                sceneLabels={false}
+              />
+            )}
+            {step === 3 && !replaying && (
               <>
                 <h2>Calibration</h2>
                 <p>Follow the dot.</p>
-                <label className={`remote-checkbox ${RemoteCheckboxStyles}`}>
+                {calibration && (
+                  <IconButton
+                    label="Preview current calibration"
+                    icon={Eye}
+                    onClick={() => setStep(5)}
+                  />
+                )}
+                <label
+                  className={`remote-checkbox ${RemoteCheckboxStyles}`}
+                  title="After 9 dots, one center hold learns head-motion error while you keep looking at the same point."
+                >
                   <input
                     type="checkbox"
                     aria-label="Include head movement"
-                    checked={extended}
-                    onChange={(event) => setExtended(event.target.checked)}
+                    checked={headMovementEnabled}
+                    onChange={(event) =>
+                      setHeadMovementEnabled(event.target.checked)
+                    }
                   />
                   <Move3D size={18} />
-                  <span>Head movement</span>
+                  <span>Head compensation</span>
                 </label>
                 <div className={`remote-actions ${RemoteActionsStyles}`}>
-                  <Hint label={`${extended ? 18 : 9} calibration targets`}>
+                  <Hint label="9 setup dots covering the center, corners and edges">
                     <Crosshair size={16} />
-                    <span>{extended ? 18 : 9}</span>
+                    <span>9</span>
                   </Hint>
                   <IconButton
-                    label={`Start ${extended ? 18 : 9}-target calibration`}
+                    label="Start calibration"
                     icon={Play}
                     primary
-                    disabled={!valid}
+                    disabled={!calibrationSignalReady}
                     onClick={() => {
                       setCapture("calibrate")
                       setShowGaze(false)
@@ -771,6 +1190,18 @@ export function RemoteEyeTrackingPage() {
             {step === 4 && (
               <>
                 <h2>Validation</h2>
+                <IconButton
+                  label="Quick check · 3 comfortable dots"
+                  icon={Crosshair}
+                  disabled={!valid || !activeCalibration}
+                  onClick={() => setCapture("check")}
+                />
+                <IconButton
+                  label="Trial grid repair · 5 inset dots over this calibration"
+                  icon={RefreshCcw}
+                  disabled={!valid || !activeCalibration || !profileContext}
+                  onClick={() => setCapture("repair")}
+                />
                 <p>Follow 5 new targets.</p>
                 {calibration && (
                   <div className={`remote-summary ${RemoteSummaryStyles}`}>
@@ -795,29 +1226,35 @@ export function RemoteEyeTrackingPage() {
                     onClick={() => setCapture("validate")}
                   />
                   <IconButton
+                    label="Use unverified preview"
+                    icon={Eye}
+                    disabled={!activeCalibration}
+                    onClick={() => setStep(5)}
+                  />
+                  <IconButton
                     label="Repeat calibration"
                     icon={RefreshCcw}
                     onClick={() => {
-                      clearCalibration()
                       setStep(3)
                     }}
                   />
                 </div>
               </>
             )}
-            {step === 5 && validation && (
+            {step === 5 && calibration && (
               <>
                 <RemoteValidationSummary
                   validation={validation}
                   adjustedSinceValidation={adjustedSinceValidation}
-                  needsCalibration={Boolean(needsCalibration)}
+                  outsideCheckedPose={!withinCheckedPose}
+                  assessment={assessment}
                 />
                 {!supported && (
                   <div
                     className={`remote-alert ${RemoteAlertStyles}`}
                     role="status"
                   >
-                    Head moved beyond calibration. Recalibrate.
+                    Outside the measured head range · accuracy may be lower.
                   </div>
                 )}
                 <GazeOffsetControls
@@ -853,18 +1290,21 @@ export function RemoteEyeTrackingPage() {
                     onClick={() => setCapture("validate")}
                   />
                   <IconButton
+                    label="Trial grid repair · 5 inset dots over this calibration"
+                    icon={RefreshCcw}
+                    disabled={!valid || !profileContext}
+                    onClick={() => setCapture("repair")}
+                  />
+                  <IconButton
                     label="Export results"
                     icon={Download}
                     onClick={exportResults}
                   />
                   <IconButton
-                    label="Recalibrate with head movement"
-                    icon={RefreshCcw}
-                    onClick={() => {
-                      setExtended(true)
-                      clearCalibration()
-                      setStep(3)
-                    }}
+                    label="Learn head correction · center dot only"
+                    icon={Move3D}
+                    disabled={!calibrationSignalReady}
+                    onClick={() => setCapture("head")}
                   />
                 </div>
                 {calibration && (
@@ -887,15 +1327,36 @@ export function RemoteEyeTrackingPage() {
           </section>
         </div>
       </div>
-      {capture && ready && !replaying && (
-        <RemoteCalibrationOverlay
+      {adaptiveCapture && ready && !replaying && mode && (
+        <AdaptiveCalibrationOverlay
+          mode={mode}
           latest={latest}
-          extended={extended}
-          calibration={capture === "validate" ? activeCalibration : null}
+          headMovement={headMovementEnabled}
+          headCalibration={headCalibration}
+          onComplete={finishAdaptiveCalibration}
+          onCancel={() => {
+            setCapture(null)
+            setNotice("Capture canceled. Your previous calibration is kept.")
+          }}
+        />
+      )}
+      {capture && !adaptiveCapture && ready && !replaying && (
+        <RemoteCalibrationOverlay
+          key={capture}
+          autoStart={capture === "validate" && autoCheck}
+          latest={latest}
+          captureViewport={viewport}
+          targets={capture === "check" ? RETURN_CHECK_TARGETS : undefined}
+          repairTargets={
+            capture === "repair" ? PERSONAL_RESIDUAL_TARGETS : undefined
+          }
+          comfortableHold={capture === "check" || capture === "repair"}
+          calibration={activeCalibration}
           onComplete={finishCapture}
           onCancel={() => {
             setCapture(null)
-            setNotice("Capture canceled. Keep the screen fixed and retry.")
+            setAutoCheck(false)
+            setNotice("Capture canceled.")
           }}
         />
       )}
@@ -907,12 +1368,13 @@ export function RemoteEyeTrackingPage() {
               : undefined
           }
           stabilize={false}
+          profile={mode === "ir" ? undefined : "remote-adaptive"}
           point={point}
           timestamp={observation?.timestamp ?? null}
           errorRadiusPx={
             adjustedSinceValidation ? null : (validation?.p95Pixels ?? null)
           }
-          verified={!!validation && !adjustedSinceValidation}
+          verified={accuracyVerified}
           resetKey={activeCalibration}
           offset={offset}
           markerClassName="remote-live-dot"

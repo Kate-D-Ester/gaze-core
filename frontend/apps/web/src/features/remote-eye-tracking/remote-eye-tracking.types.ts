@@ -1,3 +1,9 @@
+import type { RemoteHeadCorrection } from "./head-motion-calibration.types"
+import type { ValidationTargetMetrics } from "../tracking-calibration/validation-metrics.types"
+import type { RemoteTrackingVectors } from "./tracking-vectors.types"
+import type { RgbIrisRefinement } from "./rgb-iris-refinement.types"
+import type { RemoteMotionFit } from "./joint-motion-calibration.types"
+
 export type RemoteMode = "mobile" | "webcam" | "ir"
 export type Point = [number, number]
 export type Rect = { x: number; y: number; width: number; height: number }
@@ -12,12 +18,24 @@ export type HeadPose = {
   y: number
   scale: number
 }
+export type RemoteProcessingTiming = {
+  captureMs?: number
+  endToEndMs?: number
+  landmarksMs?: number
+  readbackMs?: number
+  eyePatchMs?: number
+  geometryMs?: number
+  appearanceMs?: number
+  irisRefinementMs?: number
+  readbackPixels?: number
+}
 export type RemoteObservation = {
   /** Recorded frames are for inspection and have no synchronized screen labels. */
   source?: "camera" | "video"
   timestamp: number
   width: number
   height: number
+  featureVersion?: string
   feature: number[] | null
   quality: number
   reason: string | null
@@ -28,10 +46,22 @@ export type RemoteObservation = {
   faceBox: Rect | null
   pose: HeadPose | null
   basePoint: Point | null
+  baseModelVersion?: string
+  appearanceEmbedding?: number[]
+  appearanceVersion?: string
+  irisRefinement?: RgbIrisRefinement
+  /** Measured pupil/canthus displacement in image axes, normalized by eye width. */
+  cameraOcularOffsets?: number[]
   method: string
   processingMs: number
+  timing?: RemoteProcessingTiming
+  vectors?: RemoteTrackingVectors
 }
-export type RemoteSettings = { roi: Rect; threshold: number }
+export type RemoteSettings = {
+  roi: Rect
+  threshold: number
+  irRollCompensation?: boolean
+}
 export interface RemoteProcessor {
   process(
     frame: ImageBitmap,
@@ -59,7 +89,16 @@ export type CalibrationSample = {
   target: Point
   targetId: number
 }
+export type PersonalizedInputKind =
+  "appearance" | "appearance-refined" | "binocular" | "binocular-camera"
 export type RemoteCalibration = {
+  inputKind?: "base-point" | PersonalizedInputKind
+  representationVersion?: string
+  spatialBasis?: "affine" | "quadratic"
+  headCorrection?: RemoteHeadCorrection
+  motionFit?: RemoteMotionFit
+  baseModelVersion?: string
+  featureVersion?: string
   mode: RemoteMode
   featureMean: number[]
   featureScale: number[]
@@ -72,6 +111,11 @@ export type RemoteCalibration = {
   targetCount: number
   sampleCount: number
 }
+export type RemotePoseSupport = Pick<
+  RemoteCalibration,
+  "poseSamples" | "poseBounds"
+>
+export type RemotePoseSupportScope = "calibration" | "validation"
 export type ValidationResult = {
   meanPixels: number
   rmsPixels: number
@@ -79,4 +123,9 @@ export type ValidationResult = {
   jitterPixels: number
   targetCount: number
   sampleCount: number
+  attemptedTargetCount?: number
+  targets?: ValidationTargetMetrics[]
+  attemptedCount?: number
+  validFraction?: number
+  rejections?: Record<string, number>
 }

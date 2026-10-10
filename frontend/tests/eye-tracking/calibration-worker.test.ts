@@ -90,3 +90,20 @@ test("valid head compensation is retained instead of falling back", () => {
   expect(response.calibration?.headCompensation).toBeDefined()
   expect(response).toMatchObject({ issue: null, error: "" })
 })
+
+test("a finite inconsistent screen fit stays available as an unverified preview", () => {
+  const samples = fixtureTargets.map((target, index) => ({
+    target,
+    feature: [
+      Math.sin(index * 2),
+      Math.cos(index * 3),
+    ] as CalibrationSample["feature"],
+  }))
+  const response = fit(samples)
+  expect(response.calibration).not.toBeNull()
+  expect(response.calibration!.validationError).toBeGreaterThan(0.16)
+  expect(response.issue?.code).toBe("screen-fit")
+  expect(response.calibration!.coefficients.flat().every(Number.isFinite)).toBe(
+    true
+  )
+})

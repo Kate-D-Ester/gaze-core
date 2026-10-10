@@ -16,6 +16,7 @@ export function LiveGazeOverlay({
   initiallyCorrecting = false,
   timestamp,
   validationErrorPixels,
+  verified = false,
   resetKey,
   offset,
   title,
@@ -68,7 +69,7 @@ export function LiveGazeOverlay({
         point={point}
         timestamp={timestamp}
         errorRadiusPx={validationErrorPixels}
-        verified={validationErrorPixels !== null}
+        verified={verified}
         resetKey={resetKey}
         offset={offset}
         markerClassName="eye-live-dot"

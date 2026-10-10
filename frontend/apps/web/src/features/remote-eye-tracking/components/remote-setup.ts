@@ -3,7 +3,6 @@ import {
   Camera,
   ScanEye,
   SwitchCamera,
-  ScanFace,
   Crosshair,
   CheckCircle2,
   Gauge,
@@ -37,10 +36,9 @@ export const REMOTE_MODES: readonly RemoteModeOption[] = [
   },
 ]
 export const REMOTE_STEPS: readonly RemoteSetupStep[] = [
-  { label: "Choose", icon: SwitchCamera },
-  { label: "Camera", icon: Camera },
-  { label: "Position", icon: ScanFace },
-  { label: "Calibrate", icon: Crosshair },
-  { label: "Validate", icon: CheckCircle2 },
-  { label: "Results", icon: Gauge },
+  { id: 0, label: "Choose", icon: SwitchCamera },
+  { id: 1, label: "Camera", icon: Camera },
+  { id: 3, label: "Calibrate", icon: Crosshair },
+  { id: 4, label: "Check accuracy", icon: CheckCircle2 },
+  { id: 5, label: "Results", icon: Gauge },
 ]

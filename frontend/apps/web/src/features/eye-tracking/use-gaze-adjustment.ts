@@ -14,8 +14,8 @@ export function useGazeAdjustment(calibration: object | null) {
   }
   const offset =
     adjustment.calibration === calibration ? adjustment.offset : ZERO_OFFSET
-  function setOffset(value: Point): void {
-    setAdjustment({ calibration, offset: value })
+  function setOffset(value: Point, model: object | null = calibration): void {
+    setAdjustment({ calibration: model, offset: value })
   }
   return { offset, setOffset }
 }

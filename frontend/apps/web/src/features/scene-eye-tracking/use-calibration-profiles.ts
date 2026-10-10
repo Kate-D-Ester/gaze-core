@@ -56,13 +56,19 @@ export function useCalibrationProfiles({
           throw new Error(issue)
         }
         selectSceneProfile(id)
-        session.restoreCalibration(profile)
+        const compatible =
+          !!setup.fingerprint && profile.setup.fingerprint === setup.fingerprint
+        const loaded = {
+          ...profile,
+          unverified: profile.unverified || !compatible,
+        }
+        session.restoreCalibration(loaded)
         selectedMapping.current = session.getSnapshot().calibration
         setSelectedId(id)
         setLibrary(readSceneProfiles())
         setError("")
         setMessage(
-          profile.unverified
+          loaded.unverified
             ? "Loaded · accuracy not verified"
             : "Loaded · adjust X/Y if needed"
         )
@@ -79,9 +85,25 @@ export function useCalibrationProfiles({
     }
     restoredOnce.current = true
     if (!state.calibration && library.selectedId) {
-      load(library.selectedId)
+      const profile = library.profiles.find(
+        (item) => item.id === library.selectedId
+      )
+      if (
+        setup.fingerprint &&
+        profile?.setup.fingerprint === setup.fingerprint
+      ) {
+        load(library.selectedId)
+      }
     }
-  }, [disabled, library.selectedId, load, ready, state.calibration])
+  }, [
+    disabled,
+    library.selectedId,
+    library.profiles,
+    load,
+    ready,
+    state.calibration,
+    setup.fingerprint,
+  ])
   useEffect(() => {
     if (selectedId && selectedMapping.current !== state.calibration) {
       selectedMapping.current = null

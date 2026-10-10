@@ -61,7 +61,8 @@ function fixationSquaredError(
   sample: CalibrationSample,
   reference: HeadPose
 ): number {
-  const readings = collectHeadMeasurements([sample])
+  // Fitting can subsample a hold; accuracy scoring must include every retained reading.
+  const readings = collectHeadMeasurements([sample], Infinity)
   if (!readings) {
     return Infinity
   }

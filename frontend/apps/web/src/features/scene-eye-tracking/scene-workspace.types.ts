@@ -1,3 +1,4 @@
+import type { EyeModel } from "../eye-tracking/eye-tracking.types"
 import type { TrackerController } from "../eye-tracking/use-tracker.types"
 
 export type SceneStatus = {
@@ -13,4 +14,10 @@ export type SceneWorkspaceProps = {
   onStepChange: (step: number) => void
   onStatus: (status: SceneStatus) => void
   eyeRevision: number
+}
+
+export type SceneSetupCache = {
+  revision: number
+  model: EyeModel | null
+  key: string | null
 }

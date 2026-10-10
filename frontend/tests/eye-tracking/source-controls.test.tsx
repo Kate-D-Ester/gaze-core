@@ -16,6 +16,7 @@ const { DEFAULT_SETTINGS } =
 const storageKey = "gazecore.eye-camera.source.v1"
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot> | null
+const resetSource = mock(() => {})
 const tracker: TrackerController = {
   settings: DEFAULT_SETTINGS,
   dimensions: { width: 640, height: 480 },
@@ -46,7 +47,7 @@ async function mountControls(role: CameraSourceRole = "eye"): Promise<void> {
       createElement(SourceControls, {
         tracker,
         role,
-        resetSource() {},
+        resetSource,
       })
     )
   })
@@ -75,6 +76,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root?.unmount())
   root = null
+  tracker.source = null
   host.remove()
   localStorage.removeItem(storageKey)
 })
@@ -296,4 +298,26 @@ test("scene eye cameras inherit the previous shared selection once", async () =>
   } finally {
     localStorage.removeItem(sceneKey)
   }
+})
+
+test("reconnecting the selected eye camera does not erase calibration before a replacement exists", async () => {
+  tracker.source = {
+    kind: "network",
+    name: "Eye camera",
+    url: "http://esp32.local/stream",
+    key: "epoch:1",
+  }
+  await mountControls()
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".primary")!.click()
+  )
+  expect(tracker.startNetworkStream).toHaveBeenCalledWith(
+    "http://esp32.local/stream"
+  )
+  expect(resetSource).not.toHaveBeenCalled()
+  await enterUrl("http://other-camera.local/stream")
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".primary")!.click()
+  )
+  expect(resetSource).toHaveBeenCalledTimes(1)
 })

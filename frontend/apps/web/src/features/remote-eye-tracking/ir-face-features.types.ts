@@ -10,6 +10,10 @@ export type IrEyeSearchBounds = {
 
 export type IrFaceFeatureResult = {
   feature: number[]
+  featureVersion?: string
   pose: RgbFaceGeometry["pose"]
   basePoint: Point
+  cameraOcularOffsets: number[]
 }
+
+export type IrFeatureStrategy = "legacy" | "camera-axes-v2"

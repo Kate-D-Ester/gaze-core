@@ -8,4 +8,4 @@ export type RemoteModeOption = {
   hint: string
   preparation: string
 }
-export type RemoteSetupStep = { label: string; icon: LucideIcon }
+export type RemoteSetupStep = { id: number; label: string; icon: LucideIcon }

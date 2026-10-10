@@ -12,12 +12,18 @@ export function CalibrationFeedback({
   instruction,
   action,
 }: CalibrationFeedbackProps) {
+  const above = target[1] > 0.75
   return (
     <div
       className={`eye-calibration-feedback ${EyeCalibrationFeedbackStyles}`}
       style={{
         left: `clamp(12px, calc(${target[0] * 100}% - var(--eye-feedback-width) / 2), calc(100% - var(--eye-feedback-width) - 12px))`,
-        top: `calc(${target[1] * 100}% + var(--eye-feedback-gap))`,
+        top: above
+          ? undefined
+          : `calc(${target[1] * 100}% + var(--eye-feedback-gap))`,
+        bottom: above
+          ? `calc(${(1 - target[1]) * 100}% + var(--eye-feedback-gap))`
+          : undefined,
       }}
     >
       {label && (

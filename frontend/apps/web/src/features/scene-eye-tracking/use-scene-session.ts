@@ -1,9 +1,56 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
-import type { TrackerController } from "../eye-tracking/use-tracker.types"
+import type {
+  TrackerController,
+  TrackerSource,
+} from "../eye-tracking/use-tracker.types"
 import { readCalibrationMethod } from "./calibration-preferences"
 import { sceneEyeEvidence } from "./eye-evidence"
+import type { EyeModel } from "../eye-tracking/eye-tracking.types"
 import type { SceneCamera } from "./scene-camera"
+import type { SceneSource } from "./scene-camera.types"
 import { SceneSession } from "./scene-session"
+export function stableSceneCameraKey(
+  source: TrackerSource | SceneSource | null
+) {
+  if (!source) {
+    return null
+  }
+  return JSON.stringify([
+    source.kind,
+    source.deviceId || source.url || source.name,
+  ])
+}
+export function stableSceneSetupKey(
+  tracker: TrackerController,
+  camera: SceneCamera,
+  lockedModel: EyeModel | null
+) {
+  const scene = camera.getSnapshot()
+  if (
+    !tracker.settings.locked ||
+    !tracker.source ||
+    !scene.source ||
+    !lockedModel ||
+    tracker.dimensions.width <= 0 ||
+    tracker.dimensions.height <= 0 ||
+    camera.rawCanvas.width <= 0 ||
+    camera.rawCanvas.height <= 0
+  ) {
+    return null
+  }
+  return JSON.stringify([
+    stableSceneCameraKey(tracker.source),
+    tracker.settings,
+    tracker.dimensions,
+    tracker.transform,
+    scene.transform,
+    stableSceneCameraKey(scene.source),
+    camera.rawCanvas.width,
+    camera.rawCanvas.height,
+    lockedModel.center,
+    lockedModel.radius,
+  ])
+}
 export function useSceneSession(
   tracker: TrackerController,
   camera: SceneCamera,
@@ -16,8 +63,10 @@ export function useSceneSession(
       eye: tracker.transform,
       scene: camera.getSnapshot().transform,
     })
+  }, [session, tracker.transform, camera, identity])
+  useEffect(() => {
     session.invalidate()
-  }, [session, identity, tracker.transform, camera])
+  }, [session, identity])
   useEffect(() => {
     const frame = tracker.frame
     if (!frame) {

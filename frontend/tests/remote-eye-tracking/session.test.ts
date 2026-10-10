@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import type { RemoteRequest } from "../../apps/web/src/features/remote-eye-tracking/remote-eye-tracking.types"
 import {
   RemoteSession,
   type SessionEnvironment,
@@ -13,6 +14,7 @@ function fixture(overrides: Partial<SessionEnvironment> = {}) {
     closed = 0
   let frame: FrameRequestCallback | null = null
   let captured = 0
+  const requests: RemoteRequest[] = []
   const track = {
     stop: () => stopped++,
     addEventListener: (_event: string, cb: () => void) => {
@@ -26,7 +28,7 @@ function fixture(overrides: Partial<SessionEnvironment> = {}) {
   const worker = {
     onmessage: null,
     onerror: null,
-    postMessage: () => {},
+    postMessage: (request: RemoteRequest) => requests.push(request),
     terminate: () => terminated++,
   } as unknown as Worker
   const video = {
@@ -69,6 +71,7 @@ function fixture(overrides: Partial<SessionEnvironment> = {}) {
     states,
     stream,
     worker,
+    requests,
     ready,
     resolve: () => resolveStream(stream),
     tick: () => frame?.(10),
@@ -85,6 +88,77 @@ const flush = async () => {
   await Promise.resolve()
   await Promise.resolve()
 }
+
+test("changing only IR roll compensation reaches the next source frame", async () => {
+  const f = fixture()
+  const settings = { roi: { x: 0, y: 0, width: 1, height: 1 }, threshold: 0 }
+  try {
+    const start = f.session.start("ir")
+    f.resolve()
+    await start
+    f.ready()
+    for (const enabled of [true, false]) {
+      f.session.setSettings({ ...settings, irRollCompensation: enabled })
+      f.video.currentTime += 0.033
+      f.tick()
+      await flush()
+      const request = f.requests.at(-1)
+      expect(request?.type).toBe("frame")
+      if (request?.type !== "frame")
+        throw new Error("Expected a captured frame")
+      expect(Boolean(request.settings.irRollCompensation)).toBe(enabled)
+      f.worker.onmessage?.({
+        data: {
+          type: "result",
+          observation: { timestamp: performance.now(), feature: null },
+        },
+      } as MessageEvent)
+    }
+  } finally {
+    f.session.stop()
+  }
+})
+
+test("performance readout separates capture cost from original source latency", async () => {
+  const originalNow = performance.now
+  let clock = 100
+  performance.now = () => clock
+  const f = fixture({
+    capture: async () => {
+      clock = 120
+      return { close: () => {} } as ImageBitmap
+    },
+  })
+  try {
+    const start = f.session.start("mobile")
+    f.resolve()
+    await start
+    f.ready()
+    f.tick()
+    await flush()
+    clock = 170
+    f.worker.onmessage?.({
+      data: {
+        type: "result",
+        observation: {
+          timestamp: 100,
+          feature: [0.5],
+          processingMs: 40,
+          timing: { landmarksMs: 25, appearanceMs: 10 },
+        },
+      },
+    } as MessageEvent)
+    const observation = f.states.at(-1)?.observation
+    expect(observation?.timestamp).toBe(100)
+    expect(observation?.timing?.captureMs).toBe(20)
+    expect(observation?.timing?.endToEndMs).toBe(70)
+    expect(observation?.timing?.landmarksMs).toBe(25)
+    expect(observation?.processingMs).toBe(40)
+  } finally {
+    f.session.stop()
+    performance.now = originalNow
+  }
+})
 
 test("a permission response arriving after Stop is released and never activates the camera", async () => {
   const f = fixture()
