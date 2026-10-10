@@ -258,7 +258,7 @@ test("validating an eye-only fallback does not require a usable front-camera pos
     host.querySelector<HTMLButtonElement>(".eye-calibration-start")?.disabled
   ).toBe(false)
 })
-test("automatic accuracy dots start immediately and measure a wrong-sector gaze without filtering it", async () => {
+test("validation waits for Continue before measuring a wrong-sector gaze without filtering it", async () => {
   let tick = () => {}
   let now = 0
   const interval = spyOn(globalThis, "setInterval").mockImplementation(
@@ -291,18 +291,36 @@ test("automatic accuracy dots start immediately and measure a wrong-sector gaze 
             validationError: 0,
           },
           validation: true,
-          autoStart: true,
           targets: [[0.12, 0.12]],
           onComplete: complete,
           onCancel: cancel,
         })
       )
     })
-    expect(host.querySelector(".eye-calibration-start")).toBeNull()
+    expect(host.querySelector(".eye-calibration-welcome h2")?.textContent).toBe(
+      "Validation test"
+    )
+    expect(host.querySelector(".eye-calibration-target")).toBeNull()
+    for (; now < 6000; now += 100) {
+      tracker.latest.current = {
+        id: now,
+        timestamp: now,
+        gaze: { direction: [0.2, 0.2, -1] },
+        detection: { ellipse: { confidence: 0.9 } },
+      } as TrackingFrame
+      await act(async () => tick())
+    }
+    expect(complete).not.toHaveBeenCalled()
+    expect(host.querySelector(".eye-calibration-target")).toBeNull()
+    const continueButton = host.querySelector<HTMLButtonElement>(
+      ".eye-calibration-start"
+    )!
+    expect(continueButton.textContent).toContain("Continue")
+    await act(async () => continueButton.click())
     expect(
       host.querySelector<HTMLElement>(".eye-calibration-target")?.style.left
     ).toBe("12%")
-    for (; now < 6000 && !complete.mock.calls.length; now += 100) {
+    for (; now < 12000 && !complete.mock.calls.length; now += 100) {
       tracker.latest.current = {
         id: now,
         timestamp: now,

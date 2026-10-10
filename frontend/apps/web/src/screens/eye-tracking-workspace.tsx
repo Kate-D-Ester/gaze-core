@@ -179,7 +179,6 @@ export function EyeTrackingWorkspace({
   const [capture, setCapture] = useState<
     "calibration" | "validation" | "check" | "repair" | null
   >(null)
-  const [autoCheck, setAutoCheck] = useState(false)
   const [focusCorrection, setFocusCorrection] = useState(false)
   const [focus, setFocus] = useState(false)
   const [notice, setNotice] = useState("")
@@ -204,7 +203,6 @@ export function EyeTrackingWorkspace({
     setValidation(null)
     setValidationMetrics(null)
     setCapture(null)
-    setAutoCheck(false)
     setFocus(false)
     setNotice("")
     setSavedGazeGrid([])
@@ -440,7 +438,6 @@ export function EyeTrackingWorkspace({
   }
   const finishCapture = useCallback(
     async (samples: CalibrationSample[], attempts?: ValidationReading[]) => {
-      setAutoCheck(false)
       if (capture === "repair" && calibration) {
         setCapture(null)
         const repaired = evaluatePersonalResidual(
@@ -598,7 +595,6 @@ export function EyeTrackingWorkspace({
       setValidation(null)
       setValidationMetrics(null)
       setStep(5)
-      setAutoCheck(true)
       setCapture("validation")
       if (result.issue) {
         setNotice(`Unverified eye-only preview. ${result.issue.message}`)
@@ -1076,7 +1072,6 @@ export function EyeTrackingWorkspace({
       {capture && (
         <CalibrationOverlay
           key={capture}
-          autoStart={capture === "validation" && autoCheck}
           tracker={tracker}
           head={head}
           calibration={calibration}
@@ -1096,7 +1091,6 @@ export function EyeTrackingWorkspace({
             pendingFit.current?.abort()
             setFitting(false)
             setCapture(null)
-            setAutoCheck(false)
           }}
         />
       )}

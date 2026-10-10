@@ -1,4 +1,6 @@
-/** Static Tailwind primitives for calibration presentation. */
+import type { Point } from "../eye-tracking/eye-tracking.types"
+
+/** Tailwind primitives for calibration presentation. */
 
 export const EyeCalibrationStyles = `
   fixed [inset:0] [z-index:80] [background:var(--background)]
@@ -16,10 +18,18 @@ export const EyeCalibrationTopStyles = `
   [&_b]:[font-weight:500] [&_b]:[letter-spacing:0] [&_button]:[padding:10px]
 `
 
-/** Leave the center, corners and edge targets clear while capture is running. */
+/** Anchor capture controls in the upper-right, away from central fixation. */
 export const EyeCalibrationCaptureCancelStyles = `
-  fixed! [left:calc(50%_+_48px)] [top:8px]
+  fixed! [right:8px] [top:8px] [z-index:2]
 `
+
+/** Move below an upper-right target without changing its calibrated position. */
+export function calibrationCancelTop(target: Point): string {
+  if (target[0] > 0.75 && target[1] < 0.25) {
+    return `calc(${target[1] * 100}% + 40px)`
+  }
+  return "8px"
+}
 
 export const EyeCalibrationWelcomeStyles = `
   absolute [inset:80px_24px_36px] flex flex-col

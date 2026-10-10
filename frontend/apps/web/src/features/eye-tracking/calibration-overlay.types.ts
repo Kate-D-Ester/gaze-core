@@ -17,7 +17,6 @@ export type CalibrationOverlayProps = {
   calibration: Calibration | null
   orientation?: GazeOrientation
   validation: boolean
-  autoStart?: boolean
   fitting?: boolean
   seedSamples?: CalibrationSample[]
   onComplete: (

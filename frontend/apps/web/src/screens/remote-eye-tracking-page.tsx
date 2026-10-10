@@ -158,7 +158,6 @@ export function RemoteEyeTrackingPage() {
   >([])
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [capture, setCapture] = useState<RemoteCaptureKind | null>(null)
-  const [autoCheck, setAutoCheck] = useState(false)
   const [correctionRequest, setCorrectionRequest] = useState(0)
   const [showGaze, setShowGaze] = useState(false)
   const [showVectors, setShowVectors] = useState(true)
@@ -167,7 +166,6 @@ export function RemoteEyeTrackingPage() {
     setCalibration(null)
     setValidation(null)
     setCapture(null)
-    setAutoCheck(false)
     setShowGaze(false)
     setSamples([])
     setHeadSamples([])
@@ -396,7 +394,6 @@ export function RemoteEyeTrackingPage() {
       return
     }
     setValidation(null)
-    setAutoCheck(false)
     setCapture(null)
     setShowGaze(false)
     setNotice("")
@@ -417,7 +414,6 @@ export function RemoteEyeTrackingPage() {
   }
   function stop() {
     setAdvanceAfterStart(false)
-    setAutoCheck(false)
     stopTracker()
     setCapture(null)
     setShowGaze(false)
@@ -461,7 +457,6 @@ export function RemoteEyeTrackingPage() {
     }
     setAdvanceAfterStart(false)
     setCapture(null)
-    setAutoCheck(false)
     setShowGaze(false)
     setNotice("")
     setStep(nextStep)
@@ -472,7 +467,6 @@ export function RemoteEyeTrackingPage() {
     attempts?: CalibrationSample[]
   ) {
     setCapture(null)
-    setAutoCheck(false)
     setShowGaze(false)
     if (replaying) {
       return
@@ -607,7 +601,6 @@ export function RemoteEyeTrackingPage() {
     setValidation(result.validation)
     setValidationRequirements({ targetCount: 5, minimumSamples: 18 })
     setStep(5)
-    setAutoCheck(true)
     setCapture("validate")
     setNotice("")
     if (headMovementEnabled && !result.headMovementLearned) {
@@ -1343,7 +1336,6 @@ export function RemoteEyeTrackingPage() {
       {capture && !adaptiveCapture && ready && !replaying && (
         <RemoteCalibrationOverlay
           key={capture}
-          autoStart={capture === "validate" && autoCheck}
           latest={latest}
           captureViewport={viewport}
           targets={capture === "check" ? RETURN_CHECK_TARGETS : undefined}
@@ -1355,7 +1347,6 @@ export function RemoteEyeTrackingPage() {
           onComplete={finishCapture}
           onCancel={() => {
             setCapture(null)
-            setAutoCheck(false)
             setNotice("Capture canceled.")
           }}
         />

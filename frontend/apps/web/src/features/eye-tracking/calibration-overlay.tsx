@@ -12,6 +12,7 @@ import {
   EyeCalibrationTopStyles,
   EyeCalibrationWelcomeStyles,
   EyeCalibrationCaptureCancelStyles,
+  calibrationCancelTop,
 } from "../tracking-ui/calibration-styles"
 import { EyeHeadFloatingStyles } from "../tracking-ui/head-tracking-styles"
 import { gazeFeature, mapGaze } from "./calibration"
@@ -33,7 +34,6 @@ export function CalibrationOverlay({
   head,
   calibration,
   validation,
-  autoStart = false,
   fitting = false,
   seedSamples,
   orientation,
@@ -44,21 +44,18 @@ export function CalibrationOverlay({
 }: CalibrationOverlayProps) {
   const needsHead =
     head.enabled && (!validation || !!calibration?.headCompensation)
-  const [session] = useState(() => {
-    const created = new CalibrationSession({
-      screenAspectRatio: window.innerWidth / window.innerHeight,
-      headEnabled: needsHead,
-      orientation,
-      validation: validation ? calibration : null,
-      seedSamples,
-      targets: repairTargets ?? targets,
-      comfortableHold,
-    })
-    if (autoStart) {
-      created.start(performance.now())
-    }
-    return created
-  })
+  const [session] = useState(
+    () =>
+      new CalibrationSession({
+        screenAspectRatio: window.innerWidth / window.innerHeight,
+        headEnabled: needsHead,
+        orientation,
+        validation: validation ? calibration : null,
+        seedSamples,
+        targets: repairTargets ?? targets,
+        comfortableHold,
+      })
+  )
   const [snapshot, setSnapshot] = useState(session.snapshot)
   const dialog = useRef<HTMLDivElement | null>(null)
   const complete = useRef(onComplete)
@@ -235,6 +232,7 @@ export function CalibrationOverlay({
   }
   const intro = snapshot.phase === "intro"
   const failed = snapshot.phase === "error"
+  const capturing = !intro && !failed && !fitting
   const waiting =
     snapshot.progress === 0 && snapshot.instruction !== "Look at the dot"
   let title = "Look at each dot until it pops"
@@ -246,8 +244,8 @@ export function CalibrationOverlay({
     introduction = "Your gaze dots are saved. Follow the head movements."
   }
   if (validation) {
-    title = "Follow the dots to check your accuracy"
-    startLabel = "Start validation"
+    title = "Validation test"
+    startLabel = "Continue"
   }
   if (failed) {
     title = "Let’s try that again"
@@ -286,7 +284,10 @@ export function CalibrationOverlay({
       <div className={`eye-calibration-top ${EyeCalibrationTopStyles}`}>
         <span>{intro || failed || fitting ? snapshot.label : ""}</span>
         <button
-          className={`eye-icon-button ${EyeIconButtonStyles} ${intro || failed || fitting ? "" : EyeCalibrationCaptureCancelStyles}`}
+          className={`eye-icon-button ${EyeIconButtonStyles} ${capturing ? EyeCalibrationCaptureCancelStyles : ""}`}
+          style={{
+            top: capturing ? calibrationCancelTop(snapshot.target) : undefined,
+          }}
           autoFocus={!intro}
           onClick={onCancel}
           aria-label="Cancel calibration"
@@ -318,6 +319,9 @@ export function CalibrationOverlay({
           className={`eye-calibration-welcome ${EyeCalibrationWelcomeStyles}`}
         >
           <h2>{fitting ? "Fitting calibration…" : title}</h2>
+          {intro && validation && !fitting && (
+            <p>Look at each dot until it pops.</p>
+          )}
           {intro && needsHead && !validation && !fitting && (
             <p className={`eye-small ${EyeSmallStyles}`}>{introduction}</p>
           )}

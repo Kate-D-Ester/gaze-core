@@ -31,7 +31,7 @@ test.each([
   "unified capture, independent accuracy, and resize recovery (network readings: %p, camera identity: %p)",
   async (networkReadings, cameraId, modeTitle, includeHeadMovement = false) => {
     const reloadProfile = networkReadings && cameraId === "fixture-webcam"
-    const cancelAutomaticCheck = cameraId === "fixture-ir"
+    const cancelValidationPrompt = cameraId === "fixture-ir"
     window.localStorage.clear()
     let clock = 100,
       id = 0,
@@ -332,7 +332,8 @@ test.each([
       await click("Start calibration")
       await act(async () => window.dispatchEvent(new Event("resize")))
       expect(host.querySelector(".remote-calibration")).not.toBeNull()
-      let canceledAutomaticCheck = false
+      let validationPromptShown = false
+      let canceledValidationPrompt = false
       for (
         let i = 0;
         i < 650 && host.querySelector(".remote-calibration");
@@ -340,28 +341,42 @@ test.each([
       ) {
         await tick()
         if (
-          cancelAutomaticCheck &&
+          !validationPromptShown &&
           host.querySelector(
             '.remote-calibration[aria-label="Gaze validation"]'
           )
         ) {
-          expect(host.querySelector(".eye-calibration-start")).toBeNull()
-          await click("Cancel capture")
-          canceledAutomaticCheck = true
-          break
+          validationPromptShown = true
+          expect(
+            host.querySelector(".eye-calibration-welcome h2")?.textContent
+          ).toBe("Validation test")
+          expect(host.querySelector(".remote-target")).toBeNull()
+          for (let frame = 0; frame < 30; frame++) await tick()
+          expect(host.querySelector(".remote-target")).toBeNull()
+          expect(
+            host.querySelector(".eye-calibration-start")?.textContent
+          ).toContain("Continue")
+          if (cancelValidationPrompt) {
+            await click("Cancel capture")
+            canceledValidationPrompt = true
+            break
+          }
+          await click("Continue")
+          expect(host.querySelector(".remote-target")).not.toBeNull()
         }
       }
+      expect(validationPromptShown).toBe(true)
       expect(host.querySelector(".remote-controls h2")?.textContent).toBe(
         "Results"
       )
-      if (cancelAutomaticCheck) {
-        expect(canceledAutomaticCheck).toBe(true)
+      if (cancelValidationPrompt) {
+        expect(canceledValidationPrompt).toBe(true)
         const kept = await exportResult()
         expect(kept.samples).toHaveLength(162)
         expect(kept.calibration.targetCount).toBe(9)
         expect(kept.validation).toBeNull()
         await click("Validate adjustment")
-        await click("Start validation")
+        await click("Continue")
         for (
           let frame = 0;
           frame < 250 && host.querySelector(".remote-calibration");
@@ -382,7 +397,7 @@ test.each([
       expect(host.textContent).toContain("Mean target error")
       expect(host.textContent).toContain("5 targets")
       await click("Validate adjustment")
-      await click("Start validation")
+      await click("Continue")
       for (let i = 0; i < 250 && host.querySelector(".remote-calibration"); i++)
         await tick()
       expect(host.textContent).toContain("Mean target error")
@@ -451,7 +466,7 @@ test.each([
       }
       gazeError = 0.15
       await click("Validate adjustment")
-      await click("Start validation")
+      await click("Continue")
       for (let i = 0; i < 450 && host.querySelector(".remote-calibration"); i++)
         await tick()
       expect(host.querySelector(".remote-calibration")).toBeNull()
@@ -460,7 +475,7 @@ test.each([
         "Results"
       )
       await click("Validate adjustment")
-      await click("Start validation")
+      await click("Continue")
       missingEyes = true
       for (let i = 0; i < 550 && host.querySelector(".remote-calibration"); i++)
         await tick()
@@ -473,7 +488,7 @@ test.each([
       gazeError = 0
       await tick()
       await click("Validate adjustment")
-      await click("Start validation")
+      await click("Continue")
       for (let i = 0; i < 450 && host.querySelector(".remote-calibration"); i++)
         await tick()
       expect(host.textContent).toContain("Accuracy checked")
@@ -499,7 +514,7 @@ test.each([
         // Create a real, nonnull affine session alignment through the existing repair UI.
         gazeError = 0.006
         await click("Trial grid repair")
-        await click("Start validation")
+        await click("Continue")
         for (
           let frame = 0;
           frame < 250 && host.querySelector(".remote-calibration");
@@ -512,7 +527,7 @@ test.each([
         )
         gazeError = 0
         await click("Validate gaze")
-        await click("Start validation")
+        await click("Continue")
         for (
           let frame = 0;
           frame < 250 && host.querySelector(".remote-calibration");
@@ -705,7 +720,7 @@ test.each([
       )
       expect(host.textContent).toContain("162 synchronized samples")
       await click("Quick check")
-      await click("Start validation")
+      await click("Continue")
       const heightDescriptor = Object.getOwnPropertyDescriptor(
         window,
         "innerHeight"
@@ -748,7 +763,7 @@ test.each([
       const width = window.innerWidth
       try {
         await click("Validate adjustment")
-        await click("Start validation")
+        await click("Continue")
         Object.defineProperty(window, "innerWidth", {
           configurable: true,
           value: width - 100,

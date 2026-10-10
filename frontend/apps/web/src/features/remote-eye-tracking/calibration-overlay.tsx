@@ -8,6 +8,7 @@ import {
   EyeCalibrationTargetStyles,
   EyeCalibrationWelcomeStyles,
   EyeCalibrationCaptureCancelStyles,
+  calibrationCancelTop,
 } from "../tracking-ui/calibration-styles"
 import {
   RemoteCalibrationStyles,
@@ -378,9 +379,10 @@ export function RemoteCalibrationOverlay({
     "Keep looking at the dot. When it pops, follow the next one."
   let instruction = progress.reason
   if (calibration) {
-    title = "Follow the dots to check your accuracy"
-    startLabel = "Start validation"
+    title = "Validation test"
+    startLabel = "Continue"
     label = "Validate"
+    introduction = "Look at each dot until it pops."
   }
   if (stageLabel) {
     label = stageLabel
@@ -479,6 +481,7 @@ export function RemoteCalibrationOverlay({
           icon={X}
           onClick={onCancel}
           className={running ? EyeCalibrationCaptureCancelStyles : ""}
+          style={{ top: running ? calibrationCancelTop(target) : undefined }}
         />
       </div>
       {!running && (
