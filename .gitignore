@@ -17,7 +17,7 @@ dist/
 .idea/shelf
 .wrangler
 .alchemy
-.next/
+.next*/
 .vercel
 prisma/generated/
 

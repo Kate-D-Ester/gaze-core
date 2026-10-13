@@ -4,6 +4,7 @@ import { EyeButtonStyles, EyeFieldStyles } from "../tracking-ui/control-styles"
 import type { CommandBarProps } from "./command-bar.types"
 
 export function CommandBar({
+  botControls,
   activeLabel,
   canCapture,
   capturing,
@@ -162,6 +163,7 @@ export function CommandBar({
           </p>
         )}
       </div>
+      {botControls}
     </section>
   )
 }

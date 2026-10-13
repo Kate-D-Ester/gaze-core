@@ -22,6 +22,22 @@ Network feeds connect directly from the browser, using v3's MJPEG and browser-re
 
 Rotate, enter a rotation angle, mirror horizontally, flip vertically, or reset each feed independently. Eye and Scene orientation share the tracker setup preferences, so the same transformed image appears in both views. Target orientation has its own viewer key. Changing Eye or Scene orientation invalidates incompatible calibration.
 
+## Bot following over MQTT
+
+The sticky command bar now includes **Bot settings**, **Follow**, and **Stop bot**. The Target camera is fixed on the car: left/right turns the car and forward/backward adjusts apparent object size. No up/down or arm commands are sent.
+
+1. Connect Scene and Target, rotate Target upright, and select an object in Scene.
+2. Open **Bot settings**. Use the same `MQTT_WEBSOCKET_URL` and `MQTT_TOPIC_PREFIX` as the existing Zero controller. Enter its optional `MQTT_USERNAME`/`MQTT_PASSWORD` only when the broker requires them. Use the browser WebSocket endpoint (`ws://` or `wss://`), not the firmware's TCP endpoint.
+3. Choose **Object width (%)** and **Drive speed (%)**. Defaults are 30% of Target image width and 25% drive speed. These settings represent image size and motor command percentage, not calibrated distance or velocity.
+4. **Connect bot**, then **Request control**. This is a signed guest session in Zero's existing queue. In manual queue mode the controller admin must grant it; master control must be released before a guest can drive.
+5. Once the bot is ready, press **Follow**. It waits for two new, verified Target results, turns toward the object first, then adjusts its apparent width. **Stop bot** remains in the sticky bar while settings are collapsed.
+
+The implementation uses the current Zero firmware's v1 P-256 signature, enrollment challenge, boot nonce and ownership epoch. It publishes `{cmd, speed, epoch}` inside the signed envelope to `<topicPrefix>/control`, with action `car` and commands `L`, `R`, `F` or `B`; stopping uses action `stop`. Telemetry and replies arrive on `<topicPrefix>/state` and `<topicPrefix>/reply/<session>`. Plain unsigned direction strings will not work with this firmware. Graceful disconnect sends `stop` followed by authenticated `leave` to release the queue/name.
+
+The loop checks every 50 ms and renews an accepted movement every 250 ms. Camera and inference observations must each be at most 500 ms old, with a valid Target match above 80%. Search, ambiguity or stale evidence stops movement; two fresh results permit reacquisition. Clear, reselection, camera/orientation changes, control loss, setup, hiding the page or losing window focus disable Follow. Offline commands are not buffered or retained. Preview mirroring is undone for physical turn direction. Boxes touching image edges cannot request a distance correction.
+
+Broker credentials remain in page memory and are not stored or logged. The app does not connect or drive automatically. Tests use a simulated broker and real command signatures; physical motor response, camera mounting and stop latency still require a bot test. The existing Zero firmware has a 750 ms motion-command timeout, plus its Arduino motor receiver timeout; network loss cannot guarantee delivery of a browser Stop packet.
+
 ## Setup and calibration
 
 The default view shows the camera panels and a compact command bar that stays visible while the feeds scroll. Help contains three short setup steps and links to the camera panels. Orientation expands each feed’s rotate/mirror controls. A single connected feed is enough for static selection and photos.

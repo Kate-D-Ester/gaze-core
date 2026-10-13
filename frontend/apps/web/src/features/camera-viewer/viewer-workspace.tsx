@@ -1,3 +1,4 @@
+import { BotControls } from "../robot-control/bot-controls"
 import { useObjectTracking } from "./use-object-tracking"
 import { getViewerGaze } from "./viewer-gaze"
 import type { ObjectChoice, ObjectRegion } from "./object-tracking.types"
@@ -408,6 +409,14 @@ export function ViewerWorkspace({
             />
           </div>
           <CommandBar
+            botControls={
+              <BotControls
+                tracking={tracking}
+                scene={scene.camera}
+                target={auxiliary.camera}
+                visible={visible}
+              />
+            }
             activeLabel={LABELS[active]}
             canCapture={hasFreshFrame(activeState, displayTime)}
             capturing={capturing}
