@@ -1,31 +1,26 @@
 import type { IClientOptions, MqttClient } from "mqtt"
 export type BotConfiguration = {
   mqttUrl: string
-  topicPrefix: string
+  commandTopic: string
   mqttUsername: string
   mqttPassword: string
 }
-export type FollowSettings = { desiredWidth: number; speed: number }
+export type FollowSettings = { speed: number }
 export type Movement = {
   action: "car"
-  cmd: "F" | "B" | "L" | "R"
+  cmd: "L" | "R"
   speed: number
 }
-export type RobotState = {
-  status: "online"
-  boot: string
-  epoch: number
-  current: string
-  master: boolean
-  queue_mode: "automatic" | "manual"
-  queue: { name: string; session: string }[]
+export type CarCommand = {
+  cmd: Movement["cmd"] | "S"
+  speed: number
+  timestamp: number
+  id: number
 }
 export type RobotSnapshot = {
   connected: boolean
   connecting: boolean
-  online: boolean
   canControl: boolean
-  joined: boolean
   authority: string
   error: string
 }
@@ -40,10 +35,7 @@ export type MotionSession = {
   cancelMotion: () => void
   stop: () => Promise<void>
 }
-export type MqttTransport = Pick<
-  MqttClient,
-  "on" | "subscribe" | "publish" | "end"
->
+export type MqttTransport = Pick<MqttClient, "on" | "publish" | "end">
 export type SessionDependencies = {
   connect?: (url: string, options: IClientOptions) => MqttTransport
   now?: () => number

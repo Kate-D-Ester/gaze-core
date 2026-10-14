@@ -6,7 +6,7 @@ import { SceneCamera } from "../../apps/web/src/features/scene-eye-tracking/scen
 import { TargetFollower } from "../../apps/web/src/features/robot-control/target-follower"
 import { liveSnapshot } from "../camera-viewer/fixtures"
 import type { ObjectBox } from "../../apps/web/src/features/camera-viewer/object-tracking.types"
-const settings = { desiredWidth: 0.3, speed: 25 }
+const settings = { speed: 25 }
 async function fixture() {
   let now = 100,
     box: ObjectBox = [0.65, 0.35, 0.95, 0.65],
@@ -103,13 +103,13 @@ test("the real tracker must confirm two distinct Target results before moving", 
   f.follower.disable()
   f.tracker.clear()
 })
-test("forward and backward derive from Target width, not the Scene selection", async () => {
+test("small and large centered targets hold without sending forward or backward", async () => {
   const f = await fixture()
   await f.frame([0.45, 0.35, 0.55, 0.65])
   await f.frame()
-  expect(f.session.sent.at(-1)).toBe("F")
   await f.frame([0.25, 0.35, 0.75, 0.65])
-  expect(f.session.sent.at(-1)).toBe("B")
+  expect(f.session.sent.some((cmd) => cmd === "F" || cmd === "B")).toBe(false)
+  expect(f.follower.getSnapshot().phase).toBe("holding")
   f.follower.disable()
   f.tracker.clear()
 })

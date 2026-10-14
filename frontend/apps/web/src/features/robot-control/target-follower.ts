@@ -22,8 +22,6 @@ const empty = (): FollowSnapshot => ({
   error: "",
 })
 const labels: Record<Movement["cmd"], string> = {
-  F: "Forward",
-  B: "Backward",
   L: "Left",
   R: "Right",
 }
@@ -64,7 +62,7 @@ export class TargetFollower {
   enable(settings: FollowSettings) {
     this.disable()
     if (!this.session.getSnapshot().canControl) {
-      throw new Error("Request bot control before following.")
+      throw new Error("Connect MQTT before following.")
     }
     const reference = this.tracking.getSnapshot().reference
     const state = this.target.getSnapshot()
@@ -122,7 +120,7 @@ export class TargetFollower {
     }
     return match
   }
-  private halt() {
+  private halt(resetServo = true) {
     if (this.lastCommand) {
       this.version++
       this.session.cancelMotion()
@@ -130,7 +128,9 @@ export class TargetFollower {
     }
     this.lastCommand = null
     this.lastSent = -Infinity
-    this.servo?.reset()
+    if (resetServo) {
+      this.servo?.reset()
+    }
   }
   tick() {
     if (!this.snapshot.enabled) {
@@ -140,9 +140,7 @@ export class TargetFollower {
     const state = this.target.getSnapshot()
     const robot = this.session.getSnapshot()
     if (!robot.canControl || robot.authority !== this.authority) {
-      this.disable(
-        "Bot control changed. Follow again after access is restored."
-      )
+      this.disable("MQTT connection changed. Connect and Follow again.")
       return
     }
     if (
@@ -175,9 +173,13 @@ export class TargetFollower {
       this.publish({ enabled: true, phase: "waiting", command: "", error: "" })
       return
     }
-    const movement = this.servo!.decide(match.box, state.transform)
+    const movement = this.servo!.decide(
+      match.box,
+      state.transform,
+      match.timestamp
+    )
     if (!movement) {
-      this.halt()
+      this.halt(false)
       this.publish({ enabled: true, phase: "holding", command: "", error: "" })
       return
     }
@@ -194,7 +196,7 @@ export class TargetFollower {
     this.publish({
       enabled: true,
       phase: "moving",
-      command: labels[movement.cmd],
+      command: `${labels[movement.cmd]} ${movement.speed}%`,
       error: "",
     })
     if (this.publishing || this.now() - this.lastSent < 250) {
@@ -227,9 +229,7 @@ export class TargetFollower {
             this.lastSent = -Infinity
             this.tick()
           } else {
-            this.disable(
-              "Bot command failed. Check control access and Follow again."
-            )
+            this.disable("Bot command failed. Check MQTT and Follow again.")
           }
         }
       })

@@ -1,19 +1,19 @@
 import { afterEach, expect, test } from "bun:test"
-import { ZeroSession } from "../../apps/web/src/features/robot-control/zero-session"
 import {
-  createGuestIdentity,
-  signMessage,
-} from "../../apps/web/src/features/robot-control/zero-protocol"
-import { Broker, configuration, status } from "./fixtures"
+  ZeroSession,
+  validateBotConfiguration,
+} from "../../apps/web/src/features/robot-control/zero-session"
+import { Broker, configuration } from "./fixtures"
 const clients: ZeroSession[] = []
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((session) => session.disconnect()))
 })
-async function fixture(retained = false) {
-  const broker = new Broker(status())
+async function fixture() {
+  const broker = new Broker()
   let options: any
   const session = new ZeroSession({
-    connect: (url: any, supplied: any) => {
+    now: () => 1700000000000,
+    connect: (_url, supplied) => {
       options = supplied
       return broker as any
     },
@@ -21,163 +21,144 @@ async function fixture(retained = false) {
   clients.push(session)
   await session.connect(configuration)
   broker.emit("connect")
-  broker.message("zero/test/state", broker.status, retained)
   return { session, broker, options }
 }
-test("guest packets match the firmware signature format and detect a changed direction", async () => {
-  const identity = await createGuestIdentity()
-  const packet = await signMessage(identity, {
-    boot: "a".repeat(32),
-    seq: 1,
-    action: "car",
-    data: { cmd: "F", speed: 25, epoch: 2 },
-  })
-  expect(packet.data).toBe('{"cmd":"F","speed":25,"epoch":2}')
-  expect(packet.signature).toMatch(/^[0-9a-f]{128}$/)
-  const key = await crypto.subtle.importKey(
-    "raw",
-    Uint8Array.from(identity.publicKey.match(/../g)!, (x) => parseInt(x, 16)),
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["verify"]
-  )
-  const canonical = [
-    "guest",
-    packet.boot,
-    packet.session,
-    1,
-    "car",
-    packet.data,
-  ].join("\n")
-  expect(
-    await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      key,
-      Uint8Array.from(packet.signature.match(/../g)!, (x) => parseInt(x, 16)),
-      new TextEncoder().encode(canonical)
-    )
-  ).toBe(true)
-  expect(
-    await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      key,
-      Uint8Array.from(packet.signature.match(/../g)!, (x) => parseInt(x, 16)),
-      new TextEncoder().encode(canonical.replace('"F"', '"B"'))
-    )
-  ).toBe(false)
-})
-test("join enrolls with a challenge before publishing authenticated non-retained movement", async () => {
+test("MQTT connection is ready without robot telemetry or queue enrollment", async () => {
   const { session, broker, options } = await fixture()
+  expect(session.getSnapshot().canControl).toBe(true)
+  expect(broker.sent).toHaveLength(0)
   expect(options.queueQoSZero).toBe(false)
-  await session.join("Gaze viewer")
-  expect(session.getSnapshot().canControl).toBe(true)
-  await session.move("car", "R", 25, () => true)
-  const command = broker.sent.at(-1)!
-  expect(command.topic).toBe("zero/test/control")
-  expect(command.packet.action).toBe("car")
-  expect(JSON.parse(command.packet.data)).toEqual({
-    cmd: "R",
-    speed: 25,
-    epoch: 2,
-  })
-  expect(command.options).toEqual({ qos: 0, retain: false })
-  expect(
-    broker.sent.find((x) => x.packet.action === "join")!.packet.data
-  ).toContain('"challenge":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"')
+  expect(options.will.topic).toBe("test/car/command")
+  expect(JSON.parse(options.will.payload).cmd).toBe("S")
+  expect(options.will.retain).toBe(false)
 })
-test("retained status cannot enable access or motion until live telemetry arrives", async () => {
-  const { session } = await fixture(true)
-  expect(session.getSnapshot().online).toBe(false)
-  await expect(session.join("Gaze viewer")).rejects.toThrow()
-})
-test("stop cancels queued movement and expires its observation guard", async () => {
+test("left and right publish the literal Zero car format to the exact user topic", async () => {
   const { session, broker } = await fixture()
-  await session.join("Gaze viewer")
-  const motion = session.move("car", "F", 25, () => true)
-  const stopping = session.stop()
-  await motion.catch(() => {})
-  await stopping
-  expect(broker.sent.some((x) => x.packet.action === "car")).toBe(false)
-  expect(broker.sent.at(-1)!.packet.action).toBe("stop")
-  const before = broker.sent.length
-  await session.move("car", "F", 25, () => false).catch(() => {})
-  expect(broker.sent.length).toBe(before)
-})
-test("revocation and offline broker prevent further movement", async () => {
-  const { session, broker } = await fixture()
-  await session.join("Gaze viewer")
-  const movement = session.move("car", "F", 25, () => true)
-  broker.status = { ...broker.status, epoch: 3, current: "other" }
-  broker.message("zero/test/state", broker.status)
-  await movement.catch(() => {})
-  expect(broker.sent.some((x) => x.packet.action === "car")).toBe(false)
-  broker.emit("offline")
-  expect(session.getSnapshot().canControl).toBe(false)
-  await expect(session.move("car", "F", 25, () => true)).rejects.toThrow()
-})
-test("invalid broker schemes and wildcard topics never start a connection", async () => {
-  const { session } = await fixture()
-  await expect(
-    session.connect({ ...configuration, topicPrefix: "zero/#" })
-  ).rejects.toThrow()
-  await expect(
-    session.connect({ ...configuration, mqttUrl: "mqtt://broker.example" })
-  ).rejects.toThrow()
-})
-
-test("a successful access grant can arrive before its enrollment acknowledgment", async () => {
-  const { session, broker } = await fixture()
-  const original = broker.publish.bind(broker)
-  broker.publish = (topic, value, options, callback) => {
-    const packet = JSON.parse(value)
-    if (packet.action !== "join")
-      return original(topic, value, options, callback)
-    broker.sent.push({ topic, packet, options })
-    callback(null)
-    broker.status = {
-      ...broker.status,
-      epoch: 3,
-      current: packet.session,
-      queue: [{ name: "Gaze viewer", session: packet.session }],
-    }
-    broker.message("zero/test/state", broker.status)
-    broker.message(`zero/test/reply/${packet.session}`, {
-      session: packet.session,
-      seq: packet.seq,
-      ok: true,
+  for (const cmd of ["L", "R"] as const) {
+    await session.move("car", cmd, 25, () => true)
+    const sent = broker.sent.at(-1)!
+    expect(sent.topic).toBe("test/car/command")
+    expect(sent.packet).toEqual({
+      cmd,
+      speed: 25,
+      timestamp: 1700000000000,
+      id: broker.sent.length,
     })
+    expect(sent.options).toEqual({ qos: 0, retain: false })
   }
-  await session.join("Gaze viewer")
-  expect(session.getSnapshot().canControl).toBe(true)
-})
-test("firmware rejection of a movement is visible and blocks further movement", async () => {
-  const { session, broker } = await fixture()
-  await session.join("Gaze viewer")
-  await session.move("car", "F", 25, () => true)
-  const packet = broker.sent.at(-1)!.packet
-  broker.message(`zero/test/reply/${packet.session}`, {
-    session: packet.session,
-    seq: packet.seq,
-    ok: false,
-    error: "Control access is unavailable",
+  await session.stop()
+  expect(broker.sent.at(-1)!.packet).toEqual({
+    cmd: "S",
+    speed: 0,
+    timestamp: 1700000000000,
+    id: 3,
   })
-  expect(session.getSnapshot().error).toContain("Control access is unavailable")
+})
+test("stop cancels queued movement and a false observation guard never publishes", async () => {
+  const { session, broker } = await fixture()
+  const movement = session.move("car", "R", 25, () => true)
+  const stopping = session.stop()
+  await expect(movement).rejects.toThrow()
+  await stopping
+  expect(broker.sent.map((x) => x.packet.cmd)).toEqual(["S"])
+  await expect(session.move("car", "R", 25, () => false)).rejects.toThrow()
+  expect(broker.sent).toHaveLength(1)
+})
+test("offline movement never queues and reconnect changes the follow authority", async () => {
+  const { session, broker } = await fixture()
+  const authority = session.getSnapshot().authority
+  const queued = session.move("car", "R", 25, () => true)
+  broker.emit("offline")
+  await expect(queued).rejects.toThrow()
   expect(session.getSnapshot().canControl).toBe(false)
-  await expect(session.move("car", "F", 25, () => true)).rejects.toThrow()
+  await expect(session.move("car", "R", 25, () => true)).rejects.toThrow()
+  broker.emit("connect")
+  expect(session.getSnapshot().authority).not.toBe(authority)
+  expect(broker.sent).toHaveLength(0)
+})
+test("publication failure is visible and prevents more movement", async () => {
+  const { session, broker } = await fixture()
+  broker.publish = (_topic, _value, _options, callback) =>
+    callback(new Error("failed"))
+  await expect(session.move("car", "R", 25, () => true)).rejects.toThrow()
+  expect(session.getSnapshot().error).toContain("publication")
+  expect(session.getSnapshot().canControl).toBe(false)
+})
+test("disconnect publishes S and stale callbacks cannot reconnect an ended session", async () => {
+  const { session, broker } = await fixture()
+  await session.move("car", "R", 25, () => true)
+  await session.disconnect()
+  expect(broker.sent.map((x) => x.packet.cmd)).toEqual(["R", "S"])
+  expect(broker.ended).toBe(true)
+  broker.emit("connect")
+  expect(session.getSnapshot().connected).toBe(false)
+})
+test("invalid broker URLs and wildcard or empty topics never connect", () => {
+  for (const commandTopic of ["", "car/#", "car/+", "bad\u0000topic"])
+    expect(() =>
+      validateBotConfiguration({ ...configuration, commandTopic })
+    ).toThrow()
+  for (const mqttUrl of [
+    "mqtt://broker.example",
+    "https://broker.example",
+    "ws://user:pass@broker.example/mqtt",
+  ])
+    expect(() =>
+      validateBotConfiguration({ ...configuration, mqttUrl })
+    ).toThrow()
+  expect(
+    validateBotConfiguration({
+      ...configuration,
+      commandTopic: " /custom/car/ ",
+    }).commandTopic
+  ).toBe("/custom/car/")
+})
+test("invalid actions, direction, and speed never publish", async () => {
+  const { session, broker } = await fixture()
+  for (const [action, cmd, speed] of [
+    ["arm", "R", 25],
+    ["car", "U", 25],
+    ["car", "F", 25],
+    ["car", "B", 25],
+    ["car", "R", 0],
+    ["car", "R", NaN],
+  ])
+    await expect(
+      session.move(action as any, cmd as any, speed as number, () => true)
+    ).rejects.toThrow()
+  expect(broker.sent).toHaveLength(0)
 })
 
-test("graceful disconnect sends signed leave after stop so the control name can be reused", async () => {
-  const { session, broker } = await fixture()
-  await session.join("Gaze viewer")
-  await session.disconnect()
-  expect(broker.sent.slice(-2).map((x) => x.packet.action)).toEqual([
-    "stop",
-    "leave",
-  ])
-  expect(broker.sent.at(-1)!.packet.role).toBe("guest")
-  await session.connect(configuration)
+test("disconnect supersedes a pending connect before it can open a transport", async () => {
+  let opened = 0
+  const broker = new Broker()
+  const session = new ZeroSession({
+    connect: () => {
+      opened++
+      return broker as any
+    },
+  })
+  clients.push(session)
+  const connecting = session.connect(configuration)
+  const closing = session.disconnect()
+  await Promise.all([connecting, closing])
   broker.emit("connect")
-  broker.message("zero/test/state", broker.status)
-  await session.join("Gaze viewer")
-  expect(session.getSnapshot().canControl).toBe(true)
+  expect(opened).toBe(0)
+  expect(session.getSnapshot().canControl).toBe(false)
+})
+test("two simultaneous connect calls open only the latest configuration", async () => {
+  const urls: string[] = []
+  const broker = new Broker()
+  const session = new ZeroSession({
+    connect: (url) => {
+      urls.push(url)
+      return broker as any
+    },
+  })
+  clients.push(session)
+  await Promise.all([
+    session.connect(configuration),
+    session.connect({ ...configuration, mqttUrl: "wss://latest.example/mqtt" }),
+  ])
+  expect(urls).toEqual(["wss://latest.example/mqtt"])
 })

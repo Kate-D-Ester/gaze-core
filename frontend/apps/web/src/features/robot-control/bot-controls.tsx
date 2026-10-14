@@ -1,17 +1,13 @@
 import type { BotControlsProps } from "./bot-controls.types"
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import { SlidersHorizontal } from "lucide-react"
 import { hasFreshFrame } from "../camera-viewer/selection"
 import { EyeButtonStyles, EyeFieldStyles } from "../tracking-ui/control-styles"
 import { DEFAULT_FOLLOW_SETTINGS } from "./visual-servo"
 import { useBotControl } from "./use-bot-control"
-import type { BotConfiguration, FollowSettings } from "./robot-control.types"
+import { loadBotConfiguration } from "./load-bot-configuration"
+import type { FollowSettings } from "./robot-control.types"
 
-const emptyConfig: BotConfiguration = {
-  mqttUrl: "",
-  topicPrefix: "",
-  mqttUsername: "",
-  mqttPassword: "",
-}
 export function BotControls({
   tracking,
   scene,
@@ -22,25 +18,20 @@ export function BotControls({
   const { session, follower, robot, following, tracked, targetState } =
     useBotControl(tracking, scene, target, visible, supplied)
   const [open, setOpen] = useState(false)
-  const [configuration, setConfiguration] = useState(emptyConfig)
   const [settings, setSettings] = useState<FollowSettings>(
     DEFAULT_FOLLOW_SETTINGS
   )
-  const [name, setName] = useState("Gaze viewer")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const connectionRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => connectionRequest.current?.abort(), [])
   const id = useId()
   const failure = error || robot.error || following.error
   let status = "Bot disconnected"
-  if (robot.connecting) {
+  if (busy || robot.connecting) {
     status = "Connecting bot…"
-  } else if (robot.connected && !robot.online) {
-    status = "Waiting for bot…"
-  } else if (robot.online) {
-    status = robot.joined ? "Waiting for access" : "Request control"
-    if (robot.canControl) {
-      status = "Bot ready"
-    }
+  } else if (robot.connected) {
+    status = "MQTT connected"
     if (following.enabled) {
       status = "Waiting for Target"
       if (following.phase === "moving") {
@@ -50,27 +41,36 @@ export function BotControls({
       }
     }
   }
-
-  async function run(operation: () => Promise<unknown>) {
+  async function connect() {
     if (busy) {
       return
     }
     setBusy(true)
     setError("")
+    connectionRequest.current?.abort()
+    const request = new AbortController()
+    connectionRequest.current = request
     try {
-      await operation()
+      if (robot.connected || robot.connecting) {
+        follower.disable()
+        await session.disconnect()
+      } else {
+        const configuration = await loadBotConfiguration(request.signal)
+        if (!request.signal.aborted) {
+          await session.connect(configuration)
+        }
+      }
     } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : "Bot request failed."
-      )
+      if (!request.signal.aborted) {
+        setError(
+          failure instanceof Error ? failure.message : "Bot connection failed."
+        )
+      }
     } finally {
-      setBusy(false)
+      if (!request.signal.aborted) {
+        setBusy(false)
+      }
     }
-  }
-  function configure(key: keyof BotConfiguration, value: string) {
-    follower.disable()
-    setError("")
-    setConfiguration((current) => ({ ...current, [key]: value }))
   }
   function changeSettings(next: FollowSettings) {
     follower.disable()
@@ -83,28 +83,19 @@ export function BotControls({
         <button
           type="button"
           className={`secondary ${EyeButtonStyles}`}
-          aria-expanded={open}
-          aria-controls={id}
-          onClick={() => setOpen(!open)}
+          disabled={busy}
+          onClick={() => void connect()}
         >
-          Bot settings
+          {robot.connected || robot.connecting
+            ? "Disconnect bot"
+            : "Connect bot"}
         </button>
         <span
           role={failure ? "alert" : "status"}
-          className={`min-w-0 flex-1 text-xs ${failure ? "text-red-200" : "text-muted-foreground"}`}
+          className={`min-w-28 flex-1 text-xs break-words ${failure ? "text-red-200" : "text-muted-foreground"}`}
         >
           {failure || status}
         </span>
-        {robot.online && !robot.joined && !robot.canControl && (
-          <button
-            type="button"
-            className={`secondary ${EyeButtonStyles}`}
-            disabled={busy}
-            onClick={() => void run(() => session.join(name))}
-          >
-            Request control
-          </button>
-        )}
         <button
           type="button"
           className={`primary ${EyeButtonStyles}`}
@@ -134,7 +125,7 @@ export function BotControls({
         <button
           type="button"
           className={`secondary ${EyeButtonStyles}`}
-          disabled={!robot.canControl && !following.enabled}
+          disabled={!robot.connected && !following.enabled}
           onClick={() => {
             follower.disable()
             setError("")
@@ -142,147 +133,37 @@ export function BotControls({
         >
           Stop bot
         </button>
+        <button
+          type="button"
+          className={`secondary ${EyeButtonStyles}`}
+          aria-expanded={open}
+          aria-controls={id}
+          aria-label="Follow settings"
+          title="Follow settings"
+          onClick={() => setOpen(!open)}
+        >
+          <SlidersHorizontal aria-hidden="true" className="size-4" />
+        </button>
       </div>
       {open && (
-        <div id={id} className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-1">
-          <form
-            aria-label="Bot connection"
-            className="grid gap-3 sm:grid-cols-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void run(async () => {
-                await session.connect(configuration)
-                setOpen(false)
-              })
-            }}
-          >
-            <label className={EyeFieldStyles}>
-              <span>MQTT WebSocket endpoint</span>
-              <input
-                aria-label="Bot MQTT endpoint"
-                placeholder="wss://broker.example/mqtt"
-                value={configuration.mqttUrl}
-                required
-                maxLength={512}
-                autoComplete="off"
-                disabled={robot.connected || robot.connecting}
-                onChange={(event) => configure("mqttUrl", event.target.value)}
-              />
-            </label>
-            <label className={EyeFieldStyles}>
-              <span>Topic prefix</span>
-              <input
-                aria-label="Bot topic prefix"
-                placeholder="zero/your-bot"
-                value={configuration.topicPrefix}
-                required
-                maxLength={128}
-                autoComplete="off"
-                disabled={robot.connected || robot.connecting}
-                onChange={(event) =>
-                  configure("topicPrefix", event.target.value)
-                }
-              />
-            </label>
-            <label className={EyeFieldStyles}>
-              <span>Broker username (optional)</span>
-              <input
-                aria-label="Bot broker username"
-                value={configuration.mqttUsername}
-                maxLength={256}
-                autoComplete="off"
-                disabled={robot.connected || robot.connecting}
-                onChange={(event) =>
-                  configure("mqttUsername", event.target.value)
-                }
-              />
-            </label>
-            <label className={EyeFieldStyles}>
-              <span>Broker password (optional)</span>
-              <input
-                aria-label="Bot broker password"
-                type="password"
-                value={configuration.mqttPassword}
-                maxLength={256}
-                autoComplete="off"
-                disabled={robot.connected || robot.connecting}
-                onChange={(event) =>
-                  configure("mqttPassword", event.target.value)
-                }
-              />
-            </label>
-            <label className={EyeFieldStyles}>
-              <span>Control name</span>
-              <input
-                aria-label="Bot control name"
-                value={name}
-                minLength={2}
-                maxLength={24}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <div className="flex items-end">
-              {robot.connected || robot.connecting ? (
-                <button
-                  type="button"
-                  className={`secondary ${EyeButtonStyles}`}
-                  disabled={busy}
-                  onClick={() => void run(() => session.disconnect())}
-                >
-                  Disconnect bot
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className={`secondary ${EyeButtonStyles}`}
-                  disabled={busy}
-                >
-                  Connect bot
-                </button>
-              )}
-            </div>
-          </form>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className={EyeFieldStyles}>
-              <span>Object width (%)</span>
-              <input
-                aria-label="Desired target width"
-                type="number"
-                min={10}
-                max={80}
-                step={1}
-                value={Math.round(settings.desiredWidth * 100)}
-                onChange={(event) =>
-                  changeSettings({
-                    ...settings,
-                    desiredWidth: Number(event.target.value) / 100,
-                  })
-                }
-              />
-            </label>
-            <label className={EyeFieldStyles}>
-              <span>Drive speed (%)</span>
-              <input
-                aria-label="Bot drive speed"
-                type="number"
-                min={1}
-                max={100}
-                step={1}
-                value={settings.speed}
-                onChange={(event) =>
-                  changeSettings({
-                    ...settings,
-                    speed: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Use the controller’s broker and topic. Left/right turns the car.
-            Rotate Target upright. Object width controls apparent size, not
-            measured distance.
-          </p>
+        <div id={id} className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className={EyeFieldStyles}>
+            <span>Max turn speed (%)</span>
+            <input
+              aria-label="Maximum turn speed"
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={settings.speed}
+              onChange={(event) =>
+                changeSettings({
+                  ...settings,
+                  speed: Number(event.target.value),
+                })
+              }
+            />
+          </label>
         </div>
       )}
     </div>

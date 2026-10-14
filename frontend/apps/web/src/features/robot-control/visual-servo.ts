@@ -2,59 +2,79 @@ import { validObjectBox } from "../camera-viewer/object-tracking"
 import type { ObjectBox } from "../camera-viewer/object-tracking.types"
 import type { CameraTransform } from "../eye-tracking/camera-transform.types"
 import type { FollowSettings, Movement } from "./robot-control.types"
-export const DEFAULT_FOLLOW_SETTINGS: FollowSettings = {
-  desiredWidth: 0.3,
-  speed: 25,
-}
+
+export const DEFAULT_FOLLOW_SETTINGS: FollowSettings = { speed: 25 }
 export function validateFollowSettings(settings: FollowSettings) {
   if (
-    !Number.isFinite(settings.desiredWidth) ||
-    settings.desiredWidth < 0.1 ||
-    settings.desiredWidth > 0.8 ||
     !Number.isInteger(settings.speed) ||
     settings.speed < 1 ||
     settings.speed > 100
   ) {
-    throw new Error(
-      "Choose an object width from 10–80% and a speed from 1–100%."
-    )
+    throw new Error("Choose a maximum turn speed from 1–100%.")
   }
 }
-/** Hysteresis avoids alternating directions around the center/size setpoint. */
+
+/** Turn only: hysteresis holds near center; timestamped image motion adjusts speed. */
 export class VisualServo {
   private previous: Movement["cmd"] | null = null
+  private lastPosition = 0
+  private lastTimestamp = -Infinity
+  private velocity = 0
   constructor(private readonly settings: FollowSettings) {
     validateFollowSettings(settings)
   }
   reset() {
     this.previous = null
+    this.lastTimestamp = -Infinity
+    this.velocity = 0
   }
-  decide(box: ObjectBox, transform: CameraTransform): Movement | null {
+  private observe(position: number, timestamp?: number) {
+    if (
+      timestamp === undefined ||
+      !Number.isFinite(timestamp) ||
+      timestamp === this.lastTimestamp
+    ) {
+      return
+    }
+    const elapsed = timestamp - this.lastTimestamp
+    if (elapsed > 0 && elapsed <= 500) {
+      const rate = Math.max(
+        -2,
+        Math.min(2, ((position - this.lastPosition) * 1000) / elapsed)
+      )
+      this.velocity = 0.6 * this.velocity + 0.4 * rate
+    } else {
+      this.velocity = 0
+    }
+    this.lastPosition = position
+    this.lastTimestamp = timestamp
+  }
+  decide(
+    box: ObjectBox,
+    transform: CameraTransform,
+    timestamp?: number
+  ): Movement | null {
     if (!validObjectBox(box)) {
       this.reset()
       return null
     }
     const x = ((box[0] + box[2]) / 2 - 0.5) * (transform.mirrorX ? -1 : 1)
-    let cmd: Movement["cmd"] | null = null
-    const continuingTurn =
+    this.observe(x, timestamp)
+    const continuing =
       (this.previous === "L" && x < 0) || (this.previous === "R" && x > 0)
-    const xBand = continuingTurn ? 0.04 : 0.08
-    if (Math.abs(x) > xBand) {
-      cmd = x < 0 ? "L" : "R"
+    if (Math.abs(x) <= (continuing ? 0.08 : 0.12)) {
+      this.previous = null
+      return null
     }
-    const clipped =
-      box[0] <= 0.01 || box[1] <= 0.01 || box[2] >= 0.99 || box[3] >= 0.99
-    if (!cmd && !clipped) {
-      const error = box[2] - box[0] - this.settings.desiredWidth
-      const continuingApproach =
-        (this.previous === "F" && error < 0) ||
-        (this.previous === "B" && error > 0)
-      const widthBand = continuingApproach ? 0.015 : 0.03
-      if (Math.abs(error) > widthBand) {
-        cmd = error < 0 ? "F" : "B"
-      }
-    }
+    const cmd = x < 0 ? "L" : "R"
+    // Boost only motion away from center; approaching motion must not accelerate the turn.
+    const awayRate = Math.max(0, Math.sign(x) * this.velocity)
+    const urgency = Math.min(1, Math.abs(x) / 0.35 + awayRate / 1.5)
+    const speed = Math.max(
+      1,
+      Math.round(this.settings.speed * (0.35 + 0.65 * urgency))
+    )
     this.previous = cmd
-    return cmd ? { action: "car", cmd, speed: this.settings.speed } : null
+    return { action: "car", cmd, speed }
   }
 }
