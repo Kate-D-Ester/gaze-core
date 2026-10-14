@@ -372,9 +372,7 @@ test("network video pauses keep the selected source and recover automatically", 
     expect(c.latest).toBeNull()
     expect((c.getSnapshot() as any).connection).toBe("reconnecting")
     expect(c.getSnapshot().frame).toBeNull()
-    const retry = scheduled.find(
-      (timer) => timer.delay >= 1000 && timer.delay < 15000
-    )
+    const retry = scheduled.find((timer) => timer.delay === 1000)
     expect(retry).toBeDefined()
     retry!.callback()
     await new Promise((resolve) => originalTimeout(resolve, 0))

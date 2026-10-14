@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, expect, spyOn, test } from "bun:test"
 import { GlobalRegistrator } from "../../apps/web/node_modules/@happy-dom/global-registrator"
 import { openNetworkSource } from "../../apps/web/src/features/eye-tracking/network-source"
 
@@ -153,7 +153,11 @@ test.each([
     await expect(
       openNetworkSource(input, new AbortController().signal)
     ).rejects.toThrow(/browser.*camera/i)
-    expect(requests).toEqual([input])
+    expect(requests).toEqual(
+      input.startsWith("http://esp32.local")
+        ? [input, "/api/camera-stream"]
+        : [input]
+    )
   }
 )
 
@@ -381,4 +385,116 @@ test("aborting an MJPEG source releases the pending response reader", async () =
 
   await expect(pendingSource).rejects.toMatchObject({ name: "AbortError" })
   expect(cancelled).toBe(true)
+})
+
+test("an ESP stream without CORS uses the same-origin helper and keeps the entered URL", async () => {
+  const requests: { url: string; options?: RequestInit }[] = []
+  globalThis.fetch = async (input, options) => {
+    requests.push({ url: String(input), options })
+    if (String(input) === "/api/camera-stream") return createMjpegResponse()
+    throw new TypeError("No CORS headers")
+  }
+  const source = await openNetworkSource(
+    "http://esp32.local/stream",
+    new AbortController().signal
+  )
+  expect(requests.map((x) => x.url)).toEqual([
+    "http://esp32.local/stream",
+    "http://esp32.local:81/stream",
+    "/api/camera-stream",
+  ])
+  expect(requests.at(-1)!.options?.body).toBe(
+    '{"url":"http://esp32.local/stream"}'
+  )
+  expect(source.streamUrl).toBe("http://esp32.local/stream")
+  expect(source.localRelay).toBe(true)
+  if (source.kind !== "mjpeg") throw new Error("Expected MJPEG")
+  expect(new TextDecoder().decode(source.firstFrame)).toBe("JPEG1")
+  await source.frames.return(undefined)
+})
+test("a relay reconnect avoids starting another rejected direct connection", async () => {
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    requests.push(String(input))
+    return createMjpegResponse()
+  }
+  const source = await openNetworkSource(
+    "http://esp32.local/stream",
+    new AbortController().signal,
+    false,
+    true
+  )
+  expect(requests).toEqual(["/api/camera-stream"])
+  if (source.kind === "mjpeg") await source.frames.return(undefined)
+})
+
+test("a hanging local browser request reaches the relay before the camera deadline", async () => {
+  const realTimeout = globalThis.setTimeout
+  let expire!: () => void
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((
+    callback: () => void,
+    delay?: number
+  ) => {
+    if (delay === 2000) {
+      expire = callback
+      return realTimeout(() => {}, 2000)
+    }
+    return realTimeout(callback, delay)
+  }) as typeof setTimeout)
+  const requests: string[] = []
+  globalThis.fetch = async (input, options) => {
+    requests.push(String(input))
+    if (String(input) === "/api/camera-stream") {
+      return createMjpegResponse()
+    }
+    return new Promise((_, reject) =>
+      options?.signal?.addEventListener(
+        "abort",
+        () => reject(options.signal?.reason),
+        { once: true }
+      )
+    )
+  }
+  try {
+    const pending = openNetworkSource(
+      "http://esp32.local/stream",
+      new AbortController().signal
+    )
+    expect(expire).toBeDefined()
+    expire()
+    const source = await pending
+    expect(source.localRelay).toBe(true)
+    expect(requests).toEqual([
+      "http://esp32.local/stream",
+      "/api/camera-stream",
+    ])
+    if (source.kind === "mjpeg") {
+      await source.frames.return(undefined)
+    }
+  } finally {
+    timeout.mockRestore()
+  }
+})
+
+test("relay handoff aborts rejected browser requests without stopping the relay", async () => {
+  const directSignals: AbortSignal[] = []
+  const owner = new AbortController()
+  globalThis.fetch = async (input, options) => {
+    if (String(input) === "/api/camera-stream") {
+      expect(options!.signal!.aborted).toBe(false)
+      return createMjpegResponse()
+    }
+    directSignals.push(options!.signal!)
+    throw new TypeError("CORS denied")
+  }
+  const source = await openNetworkSource(
+    "http://esp32.local/stream",
+    owner.signal
+  )
+  expect(directSignals).toHaveLength(2)
+  expect(directSignals.every((signal) => signal.aborted)).toBe(true)
+  expect(owner.signal.aborted).toBe(false)
+  if (source.kind === "mjpeg") {
+    await source.frames.return(undefined)
+  }
 })

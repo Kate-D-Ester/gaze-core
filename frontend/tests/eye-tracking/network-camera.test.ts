@@ -232,6 +232,9 @@ test("a working camera retries temporary browser fetch failures after a stream d
 
   let failNextRequest = true
   globalThis.fetch = (async (...argumentsList) => {
+    if (String(argumentsList[0]) === "/api/camera-stream") {
+      throw new TypeError("Local helper temporarily unavailable")
+    }
     if (failNextRequest) {
       failNextRequest = false
       fetches++
@@ -320,4 +323,36 @@ test("persistent camera failures stop retrying and retain the actual error", asy
   expect(status).toBe("error")
   expect(errors).toEqual(["Camera stream unavailable."])
   expect(timers.size).toBe(0)
+})
+
+test("a CORS-blocked camera reconnects using its successful local relay", async () => {
+  const workingFetch = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = (async (input, options) => {
+    requests.push(String(input))
+    if (String(input) !== "/api/camera-stream") {
+      throw new TypeError("Camera does not allow CORS")
+    }
+    return workingFetch(input, options)
+  }) as typeof fetch
+  await camera.start("http://esp32.local/stream")
+  expect(status).toBe("live")
+  streams[0].error(new Error("Camera dropped"))
+  await flush()
+  const retry = [...timers.entries()].find(([, timer]) => timer.delay === 1000)!
+  timers.delete(retry[0])
+  retry[1].callback()
+  await flush()
+  expect(status).toBe("live")
+  expect(requests).toEqual([
+    "http://esp32.local/stream",
+    "http://esp32.local:81/stream",
+    "/api/camera-stream",
+    "/api/camera-stream",
+  ])
+  expect(errors).toEqual([])
+  camera.stop()
+  await flush()
+  expect(timers.size).toBe(0)
+  expect(status).toBe("idle")
 })

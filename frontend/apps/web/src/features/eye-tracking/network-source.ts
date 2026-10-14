@@ -1,7 +1,12 @@
+import { isLocalCameraHost } from "./local-camera-address"
 import { getMjpegBoundary, readMjpegFrames } from "./mjpeg"
-import type { NetworkSource } from "./network-source.types"
+import type {
+  NetworkSource,
+  DirectCameraResponse,
+} from "./network-source.types"
 const VIDEO_READY_TIMEOUT_MS = 15000
 const ESP32_STREAM_PORT = "81"
+const LOCAL_CAMERA_DIRECT_TIMEOUT_MS = 2000
 export class CameraAccessError extends Error {
   constructor() {
     super(getCameraStreamErrorMessage())
@@ -11,10 +16,56 @@ export class CameraAccessError extends Error {
 export async function openNetworkSource(
   input: string,
   signal: AbortSignal,
-  allowEsp32Fallback = true
+  allowEsp32Fallback = true,
+  preferLocalRelay = false
 ): Promise<NetworkSource> {
   const url = parseNetworkUrl(input)
   throwIfAborted(signal)
+  const localCamera =
+    url.protocol === "http:" && isLocalCameraHost(url.hostname)
+  if (preferLocalRelay && localCamera) {
+    return openLocalCameraRelay(url, signal)
+  }
+  const deadline = localCamera ? new AbortController() : null
+  const directSignal = deadline
+    ? AbortSignal.any([signal, deadline.signal])
+    : signal
+  const timer = deadline
+    ? setTimeout(() => deadline.abort(), LOCAL_CAMERA_DIRECT_TIMEOUT_MS)
+    : undefined
+  let direct: DirectCameraResponse
+  try {
+    direct = await fetchDirectCameraResponse(
+      url,
+      directSignal,
+      allowEsp32Fallback
+    )
+  } catch (error) {
+    const directTimedOut = deadline?.signal.aborted
+    deadline?.abort()
+    throwIfAborted(signal)
+    if (localCamera && (error instanceof CameraAccessError || directTimedOut)) {
+      return openLocalCameraRelay(url, signal)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+  const streamUrl = direct.streamUrl
+  const response = direct.response
+  const contentType = response.headers.get("content-type") ?? ""
+  if (contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
+    return openMjpegSource(url, streamUrl.href, response, contentType, signal)
+  }
+  const videoUrl = response.url || streamUrl.href
+  await cancelResponseBody(response)
+  return openVideoSource(url, videoUrl, signal)
+}
+async function fetchDirectCameraResponse(
+  url: URL,
+  signal: AbortSignal,
+  allowEsp32Fallback: boolean
+): Promise<DirectCameraResponse> {
   let streamUrl = url
   let response: Response
   try {
@@ -28,18 +79,51 @@ export async function openNetworkSource(
     ) {
       throw error
     }
-    // Some ESP32 control servers redirect without CORS; the stream server permits it.
     throwIfAborted(signal)
     streamUrl = fallbackUrl
     response = await fetchCameraResponse(streamUrl.href, signal)
   }
-  const contentType = response.headers.get("content-type") ?? ""
-  if (contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
-    return openMjpegSource(url, streamUrl.href, response, contentType, signal)
+  return { streamUrl, response }
+}
+async function openLocalCameraRelay(
+  url: URL,
+  signal: AbortSignal
+): Promise<NetworkSource> {
+  let response: Response
+  try {
+    response = await fetch("/api/camera-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url.href }),
+      signal,
+      credentials: "omit",
+      cache: "no-store",
+    })
+  } catch {
+    throwIfAborted(signal)
+    throw new CameraAccessError()
   }
-  const videoUrl = response.url || streamUrl.href
-  await cancelResponseBody(response)
-  return openVideoSource(url, videoUrl, signal)
+  if (!response.ok) {
+    const detail = await readCameraStreamError(response)
+    await cancelResponseBody(response)
+    throw new Error(
+      detail ||
+        "The local camera stream helper is unavailable. Restart the viewer server."
+    )
+  }
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.toLowerCase().includes("multipart/x-mixed-replace")) {
+    await cancelResponseBody(response)
+    throw new Error("The local camera endpoint did not return an MJPEG stream.")
+  }
+  const source = await openMjpegSource(
+    url,
+    url.href,
+    response,
+    contentType,
+    signal
+  )
+  return { ...source, localRelay: true }
 }
 function parseNetworkUrl(input: string): URL {
   let url: URL
@@ -66,26 +150,6 @@ function getEsp32StreamFallback(url: URL): URL | null {
   const fallbackUrl = new URL(url.href)
   fallbackUrl.port = ESP32_STREAM_PORT
   return fallbackUrl
-}
-function isLocalCameraHost(hostname: string): boolean {
-  if (hostname.endsWith(".local")) {
-    return true
-  }
-  const octets = hostname.split(".").map(Number)
-  if (
-    octets.length !== 4 ||
-    octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
-  ) {
-    return false
-  }
-  const [first, second] = octets
-  if (first === 10) {
-    return true
-  }
-  if (first === 172) {
-    return second >= 16 && second <= 31
-  }
-  return first === 192 && second === 168
 }
 async function fetchCameraResponse(
   streamUrl: string,

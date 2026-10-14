@@ -70,9 +70,11 @@ async function verifyCameraRedirects() {
 }
 
 function verifyApplicationArguments() {
+  const previousRuntime = process.env.GAZE_WEB_NODE
   const previousCertificate = process.env.GAZE_DEV_TLS_CERT
   const previousKey = process.env.GAZE_DEV_TLS_KEY
   try {
+    delete process.env.GAZE_WEB_NODE
     delete process.env.GAZE_DEV_TLS_CERT
     delete process.env.GAZE_DEV_TLS_KEY
     assert.deepEqual(
@@ -111,7 +113,17 @@ function verifyApplicationArguments() {
       "--port",
       "4001",
     ])
+    process.env.GAZE_WEB_NODE = "/test/node"
+    assert.deepEqual(
+      applicationServerArguments("/test/next-cli", "start", []),
+      ["/test/node", "/test/next-cli", "start", "--port", "4001"]
+    )
   } finally {
+    if (previousRuntime === undefined) {
+      delete process.env.GAZE_WEB_NODE
+    } else {
+      process.env.GAZE_WEB_NODE = previousRuntime
+    }
     if (previousCertificate === undefined) {
       delete process.env.GAZE_DEV_TLS_CERT
     } else {

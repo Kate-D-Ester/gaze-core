@@ -1,4 +1,5 @@
 export type NetworkSource = {
+  localRelay?: boolean
   name: string
   streamUrl: string
 } & (
@@ -12,3 +13,5 @@ export type NetworkSource = {
       video: HTMLVideoElement
     }
 )
+
+export type DirectCameraResponse = { streamUrl: URL; response: Response }

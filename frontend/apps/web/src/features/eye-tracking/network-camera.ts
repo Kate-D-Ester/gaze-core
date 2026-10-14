@@ -26,6 +26,7 @@ export class NetworkCamera {
   private token = 0
   private input = ""
   private connectionUrl = ""
+  private localRelay = false
   private retries = 0
   private sequence = 0
   private state: NetworkConnectionState = "idle"
@@ -73,6 +74,7 @@ export class NetworkCamera {
     this.active = false
     this.hasConnected = false
     this.connectionUrl = ""
+    this.localRelay = false
     this.token++
     clearInterval(this.heartbeat)
     clearTimeout(this.retry)
@@ -107,13 +109,15 @@ export class NetworkCamera {
       const source = await openNetworkSource(
         this.connectionUrl,
         abort.signal,
-        !this.hasConnected
+        !this.hasConnected,
+        this.localRelay
       )
       if (!this.current(token)) {
         this.disposeSource(source)
         return
       }
       this.connectionUrl = source.streamUrl
+      this.localRelay = !!source.localRelay
       this.healthySince = performance.now()
       if (source.kind === "video") {
         this.video = source.video

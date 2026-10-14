@@ -6,7 +6,8 @@ export function applicationServerArguments(
   command: string,
   extraArguments: string[]
 ) {
-  const argumentsList = [process.execPath, nextCli, command]
+  const runtime = process.env.GAZE_WEB_NODE || process.execPath
+  const argumentsList = [runtime, nextCli, command]
   if (command === "dev") {
     argumentsList.push("--webpack")
     const certificate = process.env.GAZE_DEV_TLS_CERT
