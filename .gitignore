@@ -78,3 +78,6 @@ speaker-service/third_party/rtfs_net/__pycache__/
 !speaker-service/tests/
 !speaker-service/tests/**
 frontend/apps/web/public/speaker-reference/
+# Private, locally supplied eye-tracking footage
+/frontend/tests/assets/eye-tracking/continuous_ir_source_2026-09-30.mov
+/frontend/tests/assets/eye-tracking/continuous_ir_overlay_at_6ba620f.mp4
