@@ -84,3 +84,6 @@ __pycache__/
 
 # Continuous tracking verification build
 .next-continuous-preview/
+# Private, locally supplied eye-tracking footage
+/frontend/tests/assets/eye-tracking/continuous_ir_source_2026-09-30.mov
+/frontend/tests/assets/eye-tracking/continuous_ir_overlay_at_6ba620f.mp4
